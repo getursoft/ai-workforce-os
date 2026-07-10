@@ -87,3 +87,4 @@ pnpm typecheck
 ## Git Workflow
 
 Commits are checked with Commitlint using the conventional commit format. Husky runs the commit message hook locally after dependencies are installed.
+# ai-workforce-os
