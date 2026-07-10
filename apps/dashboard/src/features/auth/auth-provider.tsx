@@ -181,6 +181,10 @@ export function useLogin(): AuthContextValue["login"] {
   return useAuth().login;
 }
 
+export function useRegister(): AuthContextValue["register"] {
+  return useAuth().register;
+}
+
 export function useLogout(): AuthContextValue["logout"] {
   return useAuth().logout;
 }

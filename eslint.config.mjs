@@ -34,7 +34,10 @@ export default [
       "apps/dashboard/eslint.config.mjs",
       "src/**/*.{ts,tsx}",
       "eslint.config.mjs"
-    ]
+    ],
+    rules: {
+      "@next/next/no-html-link-for-pages": "off"
+    }
   },
   {
     files: ["**/*.{ts,tsx}"],

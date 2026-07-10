@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth, useLogin } from "../../features/auth/auth-provider";
 import { ApiError } from "../../lib/api-error";
@@ -119,6 +120,9 @@ export function LoginForm() {
         >
           Sign in
         </Button>
+        <p className="auth-form__links">
+          Don&apos;t have an account? <Link href="/signup">Create account</Link>
+        </p>
       </form>
     </Card>
   );
