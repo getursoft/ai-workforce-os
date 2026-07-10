@@ -1,0 +1,23 @@
+{
+  "name": "@ai-workforce-os/api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "rm -rf dist tsconfig.build.tsbuildinfo && nest build",
+    "clean": "rm -rf dist tsconfig*.tsbuildinfo",
+    "dev": "rm -rf dist tsconfig*.tsbuildinfo && nest start --watch",
+    "lint": "eslint .",
+    "test": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.4.15",
+    "@nestjs/core": "^10.4.15",
+    "@nestjs/platform-express": "^10.4.15",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.4.9"
+  }
+}

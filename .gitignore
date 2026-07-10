@@ -1,0 +1,12 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+.next
+.prisma
+.pnpm-store
+.turbo
+coverage
+dist
+node_modules
+tsconfig*.tsbuildinfo
