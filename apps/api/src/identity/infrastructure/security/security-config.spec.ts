@@ -5,12 +5,16 @@ import { loadSecurityConfig } from "./security-config";
 function validEnvironment(): Record<string, string | undefined> {
   return {
     NODE_ENV: "test",
+    WEB_APP_URL: "http://localhost:3000",
     JWT_ACCESS_SECRET: "jwt-test-secret-with-more-than-thirty-two-bytes",
     JWT_ACCESS_EXPIRES_IN_SECONDS: "900",
     JWT_ACCESS_ISSUER: "test-issuer",
     JWT_ACCESS_AUDIENCE: "test-audience",
     REFRESH_TOKEN_EXPIRES_IN_SECONDS: "2592000",
     REFRESH_TOKEN_PEPPER: "refresh-test-pepper-with-more-than-thirty-two-bytes",
+    COOKIE_SECURE: "false",
+    COOKIE_SAME_SITE: "lax",
+    COOKIE_DOMAIN: "",
     PASSWORD_HASH_MEMORY_COST: "8192",
     PASSWORD_HASH_TIME_COST: "1",
     PASSWORD_HASH_PARALLELISM: "1"
@@ -22,9 +26,15 @@ describe("loadSecurityConfig", () => {
     const config = loadSecurityConfig(validEnvironment());
 
     expect(config.nodeEnvironment).toBe("test");
+    expect(config.webAppUrl).toBe("http://localhost:3000");
     expect(config.accessToken.expiresInSeconds).toBe(900);
     expect(config.refreshToken.expiresInSeconds).toBe(2_592_000);
     expect(config.passwordHash).toEqual({ memoryCost: 8192, timeCost: 1, parallelism: 1 });
+    expect(config.browserAuth).toEqual({
+      cookieDomain: undefined,
+      cookieSecure: false,
+      cookieSameSite: "lax"
+    });
   });
 
   it("rejects missing required secrets", () => {
@@ -42,6 +52,19 @@ describe("loadSecurityConfig", () => {
 
     expect(() => loadSecurityConfig(shortSecret)).toThrow(InvalidSecurityConfigurationError);
     expect(() => loadSecurityConfig(shortPepper)).toThrow(InvalidSecurityConfigurationError);
+  });
+
+  it("rejects missing or malformed browser configuration", () => {
+    const missingWebUrl = validEnvironment();
+    missingWebUrl.WEB_APP_URL = undefined;
+    const malformedSameSite = validEnvironment();
+    malformedSameSite.COOKIE_SAME_SITE = "invalid";
+    const insecureNone = validEnvironment();
+    insecureNone.COOKIE_SAME_SITE = "none";
+
+    expect(() => loadSecurityConfig(missingWebUrl)).toThrow(InvalidSecurityConfigurationError);
+    expect(() => loadSecurityConfig(malformedSameSite)).toThrow(InvalidSecurityConfigurationError);
+    expect(() => loadSecurityConfig(insecureNone)).toThrow(InvalidSecurityConfigurationError);
   });
 
   it.each([

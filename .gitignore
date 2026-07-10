@@ -5,6 +5,7 @@
 .next
 .prisma
 .pnpm-store
+.codex-cache
 .turbo
 coverage
 dist

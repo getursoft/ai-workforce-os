@@ -7,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../../../app.module";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
+import { SECURITY_CONFIG, type SecurityConfig } from "../../infrastructure/security/security-config";
 import { ApiExceptionFilter } from "./api-exception.filter";
 
 for (const candidate of [
@@ -69,6 +70,13 @@ suite("Identity HTTP API", () => {
 
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: false });
+    const securityConfig = app.get<SecurityConfig>(SECURITY_CONFIG);
+    app.enableCors({
+      origin: securityConfig.webAppUrl,
+      credentials: true,
+      exposedHeaders: ["x-request-id"],
+      methods: ["GET", "POST", "DELETE", "OPTIONS"]
+    });
     app.setGlobalPrefix("api/v1");
     app.useGlobalPipes(
       new ValidationPipe({
@@ -100,7 +108,9 @@ suite("Identity HTTP API", () => {
   });
 
   it("runs the complete registration, me, login, rotation, replay, and logout flow", async () => {
-    const registered = await request(app.getHttpServer())
+    const agent = request.agent(app.getHttpServer());
+
+    const registered = await agent
       .post("/api/v1/auth/register")
       .set("x-request-id", "sprint1-e2e-register")
       .send(registration)
@@ -118,6 +128,12 @@ suite("Identity HTTP API", () => {
       status: "ACTIVE"
     });
     expect(JSON.stringify(registeredBody)).not.toMatch(/passwordHash|tokenHash/);
+    expect(registered.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([expect.stringContaining("aiwos_refresh_token=")])
+    );
+    expect(registered.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([expect.stringContaining("HttpOnly")])
+    );
 
     const me = await request(app.getHttpServer())
       .get("/api/v1/auth/me")
@@ -132,12 +148,15 @@ suite("Identity HTTP API", () => {
       .expect(200);
     const loggedInBody = loggedIn.body as AuthenticationEnvelope;
     expect(loggedInBody.data.user.email).toBe(registration.email);
+    expect(loggedIn.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([expect.stringContaining("aiwos_refresh_token=")])
+    );
 
-    const refreshed = await request(app.getHttpServer())
-      .post("/api/v1/auth/refresh")
-      .send({ refreshToken: registeredBody.data.tokens.refreshToken })
-      .expect(200);
+    const refreshed = await agent.post("/api/v1/auth/refresh").send({}).expect(200);
     const refreshedBody = refreshed.body as AuthenticationEnvelope;
+    expect(refreshed.headers["set-cookie"]).toEqual(
+      expect.arrayContaining([expect.stringContaining("aiwos_refresh_token=")])
+    );
     expect(refreshedBody.data.tokens.refreshToken).not.toBe(
       registeredBody.data.tokens.refreshToken
     );
@@ -154,15 +173,12 @@ suite("Identity HTTP API", () => {
       .expect(401);
     expectError(revokedFamily.body as ErrorEnvelope, "REFRESH_TOKEN_REUSED");
 
-    const logoutLogin = await request(app.getHttpServer())
+    const logoutLogin = await agent
       .post("/api/v1/auth/login")
       .send({ email: registration.email, password: registration.password })
       .expect(200);
     const logoutTokens = (logoutLogin.body as AuthenticationEnvelope).data.tokens;
-    await request(app.getHttpServer())
-      .post("/api/v1/auth/logout")
-      .send({ refreshToken: logoutTokens.refreshToken })
-      .expect(200, { data: { success: true } });
+    await agent.post("/api/v1/auth/logout").send({}).expect(200, { data: { success: true } });
     await request(app.getHttpServer())
       .post("/api/v1/auth/logout")
       .send({ refreshToken: logoutTokens.refreshToken })
@@ -215,6 +231,16 @@ suite("Identity HTTP API", () => {
       expectError(response.body as ErrorEnvelope, expectedCodes[index] ?? "")
     );
     expect((cases[1]?.body as ErrorEnvelope).error.message).toBe("Invalid email or password.");
+  });
+
+  it("emits browser CORS headers for the configured frontend origin", async () => {
+    const response = await request(app.getHttpServer())
+      .options("/api/v1/auth/me")
+      .set("origin", "http://localhost:3000")
+      .expect(204);
+
+    expect(response.headers["access-control-allow-origin"]).toBe("http://localhost:3000");
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
   });
 
   it("rejects unsafe incoming request IDs and returns a bounded generated ID", async () => {

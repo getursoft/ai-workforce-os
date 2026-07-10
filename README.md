@@ -1,6 +1,6 @@
 # AI Workforce OS
 
-AI Workforce OS is an enterprise platform foundation for operating AI-enabled workforces. Sprint 0 establishes the monorepo, tooling, application shells, package boundaries, and local infrastructure needed for future product development.
+AI Workforce OS is an enterprise platform foundation for operating AI-enabled workforces. Sprint 1.1 adds the real browser dashboard, login flow, protected routes, and secure browser-auth integration on top of the identity backend.
 
 ## Project Vision
 
@@ -8,7 +8,7 @@ The platform is designed to support long-term enterprise development with clear 
 
 ## Architecture
 
-The repository is a pnpm workspace managed by Turborepo. It contains a Next.js dashboard, a NestJS API shell, shared TypeScript packages, a reserved plugin workspace, Docker-based PostgreSQL for local development, and Prisma configuration without application models.
+The repository is a pnpm workspace managed by Turborepo. It contains a Next.js dashboard, a NestJS API, shared TypeScript packages, a reserved plugin workspace, Docker-based PostgreSQL for local development, and Prisma configuration for the identity domain.
 
 ## Folder Structure
 
@@ -48,7 +48,8 @@ cp .env.example .env
 ```
 
 The root `.env` is shared by the Prisma CLI and the NestJS API. It is ignored by
-Git; `.env.example` contains only the local Docker Compose defaults.
+Git; `.env.example` contains the local Docker Compose defaults plus the validated
+browser-auth settings.
 
 ## Development
 
@@ -64,10 +65,9 @@ Start local PostgreSQL:
 docker compose up
 ```
 
-If `localhost:5432` is already occupied by another PostgreSQL installation, use
-the host address bound by Docker in the ignored `DATABASE_URL`. On the current
-development machine Docker PostgreSQL is reachable at `192.168.1.3:5432`, while
-Homebrew PostgreSQL owns the loopback address.
+The local development machine currently exposes PostgreSQL on
+`127.0.0.1:5432`. If your machine differs, update only the ignored local
+`.env` files.
 
 Apply and inspect migrations:
 
@@ -80,7 +80,11 @@ The guarded PostgreSQL integration and HTTP E2E tests require a dedicated
 `ai_workforce_os_test` database through `TEST_DATABASE_URL`. They refuse to run
 against any other database. Development data is never used or cleared by tests.
 
-## Identity API demo
+The dashboard reads `NEXT_PUBLIC_API_BASE_URL` from `apps/dashboard/.env.example`
+or your local environment. Access tokens remain in memory only; refresh tokens
+stay in the backend-managed HttpOnly cookie.
+
+## Identity demo
 
 Start the API, then register an organization owner:
 
@@ -113,6 +117,10 @@ curl -sS http://localhost:4000/api/v1/auth/logout \
 Each successful response uses `{ "data": ... }`. Errors contain a stable code,
 safe message, details, request ID, and timestamp. Never place real JWT secrets or
 refresh-token peppers in tracked files; `.env.example` contains placeholders.
+
+For browser testing, start the dashboard and visit `http://localhost:3000`.
+The login page is `/login`, the main dashboard is `/dashboard`, and the
+placeholder session page is `/dashboard/settings/sessions`.
 
 ## Commands
 

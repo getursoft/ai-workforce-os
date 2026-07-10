@@ -42,8 +42,9 @@ export class LoginDto {
 }
 
 export class RefreshTokenDto {
+  @IsOptional()
   @IsString()
   @MinLength(1)
   @MaxLength(1024)
-  refreshToken!: string;
+  refreshToken?: string;
 }

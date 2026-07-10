@@ -3,11 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "next build",
+    "build": "node ./scripts/build.mjs",
     "clean": "rm -rf .next tsconfig*.tsbuildinfo",
     "dev": "next dev --port 3000",
     "lint": "eslint .",
-    "test": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2"
+    "@types/react-dom": "^19.0.2",
+    "vitest": "^4.1.10"
   }
 }

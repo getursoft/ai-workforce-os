@@ -6,6 +6,7 @@ export type NodeEnvironment = "development" | "test" | "production";
 
 export interface SecurityConfig {
   nodeEnvironment: NodeEnvironment;
+  webAppUrl: string;
   passwordHash: {
     memoryCost: number;
     timeCost: number;
@@ -20,6 +21,11 @@ export interface SecurityConfig {
   refreshToken: {
     expiresInSeconds: number;
     pepper: string;
+  };
+  browserAuth: {
+    cookieDomain?: string;
+    cookieSecure: boolean;
+    cookieSameSite: "lax" | "strict" | "none";
   };
 }
 
@@ -60,6 +66,38 @@ function secret(environment: Environment, variable: string): string {
   return value;
 }
 
+function url(environment: Environment, variable: string): string {
+  const value = required(environment, variable);
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new InvalidSecurityConfigurationError(variable);
+  }
+}
+
+function optionalString(environment: Environment, variable: string): string | undefined {
+  const value = environment[variable]?.trim();
+  return value ? value : undefined;
+}
+
+function boolean(
+  environment: Environment,
+  variable: string,
+  fallback: boolean
+): boolean {
+  const value = environment[variable]?.trim();
+  if (!value) {
+    return fallback;
+  }
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  throw new InvalidSecurityConfigurationError(variable);
+}
+
 function nodeEnvironment(environment: Environment): NodeEnvironment {
   const value = required(environment, "NODE_ENV");
   if (value !== "development" && value !== "test" && value !== "production") {
@@ -69,8 +107,26 @@ function nodeEnvironment(environment: Environment): NodeEnvironment {
 }
 
 export function loadSecurityConfig(environment: Environment): SecurityConfig {
+  const node = nodeEnvironment(environment);
+  const cookieSecure = boolean(environment, "COOKIE_SECURE", node === "production");
+  const cookieSameSite = optionalString(environment, "COOKIE_SAME_SITE") ?? "lax";
+  if (cookieSameSite !== "lax" && cookieSameSite !== "strict" && cookieSameSite !== "none") {
+    throw new InvalidSecurityConfigurationError("COOKIE_SAME_SITE");
+  }
+  if (cookieSameSite === "none" && !cookieSecure) {
+    throw new InvalidSecurityConfigurationError("COOKIE_SAME_SITE");
+  }
+  const browserAuth: SecurityConfig["browserAuth"] = {
+    cookieSecure,
+    cookieSameSite
+  };
+  const cookieDomain = optionalString(environment, "COOKIE_DOMAIN");
+  if (cookieDomain) {
+    browserAuth.cookieDomain = cookieDomain;
+  }
   return {
-    nodeEnvironment: nodeEnvironment(environment),
+    nodeEnvironment: node,
+    webAppUrl: url(environment, "WEB_APP_URL"),
     passwordHash: {
       memoryCost: integer(environment, "PASSWORD_HASH_MEMORY_COST", 8192, 1_048_576),
       timeCost: integer(environment, "PASSWORD_HASH_TIME_COST", 1, 10),
@@ -85,6 +141,7 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
     refreshToken: {
       expiresInSeconds: integer(environment, "REFRESH_TOKEN_EXPIRES_IN_SECONDS", 1, 31_536_000),
       pepper: secret(environment, "REFRESH_TOKEN_PEPPER")
-    }
+    },
+    browserAuth
   };
 }
