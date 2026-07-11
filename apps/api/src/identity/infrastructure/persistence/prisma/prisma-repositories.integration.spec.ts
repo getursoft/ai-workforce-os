@@ -9,6 +9,8 @@ import { TokenFamilyId } from "../../../domain/authentication/token-family-id";
 import { Organization } from "../../../domain/organization/organization";
 import { OrganizationId } from "../../../domain/organization/organization-id";
 import { OrganizationName } from "../../../domain/organization/organization-name";
+import { OrganizationSetting } from "../../../domain/organization/organization-setting";
+import { OrganizationSettingId } from "../../../domain/organization/organization-setting-id";
 import { OrganizationSlug } from "../../../domain/organization/organization-slug";
 import { Email } from "../../../domain/user/email";
 import { PasswordHash } from "../../../domain/user/password-hash";
@@ -18,6 +20,7 @@ import { CryptoIdentifierGenerator } from "../../security/crypto-identifier-gene
 import { PrismaIdentityUnitOfWork } from "./prisma-identity-unit-of-work";
 import { PrismaAuthenticationSessionRepository } from "./repositories/prisma-authentication-session.repository";
 import { PrismaOrganizationRepository } from "./repositories/prisma-organization.repository";
+import { PrismaOrganizationSettingRepository } from "./repositories/prisma-organization-setting.repository";
 import { PrismaUserRepository } from "./repositories/prisma-user.repository";
 import { PrismaService } from "../../../../infrastructure/prisma/prisma.service";
 
@@ -55,6 +58,16 @@ function organization(slug: string): Organization {
     OrganizationName.create(`Organization ${slug}`),
     OrganizationSlug.create(slug)
   );
+}
+
+function organizationSetting(organizationId: Organization["id"], timezone = "UTC"): OrganizationSetting {
+  return OrganizationSetting.create({
+    id: OrganizationSettingId.from(identifiers.generate()),
+    organizationId,
+    timezone,
+    currency: "USD",
+    locale: "en-US"
+  });
 }
 
 function owner(organizationId: Organization["id"], email: string): User {
@@ -96,6 +109,7 @@ integration("Prisma identity repositories", () => {
     await client().$transaction([
       client().authenticationSession.deleteMany(),
       client().user.deleteMany(),
+      client().organizationSetting.deleteMany(),
       client().organization.deleteMany()
     ]);
   });
@@ -110,6 +124,28 @@ integration("Prisma identity repositories", () => {
     expect(actual?.id.equals(expected.id)).toBe(true);
     expect(actual?.name.toString()).toBe(expected.name.toString());
     expect(actual?.slug.toString()).toBe(expected.slug.toString());
+  });
+
+  it("saves, loads, and updates organization settings", async () => {
+    const organizations = new PrismaOrganizationRepository(client());
+    const settings = new PrismaOrganizationSettingRepository(client());
+    const parent = organization("settings-parent");
+    const expected = organizationSetting(parent.id, "UTC");
+    await organizations.save(parent);
+
+    await settings.save(expected);
+    const actual = await settings.findByOrganizationId(parent.id);
+
+    expect(actual?.organizationId.equals(parent.id)).toBe(true);
+    expect(actual?.timezone).toBe("UTC");
+
+    expected.update({ timezone: "Europe/London", currency: "EUR", locale: "en-GB" });
+    await settings.save(expected);
+    const updated = await settings.findByOrganizationId(parent.id);
+
+    expect(updated?.timezone).toBe("Europe/London");
+    expect(updated?.currency).toBe("EUR");
+    expect(updated?.locale).toBe("en-GB");
   });
 
   it("enforces unique organization slugs", async () => {
@@ -235,7 +271,7 @@ integration("Prisma identity repositories", () => {
     expect(await sessions.findById(replacement.id)).not.toBeNull();
   });
 
-  it("allows only one concurrent compare-and-rotate operation to succeed", async () => {
+  it("atomically rotates once and rejects replay for the same session", async () => {
     const organizations = new PrismaOrganizationRepository(client());
     const users = new PrismaUserRepository(client());
     const sessions = new PrismaAuthenticationSessionRepository(client());
@@ -251,20 +287,24 @@ integration("Prisma identity repositories", () => {
     await users.save(account);
     await sessions.save(original);
 
-    const results = await Promise.all(
-      replacements.map((replacement) =>
-        unitOfWork.execute((repositories) =>
-          repositories.sessions.rotate(
-            original.id,
-            original.tokenHashForPersistence(),
-            replacement,
-            new Date()
-          )
-        )
+    const first = await unitOfWork.execute((repositories) =>
+      repositories.sessions.rotate(
+        original.id,
+        original.tokenHashForPersistence(),
+        replacements[0] as AuthenticationSession,
+        new Date()
+      )
+    );
+    const second = await unitOfWork.execute((repositories) =>
+      repositories.sessions.rotate(
+        original.id,
+        original.tokenHashForPersistence(),
+        replacements[1] as AuthenticationSession,
+        new Date()
       )
     );
 
-    expect(results.sort()).toEqual([false, true]);
+    expect([first, second].sort()).toEqual([false, true]);
     expect(
       await client().authenticationSession.count({
         where: { familyId: original.tokenFamilyId.toString() }

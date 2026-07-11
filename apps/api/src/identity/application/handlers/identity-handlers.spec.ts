@@ -7,6 +7,7 @@ import type { Clock } from "../ports/clock";
 import type { IdentifierGenerator } from "../ports/identifier-generator";
 import type { IdentityRepositories, IdentityUnitOfWork } from "../ports/identity-unit-of-work";
 import type { OrganizationRepository } from "../ports/organization-repository";
+import type { OrganizationSettingRepository } from "../ports/organization-setting-repository";
 import type { PasswordHasher } from "../ports/password-hasher";
 import type { RefreshTokenService } from "../ports/refresh-token-service";
 import type { UserRepository } from "../ports/user-repository";
@@ -16,6 +17,7 @@ import { AuthenticationSessionId } from "../../domain/authentication/authenticat
 import type { TokenFamilyId } from "../../domain/authentication/token-family-id";
 import { Organization } from "../../domain/organization/organization";
 import { OrganizationId } from "../../domain/organization/organization-id";
+import type { OrganizationSetting } from "../../domain/organization/organization-setting";
 import type { OrganizationSlug } from "../../domain/organization/organization-slug";
 import { OrganizationStatus } from "../../domain/organization/organization-status";
 import type { Email } from "../../domain/user/email";
@@ -24,10 +26,14 @@ import { User } from "../../domain/user/user";
 import type { UserId } from "../../domain/user/user-id";
 import { UserStatus } from "../../domain/user/user-status";
 import { GetCurrentUserHandler } from "./get-current-user";
+import { GetOrganizationHandler } from "./get-organization";
+import { GetOrganizationSettingsHandler } from "./get-organization-settings";
 import { LoginHandler } from "./login";
 import { LogoutHandler } from "./logout";
 import { RefreshSessionHandler } from "./refresh-session";
 import { RegisterOrganizationHandler } from "./register-organization";
+import { UpdateOrganizationHandler } from "./update-organization";
+import { UpdateOrganizationSettingsHandler } from "./update-organization-settings";
 
 const now = new Date("2026-07-10T12:00:00.000Z");
 const lifetimes: AuthenticationLifetimes = {
@@ -102,6 +108,7 @@ class FakeRefreshTokens implements RefreshTokenService {
 
 class MemoryStore {
   organizations: Organization[] = [];
+  organizationSettings: OrganizationSetting[] = [];
   users: User[] = [];
   sessions: AuthenticationSession[] = [];
   failSessionSave = false;
@@ -125,6 +132,27 @@ class MemoryOrganizations implements OrganizationRepository {
   }
   save(organization: Organization): Promise<void> {
     this.store.organizations.push(organization);
+    return Promise.resolve();
+  }
+}
+
+class MemoryOrganizationSettings implements OrganizationSettingRepository {
+  constructor(private readonly store: MemoryStore) {}
+  findByOrganizationId(organizationId: OrganizationId): Promise<OrganizationSetting | null> {
+    return Promise.resolve(
+      this.store.organizationSettings.find((item) => item.organizationId.equals(organizationId)) ??
+        null
+    );
+  }
+  save(setting: OrganizationSetting): Promise<void> {
+    const index = this.store.organizationSettings.findIndex((item) =>
+      item.organizationId.equals(setting.organizationId)
+    );
+    if (index >= 0) {
+      this.store.organizationSettings[index] = setting;
+    } else {
+      this.store.organizationSettings.push(setting);
+    }
     return Promise.resolve();
   }
 }
@@ -225,6 +253,7 @@ class MemoryUnitOfWork implements IdentityUnitOfWork {
 function repositories(store: MemoryStore): IdentityRepositories {
   return {
     organizations: new MemoryOrganizations(store),
+    organizationSettings: new MemoryOrganizationSettings(store),
     users: new MemoryUsers(store),
     sessions: new MemorySessions(store)
   };
@@ -275,7 +304,27 @@ function harness() {
       lifetimes
     ),
     logout: new LogoutHandler(repos.sessions, unitOfWork, refreshTokens, clock),
-    current: new GetCurrentUserHandler(repos.users, repos.organizations)
+    current: new GetCurrentUserHandler(repos.users, repos.organizations),
+    getOrganization: new GetOrganizationHandler(repos.users, repos.organizations),
+    updateOrganization: new UpdateOrganizationHandler(
+      repos.users,
+      repos.organizations,
+      unitOfWork
+    ),
+    getOrganizationSettings: new GetOrganizationSettingsHandler(
+      repos.users,
+      repos.organizations,
+      repos.organizationSettings,
+      unitOfWork,
+      identifiers
+    ),
+    updateOrganizationSettings: new UpdateOrganizationSettingsHandler(
+      repos.users,
+      repos.organizations,
+      repos.organizationSettings,
+      unitOfWork,
+      identifiers
+    )
   };
 }
 
@@ -489,5 +538,101 @@ describe("identity application handlers", () => {
     await expect(
       context.login.execute({ email: registration.email, password: registration.password })
     ).rejects.toMatchObject({ code: "AUTHENTICATION_FAILED" });
+  });
+
+  it("returns and updates the authenticated organization without changing slug or status", async () => {
+    const context = harness();
+    const registered = await context.register.execute(registration);
+    const user = context.store.users[0];
+    const session = context.store.sessions[0];
+    if (!user || !session) throw new Error("missing fixtures");
+    const principal = {
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role,
+      sessionId: session.id
+    };
+
+    await expect(context.getOrganization.execute(principal)).resolves.toMatchObject({
+      organization: {
+        name: "Getursoft",
+        slug: registered.organization.slug,
+        status: "ACTIVE"
+      }
+    });
+
+    const updated = await context.updateOrganization.execute(principal, { name: "Updated Org" });
+    expect(updated.organization).toMatchObject({
+      name: "Updated Org",
+      slug: registered.organization.slug,
+      status: "ACTIVE"
+    });
+    expect(context.store.organizations[0]?.slug.toString()).toBe(registered.organization.slug);
+  });
+
+  it("creates default organization settings and updates them atomically", async () => {
+    const context = harness();
+    await context.register.execute(registration);
+    const user = context.store.users[0];
+    const session = context.store.sessions[0];
+    if (!user || !session) throw new Error("missing fixtures");
+    const principal = {
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role,
+      sessionId: session.id
+    };
+
+    const defaults = await context.getOrganizationSettings.execute(principal);
+    expect(defaults.organizationSetting).toMatchObject({
+      timezone: "UTC",
+      currency: "USD",
+      locale: "en-US"
+    });
+    expect(context.store.organizationSettings).toHaveLength(1);
+
+    const updated = await context.updateOrganizationSettings.execute(principal, {
+      timezone: "America/New_York",
+      currency: "EUR",
+      locale: "de-DE"
+    });
+    expect(updated.organizationSetting).toMatchObject({
+      timezone: "America/New_York",
+      currency: "EUR",
+      locale: "de-DE"
+    });
+  });
+
+  it("rejects invalid organization and settings updates", async () => {
+    const context = harness();
+    await context.register.execute(registration);
+    const user = context.store.users[0];
+    const session = context.store.sessions[0];
+    if (!user || !session) throw new Error("missing fixtures");
+    const principal = {
+      userId: user.id,
+      organizationId: user.organizationId,
+      role: user.role,
+      sessionId: session.id
+    };
+
+    await expect(context.updateOrganization.execute(principal, { name: "ab" })).rejects.toMatchObject(
+      { code: "VALIDATION_ERROR" }
+    );
+    await expect(
+      context.updateOrganizationSettings.execute(principal, {
+        timezone: "Invalid/Zone"
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(
+      context.updateOrganizationSettings.execute(principal, {
+        currency: "EURO"
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(
+      context.updateOrganizationSettings.execute(principal, {
+        locale: "not-a-locale"
+      })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 });

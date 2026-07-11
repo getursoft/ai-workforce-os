@@ -40,8 +40,22 @@ model Organization {
   createdAt DateTime           @default(now()) @map("created_at")
   updatedAt DateTime           @updatedAt @map("updated_at")
   users     User[]
+  settings  OrganizationSetting?
 
   @@map("organizations")
+}
+
+model OrganizationSetting {
+  id              String       @id @default(uuid()) @db.Uuid
+  organizationId  String       @unique @map("organization_id") @db.Uuid
+  timezone        String       @db.VarChar(64)
+  currency        String       @db.Char(3)
+  locale          String       @db.VarChar(35)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("organization_settings")
 }
 
 model User {

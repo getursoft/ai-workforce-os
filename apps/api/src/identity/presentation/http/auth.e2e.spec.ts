@@ -253,4 +253,116 @@ suite("Identity HTTP API", () => {
     expect(body.error.requestId.length).toBeLessThanOrEqual(64);
     expect(response.headers["x-request-id"]).toBe(body.error.requestId);
   });
+
+  it("supports organization profile and settings management for authenticated users", async () => {
+    const agent = request.agent(app.getHttpServer());
+    const orgRegistration = {
+      ...registration,
+      organizationName: "Widget Systems",
+      email: "organization-admin@widgetsystems.com"
+    };
+    const registered = await agent.post("/api/v1/auth/register").send(orgRegistration).expect(201);
+    const accessToken = (registered.body as AuthenticationEnvelope).data.tokens.accessToken;
+    const organizationSlug = (registered.body as AuthenticationEnvelope).data.organization.slug;
+
+    const currentOrganization = await agent
+      .get("/api/v1/organizations/me")
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(currentOrganization.body).toMatchObject({
+        data: {
+          organization: {
+            name: "Widget Systems",
+            slug: organizationSlug,
+            status: "ACTIVE"
+          }
+        }
+      });
+
+    const defaultSettings = await agent
+      .get("/api/v1/organizations/me/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(200);
+    expect(defaultSettings.body).toMatchObject({
+      data: {
+        organizationSetting: {
+          timezone: "UTC",
+          currency: "USD",
+          locale: "en-US"
+        }
+      }
+    });
+
+    const updatedOrganization = await agent
+      .patch("/api/v1/organizations/me")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ name: "Updated Widget Systems" })
+      .expect(200);
+    expect(updatedOrganization.body).toMatchObject({
+      data: {
+        organization: {
+          name: "Updated Widget Systems",
+          slug: organizationSlug,
+          status: "ACTIVE"
+        }
+      }
+      });
+
+    const updatedSettings = await agent
+      .patch("/api/v1/organizations/me/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ timezone: "America/New_York", currency: "EUR", locale: "de-DE" })
+      .expect(200);
+    expect(updatedSettings.body).toMatchObject({
+      data: {
+        organizationSetting: {
+          timezone: "America/New_York",
+          currency: "EUR",
+          locale: "de-DE"
+        }
+      }
+    });
+
+    await request(app.getHttpServer())
+      .patch("/api/v1/organizations/me")
+      .send({ name: "No auth" })
+      .expect(401);
+    await request(app.getHttpServer())
+      .patch("/api/v1/organizations/me/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ timezone: "Invalid/Zone" })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch("/api/v1/organizations/me/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ currency: "EURO" })
+      .expect(400);
+    await request(app.getHttpServer())
+      .patch("/api/v1/organizations/me/settings")
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ locale: "not-a-locale" })
+      .expect(400);
+  });
+
+  it("rejects forbidden organization access when the authenticated user is suspended", async () => {
+    const registered = await request(app.getHttpServer())
+      .post("/api/v1/auth/register")
+      .send({
+        ...registration,
+        email: "forbidden@getursoft.com"
+      })
+      .expect(201);
+    const accessToken = (registered.body as AuthenticationEnvelope).data.tokens.accessToken;
+    const userId = (registered.body as AuthenticationEnvelope).data.user.id;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: "SUSPENDED" }
+    });
+
+    const response = await request(app.getHttpServer())
+      .get("/api/v1/organizations/me")
+      .set("authorization", `Bearer ${accessToken}`)
+      .expect(403);
+    expect((response.body as ErrorEnvelope).error.code).toBe("USER_INACTIVE");
+  });
 });

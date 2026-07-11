@@ -11,12 +11,14 @@ import { CLOCK, type Clock } from "./application/ports/clock";
 import { IDENTITY_UNIT_OF_WORK } from "./application/ports/identity-unit-of-work";
 import { IDENTIFIER_GENERATOR } from "./application/ports/identifier-generator";
 import { ORGANIZATION_REPOSITORY } from "./application/ports/organization-repository";
+import { ORGANIZATION_SETTING_REPOSITORY } from "./application/ports/organization-setting-repository";
 import { PASSWORD_HASHER } from "./application/ports/password-hasher";
 import { REFRESH_TOKEN_SERVICE } from "./application/ports/refresh-token-service";
 import { USER_REPOSITORY } from "./application/ports/user-repository";
 import { PrismaAuthenticationSessionRepository } from "./infrastructure/persistence/prisma/repositories/prisma-authentication-session.repository";
 import { PrismaIdentityUnitOfWork } from "./infrastructure/persistence/prisma/prisma-identity-unit-of-work";
 import { PrismaOrganizationRepository } from "./infrastructure/persistence/prisma/repositories/prisma-organization.repository";
+import { PrismaOrganizationSettingRepository } from "./infrastructure/persistence/prisma/repositories/prisma-organization-setting.repository";
 import { PrismaUserRepository } from "./infrastructure/persistence/prisma/repositories/prisma-user.repository";
 import { Argon2PasswordHasher } from "./infrastructure/security/argon2-password-hasher";
 import { CryptoIdentifierGenerator } from "./infrastructure/security/crypto-identifier-generator";
@@ -45,13 +47,23 @@ import type { PasswordHasher } from "./application/ports/password-hasher";
 import type { RefreshTokenService } from "./application/ports/refresh-token-service";
 import type { UserRepository } from "./application/ports/user-repository";
 import { AuthController } from "./presentation/http/auth.controller";
+import { OrganizationsController } from "./presentation/http/organizations.controller";
 import { JwtAccessGuard } from "./presentation/http/jwt-access.guard";
 import { RequestIdMiddleware } from "./presentation/http/request-id.middleware";
 import { SecurityEventLogger } from "./presentation/http/security-event-logger";
+import { AuditEventLogger } from "./presentation/http/audit-event.logger";
+import { GET_ORGANIZATION, GetOrganizationHandler } from "./application/handlers/get-organization";
+import { GET_ORGANIZATION_SETTINGS, GetOrganizationSettingsHandler } from "./application/handlers/get-organization-settings";
+import { UPDATE_ORGANIZATION, UpdateOrganizationHandler } from "./application/handlers/update-organization";
+import {
+  UPDATE_ORGANIZATION_SETTINGS,
+  UpdateOrganizationSettingsHandler
+} from "./application/handlers/update-organization-settings";
+import type { OrganizationSettingRepository } from "./application/ports/organization-setting-repository";
 
 @Module({
   imports: [PrismaModule],
-  controllers: [AuthController],
+  controllers: [AuthController, OrganizationsController],
   providers: [
     {
       provide: SECURITY_CONFIG,
@@ -94,6 +106,11 @@ import { SecurityEventLogger } from "./presentation/http/security-event-logger";
       provide: ORGANIZATION_REPOSITORY,
       inject: [PrismaService],
       useFactory: (prisma: PrismaService) => new PrismaOrganizationRepository(prisma)
+    },
+    {
+      provide: ORGANIZATION_SETTING_REPOSITORY,
+      inject: [PrismaService],
+      useFactory: (prisma: PrismaService) => new PrismaOrganizationSettingRepository(prisma)
     },
     {
       provide: USER_REPOSITORY,
@@ -232,14 +249,72 @@ import { SecurityEventLogger } from "./presentation/http/security-event-logger";
       useFactory: (users: UserRepository, organizations: OrganizationRepository) =>
         new GetCurrentUserHandler(users, organizations)
     },
+    {
+      provide: GET_ORGANIZATION,
+      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY],
+      useFactory: (users: UserRepository, organizations: OrganizationRepository) =>
+        new GetOrganizationHandler(users, organizations)
+    },
+    {
+      provide: UPDATE_ORGANIZATION,
+      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY, IDENTITY_UNIT_OF_WORK],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        unitOfWork: IdentityUnitOfWork
+      ) => new UpdateOrganizationHandler(users, organizations, unitOfWork)
+    },
+    {
+      provide: GET_ORGANIZATION_SETTINGS,
+      inject: [
+        USER_REPOSITORY,
+        ORGANIZATION_REPOSITORY,
+        ORGANIZATION_SETTING_REPOSITORY,
+        IDENTITY_UNIT_OF_WORK,
+        IDENTIFIER_GENERATOR
+      ],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        organizationSettings: OrganizationSettingRepository,
+        unitOfWork: IdentityUnitOfWork,
+        identifiers: IdentifierGenerator
+      ) => new GetOrganizationSettingsHandler(users, organizations, organizationSettings, unitOfWork, identifiers)
+    },
+    {
+      provide: UPDATE_ORGANIZATION_SETTINGS,
+      inject: [
+        USER_REPOSITORY,
+        ORGANIZATION_REPOSITORY,
+        ORGANIZATION_SETTING_REPOSITORY,
+        IDENTITY_UNIT_OF_WORK,
+        IDENTIFIER_GENERATOR
+      ],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        organizationSettings: OrganizationSettingRepository,
+        unitOfWork: IdentityUnitOfWork,
+        identifiers: IdentifierGenerator
+      ) =>
+        new UpdateOrganizationSettingsHandler(
+          users,
+          organizations,
+          organizationSettings,
+          unitOfWork,
+          identifiers
+        )
+    },
     JwtAccessGuard,
     RequestIdMiddleware,
-    SecurityEventLogger
+    SecurityEventLogger,
+    AuditEventLogger
   ],
   exports: [
     ORGANIZATION_REPOSITORY,
     USER_REPOSITORY,
     AUTHENTICATION_SESSION_REPOSITORY,
+    ORGANIZATION_SETTING_REPOSITORY,
     IDENTITY_UNIT_OF_WORK,
     PASSWORD_HASHER,
     ACCESS_TOKEN_SERVICE,
