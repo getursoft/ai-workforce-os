@@ -349,7 +349,11 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     REFRESH_TOKEN_SERVICE,
     CLOCK,
     IDENTIFIER_GENERATOR,
-    AuthorizationService
+    AuthorizationService,
+    JwtAccessGuard,
+    PermissionGuard,
+    AuditEventLogger
+    ,SecurityEventLogger
   ]
 })
 export class IdentityModule implements NestModule {

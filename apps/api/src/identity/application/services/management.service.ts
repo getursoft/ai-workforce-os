@@ -139,20 +139,29 @@ export class ManagementService {
     await this.assertRoles(org, input.roleIds);
     const normalizedEmail = input.email.trim().toLowerCase();
     try {
-      const user = await this.prisma.user.create({
-        data: {
-          organizationId: org,
-          firstName: input.firstName.trim(),
-          lastName: input.lastName?.trim() ?? null,
-          email: input.email.trim(),
-          normalizedEmail,
-          passwordHash: await argon2.hash(input.password),
-          role: LegacyUserRole.MEMBER,
-          status: UserStatus.ACTIVE,
-          userRoles: { create: input.roleIds.map((roleId) => ({ roleId })) }
-        },
-        omit: { passwordHash: true },
-        include: { userRoles: { include: { role: true } } }
+      const passwordHash = await argon2.hash(input.password);
+      const user = await this.prisma.$transaction(async (transaction) => {
+        const created = await transaction.user.create({
+          data: {
+            organizationId: org,
+            firstName: input.firstName.trim(),
+            lastName: input.lastName?.trim() ?? null,
+            email: input.email.trim(),
+            normalizedEmail,
+            passwordHash,
+            role: LegacyUserRole.MEMBER,
+            status: UserStatus.ACTIVE
+          }
+        });
+        await transaction.userRole.deleteMany({ where: { userId: created.id } });
+        await transaction.userRole.createMany({
+          data: input.roleIds.map((roleId) => ({ userId: created.id, roleId }))
+        });
+        return transaction.user.findUniqueOrThrow({
+          where: { id: created.id },
+          omit: { passwordHash: true },
+          include: { userRoles: { include: { role: true } } }
+        });
       });
       this.authorization.invalidateUser(user.id, org);
       return user;

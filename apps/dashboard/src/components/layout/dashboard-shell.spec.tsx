@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
-import { DashboardShell } from "./dashboard-shell";
+import { adminNavigationItemsFor, DashboardShell } from "./dashboard-shell";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -52,5 +52,17 @@ describe("DashboardShell", () => {
     expect(displayName(undefined, undefined)).toBe("Account");
     expect(toggleSidebar(true)).toBe(false);
     expect(toggleSidebar(false)).toBe(true);
+  });
+
+  it("shows every administration destination for Owner permissions", () => {
+    const items = adminNavigationItemsFor(
+      new Set(["users.read", "roles.read", "invitations.read"])
+    );
+    expect(items.map(({ label }) => label)).toEqual([
+      "Users",
+      "Roles",
+      "Permissions",
+      "Invitations"
+    ]);
   });
 });

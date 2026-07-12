@@ -7,18 +7,30 @@ import { useAuth, useLogout } from "../../features/auth/auth-provider";
 import { buildLoginRedirectPath } from "../../lib/return-url";
 import { Avatar, Badge, Button, Card, DropdownMenu, PageHeader, Skeleton } from "../ui";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
+import { useEffectivePermissions } from "../../features/admin/authorization";
 
-const NAV_ITEMS = [
+const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/dashboard/ai-employees", label: "AI Employees" },
   { href: "/dashboard/tasks", label: "Tasks" },
   { href: "/dashboard/conversations", label: "Conversations" },
   { href: "/dashboard/knowledge", label: "Knowledge" },
   { href: "/dashboard/integrations", label: "Integrations" },
-  { href: "/dashboard/team", label: "Team" },
+  { href: "/teams", label: "Teams", permission: "TEAM_READ" },
   { href: "/dashboard/organization", label: "Organization" },
   { href: "/dashboard/settings", label: "Settings" }
 ] as const;
+
+export const ADMIN_ITEMS = [
+  { href: "/dashboard/settings/users", label: "Users", permission: "users.read" },
+  { href: "/dashboard/settings/roles", label: "Roles", permission: "roles.read" },
+  { href: "/dashboard/settings/permissions", label: "Permissions", permission: "roles.read" },
+  { href: "/dashboard/settings/invitations", label: "Invitations", permission: "invitations.read" }
+] as const;
+
+export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {
+  return ADMIN_ITEMS.filter((item) => permissions.has(item.permission));
+}
 
 export function DashboardShell({
   title,
@@ -31,6 +43,7 @@ export function DashboardShell({
   const { state } = useAuth();
   const logout = useLogout();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const permissions = useEffectivePermissions();
 
   const currentUserName = useMemo(
     () => displayName(state.user?.firstName, state.user?.lastName),
@@ -89,7 +102,22 @@ export function DashboardShell({
           </Button>
         </div>
         <nav aria-label="Primary" className="dashboard-nav">
-          {NAV_ITEMS.map((item) => (
+          {NAV_ITEMS.filter((item) => !item.permission || permissions.has(item.permission)).map(
+            (item) => (
+              <Link
+                key={item.href}
+                className={`dashboard-nav__item ${pathname.startsWith(item.href) ? "dashboard-nav__item--active" : ""}`}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+              >
+                {item.label}
+              </Link>
+            )
+          )}
+          {adminNavigationItemsFor(permissions).length ? (
+            <p className="dashboard-nav__section">Administration</p>
+          ) : null}
+          {adminNavigationItemsFor(permissions).map((item) => (
             <Link
               key={item.href}
               className={`dashboard-nav__item ${pathname.startsWith(item.href) ? "dashboard-nav__item--active" : ""}`}

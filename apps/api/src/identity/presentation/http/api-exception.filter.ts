@@ -2,8 +2,11 @@ import {
   ArgumentsHost,
   BadRequestException,
   Catch,
+  ConflictException,
+  ForbiddenException,
   type ExceptionFilter,
   HttpStatus,
+  NotFoundException,
   UnauthorizedException
 } from "@nestjs/common";
 import {
@@ -76,6 +79,21 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof UnauthorizedException) {
       return new IdentityApplicationError("AUTHENTICATION_FAILED", "Authentication is required.");
+    }
+    if (exception instanceof ForbiddenException) {
+      return new IdentityApplicationError(
+        "AUTHORIZATION_FAILED",
+        "You are not allowed to perform this action."
+      );
+    }
+    if (exception instanceof NotFoundException) {
+      return new IdentityApplicationError(
+        "USER_NOT_FOUND",
+        "The requested resource was not found."
+      );
+    }
+    if (exception instanceof ConflictException) {
+      return new IdentityApplicationError("CONFLICT", "The request conflicts with current state.");
     }
     if (
       exception instanceof InvalidDomainValueError ||

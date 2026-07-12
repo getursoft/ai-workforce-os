@@ -27,7 +27,11 @@ export class AuthorizationService {
       return [...permissions].sort();
     }
     const assignments = await this.prisma.userRole.findMany({
-      where: { userId, user: { organizationId, deletedAt: null }, role: { organizationId } },
+      where: {
+        userId,
+        user: { organizationId, deletedAt: null, status: "ACTIVE" },
+        role: { organizationId }
+      },
       select: {
         role: { select: { permissions: { select: { permission: { select: { key: true } } } } } }
       }
@@ -37,7 +41,7 @@ export class AuthorizationService {
     );
     if (assignments.length === 0) {
       const user = await this.prisma.user.findFirst({
-        where: { id: userId, organizationId, deletedAt: null },
+        where: { id: userId, organizationId, deletedAt: null, status: "ACTIVE" },
         select: { role: true }
       });
       if (user?.role === "OWNER" || user?.role === "ADMIN") {

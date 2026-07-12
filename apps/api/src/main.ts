@@ -1,5 +1,6 @@
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { AppModule } from "./app.module";
@@ -30,6 +31,11 @@ async function bootstrap(): Promise<void> {
     })
   );
   app.useGlobalFilters(new ApiExceptionFilter());
+  const document = SwaggerModule.createDocument(
+    app,
+    new DocumentBuilder().setTitle("AI Workforce OS API").setVersion("1.0").addBearerAuth().build()
+  );
+  SwaggerModule.setup("docs", app, document, { useGlobalPrefix: true });
   await app.listen(4000, "0.0.0.0");
 }
 

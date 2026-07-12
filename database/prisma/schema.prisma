@@ -32,6 +32,22 @@ enum UserStatus {
   @@map("user_status")
 }
 
+enum TeamStatus {
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+
+  @@map("team_status")
+}
+
+enum TeamMemberRole {
+  MANAGER
+  LEAD
+  MEMBER
+
+  @@map("team_member_role")
+}
+
 model Organization {
   id          String               @id @default(uuid()) @db.Uuid
   name        String               @db.VarChar(120)
@@ -43,6 +59,7 @@ model Organization {
   settings    OrganizationSetting?
   roles       Role[]
   invitations Invitation[]
+  teams       Team[]
 
   @@map("organizations")
 }
@@ -76,11 +93,53 @@ model User {
   organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   sessions        AuthenticationSession[]
   userRoles       UserRole[]
+  invitationsSent Invitation[]            @relation("InvitationSender")
+  managedTeams    Team[]                  @relation("TeamManager")
+  teamMemberships TeamMember[]
   deletedAt       DateTime?               @map("deleted_at")
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@map("users")
+}
+
+model Team {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  name           String       @db.VarChar(120)
+  slug           String       @db.VarChar(140)
+  description    String?      @db.VarChar(500)
+  managerId      String?      @map("manager_id") @db.Uuid
+  parentTeamId   String?      @map("parent_team_id") @db.Uuid
+  status         TeamStatus   @default(ACTIVE)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  manager        User?        @relation("TeamManager", fields: [managerId], references: [id], onDelete: SetNull)
+  parentTeam     Team?        @relation("TeamHierarchy", fields: [parentTeamId], references: [id], onDelete: SetNull)
+  childTeams     Team[]       @relation("TeamHierarchy")
+  members        TeamMember[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status, deletedAt])
+  @@index([managerId])
+  @@index([parentTeamId])
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId    String         @map("team_id") @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
+  role      TeamMemberRole @default(MEMBER)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+  team      Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
 }
 
 model Role {
@@ -146,6 +205,7 @@ model Invitation {
   createdAt       DateTime     @default(now()) @map("created_at")
   updatedAt       DateTime     @updatedAt @map("updated_at")
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy       User         @relation("InvitationSender", fields: [invitedById], references: [id], onDelete: Restrict)
 
   @@index([organizationId, normalizedEmail])
   @@index([expiresAt])

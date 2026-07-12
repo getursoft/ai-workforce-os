@@ -19,7 +19,11 @@
     "format:check": "prettier --check .",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:db:prepare": "node --experimental-strip-types scripts/prepare-test-database.ts"
+  },
+  "prisma": {
+    "seed": "node --experimental-strip-types database/prisma/seed.ts"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
