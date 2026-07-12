@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import { useAuth, useRegister } from "../../features/auth/auth-provider";
 import { ApiError } from "../../lib/api-error";
 import {
-  getSignupFailureMessage,
+  getSignupFailure,
   getSignupSuccessRedirectTarget,
   isSignupSubmitDisabled,
+  PASSWORD_REQUIREMENTS,
   validateSignupForm,
   type SignupFormValues
 } from "./signup-form.logic";
@@ -29,7 +30,9 @@ export function SignupForm() {
   const register = useRegister();
   const [form, setForm] = useState<SignupFormValues>(INITIAL_FORM_STATE);
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof SignupFormValues, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof SignupFormValues, string>>>(
+    {}
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const isAuthenticated = useMemo(
@@ -67,7 +70,9 @@ export function SignupForm() {
       router.replace(getSignupSuccessRedirectTarget());
     } catch (caught: unknown) {
       const apiError = caught instanceof ApiError ? caught : null;
-      setError(getSignupFailureMessage(apiError));
+      const failure = getSignupFailure(apiError);
+      setError(failure.message);
+      setFieldErrors(failure.fieldErrors);
     } finally {
       setSubmitting(false);
     }
@@ -94,6 +99,7 @@ export function SignupForm() {
             autoComplete="organization"
             value={form.organizationName}
             aria-invalid={fieldErrors.organizationName ? "true" : "false"}
+            aria-describedby={fieldErrors.organizationName ? "organizationName-error" : undefined}
             onChange={(event) => {
               const value = event.target.value;
               setForm((current) => ({ ...current, organizationName: value }));
@@ -106,7 +112,11 @@ export function SignupForm() {
               }
             }}
           />
-          {fieldErrors.organizationName ? <p className="ui-field__error">{fieldErrors.organizationName}</p> : null}
+          {fieldErrors.organizationName ? (
+            <p id="organizationName-error" className="ui-field__error" role="alert">
+              {fieldErrors.organizationName}
+            </p>
+          ) : null}
         </div>
         <div className="auth-form__split">
           <div className="ui-field">
@@ -117,6 +127,7 @@ export function SignupForm() {
               autoComplete="given-name"
               value={form.firstName}
               aria-invalid={fieldErrors.firstName ? "true" : "false"}
+              aria-describedby={fieldErrors.firstName ? "firstName-error" : undefined}
               onChange={(event) => {
                 const value = event.target.value;
                 setForm((current) => ({ ...current, firstName: value }));
@@ -129,7 +140,11 @@ export function SignupForm() {
                 }
               }}
             />
-            {fieldErrors.firstName ? <p className="ui-field__error">{fieldErrors.firstName}</p> : null}
+            {fieldErrors.firstName ? (
+              <p id="firstName-error" className="ui-field__error" role="alert">
+                {fieldErrors.firstName}
+              </p>
+            ) : null}
           </div>
           <div className="ui-field">
             <Label htmlFor="lastName">Last Name</Label>
@@ -139,6 +154,7 @@ export function SignupForm() {
               autoComplete="family-name"
               value={form.lastName}
               aria-invalid={fieldErrors.lastName ? "true" : "false"}
+              aria-describedby={fieldErrors.lastName ? "lastName-error" : undefined}
               onChange={(event) => {
                 const value = event.target.value;
                 setForm((current) => ({ ...current, lastName: value }));
@@ -151,7 +167,11 @@ export function SignupForm() {
                 }
               }}
             />
-            {fieldErrors.lastName ? <p className="ui-field__error">{fieldErrors.lastName}</p> : null}
+            {fieldErrors.lastName ? (
+              <p id="lastName-error" className="ui-field__error" role="alert">
+                {fieldErrors.lastName}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="ui-field">
@@ -164,6 +184,7 @@ export function SignupForm() {
             inputMode="email"
             value={form.email}
             aria-invalid={fieldErrors.email ? "true" : "false"}
+            aria-describedby={fieldErrors.email ? "email-error" : undefined}
             onChange={(event) => {
               const value = event.target.value;
               setForm((current) => ({ ...current, email: value }));
@@ -176,13 +197,19 @@ export function SignupForm() {
               }
             }}
           />
-          {fieldErrors.email ? <p className="ui-field__error">{fieldErrors.email}</p> : null}
+          {fieldErrors.email ? (
+            <p id="email-error" className="ui-field__error" role="alert">
+              {fieldErrors.email}
+            </p>
+          ) : null}
         </div>
         <PasswordInput
           id="password"
           label="Password"
           value={form.password}
           autoComplete="new-password"
+          ariaInvalid={Boolean(fieldErrors.password)}
+          ariaDescribedBy={`password-requirements${fieldErrors.password ? " password-error" : ""}`}
           onChange={(value) => {
             setForm((current) => ({ ...current, password: value }));
             if (fieldErrors.password) {
@@ -194,12 +221,31 @@ export function SignupForm() {
             }
           }}
         />
-        {fieldErrors.password ? <p className="ui-field__error">{fieldErrors.password}</p> : null}
+        <div id="password-requirements" className="password-requirements" aria-live="polite">
+          <p>Password must contain at least:</p>
+          <ul>
+            {PASSWORD_REQUIREMENTS.map((requirement) => {
+              const met = requirement.test(form.password);
+              return (
+                <li key={requirement.key} className={met ? "is-met" : undefined}>
+                  <span aria-hidden="true">{met ? "✓" : "○"}</span> {requirement.label}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        {fieldErrors.password ? (
+          <p id="password-error" className="ui-field__error" role="alert">
+            {fieldErrors.password}
+          </p>
+        ) : null}
         <PasswordInput
           id="confirmPassword"
           label="Confirm Password"
           value={form.confirmPassword}
           autoComplete="new-password"
+          ariaInvalid={Boolean(fieldErrors.confirmPassword)}
+          {...(fieldErrors.confirmPassword ? { ariaDescribedBy: "confirmPassword-error" } : {})}
           onChange={(value) => {
             setForm((current) => ({ ...current, confirmPassword: value }));
             if (fieldErrors.confirmPassword) {
@@ -211,7 +257,11 @@ export function SignupForm() {
             }
           }}
         />
-        {fieldErrors.confirmPassword ? <p className="ui-field__error">{fieldErrors.confirmPassword}</p> : null}
+        {fieldErrors.confirmPassword ? (
+          <p id="confirmPassword-error" className="ui-field__error" role="alert">
+            {fieldErrors.confirmPassword}
+          </p>
+        ) : null}
         <Button
           type="submit"
           loading={isSignupSubmitDisabled(submitting)}

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api-error";
 import {
+  getSignupFailure,
   getSignupFailureMessage,
   getSignupSuccessRedirectTarget,
   isSignupSubmitDisabled,
@@ -43,7 +44,7 @@ describe("SignupForm", () => {
     expect(html).toContain("Create account");
     expect(html).toContain("Already have an account?");
     expect(html).toContain("Sign in");
-    expect(html).toContain('/login');
+    expect(html).toContain("/login");
   });
 
   it("validates required fields, email format, and password confirmation", () => {
@@ -61,7 +62,8 @@ describe("SignupForm", () => {
       firstName: "First name is required.",
       lastName: "Last name is required.",
       email: "Enter a valid email address.",
-      password: "Password must be between 12 and 128 characters.",
+      password:
+        "Password must contain at least 12 characters, one uppercase letter, one lowercase letter, one number, and one special character.",
       confirmPassword: "Passwords do not match."
     });
   });
@@ -101,8 +103,77 @@ describe("SignupForm", () => {
         })
       )
     ).toContain("organization");
-    expect(getSignupFailureMessage(new ApiError({ kind: "rate_limit", code: "RATE_LIMIT", message: "Too many attempts." }))).toContain("Too many attempts");
-    expect(getSignupFailureMessage(new ApiError({ kind: "server", code: "SERVER_ERROR", message: "Boom." }))).toContain("Unexpected server error");
+    expect(
+      getSignupFailureMessage(
+        new ApiError({ kind: "rate_limit", code: "RATE_LIMIT", message: "Too many attempts." })
+      )
+    ).toContain("Too many attempts");
+    expect(
+      getSignupFailureMessage(
+        new ApiError({ kind: "server", code: "SERVER_ERROR", message: "Boom." })
+      )
+    ).toContain("Unexpected server error");
+  });
+
+  it("rejects a weak password before submission", () => {
+    const errors = validateSignupForm({
+      organizationName: "Acme",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.com",
+      password: "alllowercase12",
+      confirmPassword: "alllowercase12"
+    });
+    expect(errors.password).toContain("uppercase");
+  });
+
+  it("highlights email for a duplicate-email response", () => {
+    const failure = getSignupFailure(
+      new ApiError({ kind: "conflict", code: "EMAIL_ALREADY_EXISTS", message: "Duplicate" })
+    );
+    expect(failure).toEqual({
+      message: "An account with this email already exists.",
+      fieldErrors: { email: "An account with this email already exists." }
+    });
+  });
+
+  it("reports password mismatch on the confirmation field", () => {
+    const errors = validateSignupForm({
+      organizationName: "Acme",
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.com",
+      password: "StrongPassword@123",
+      confirmPassword: "StrongPassword@124"
+    });
+    expect(errors.confirmPassword).toBe("Passwords do not match.");
+  });
+
+  it("highlights organization name for an organization conflict", () => {
+    const failure = getSignupFailure(
+      new ApiError({
+        kind: "conflict",
+        code: "CONFLICT",
+        message: "Organization slug already exists"
+      })
+    );
+    expect(failure.message).toBe("An organization with this name already exists.");
+    expect(failure.fieldErrors.organizationName).toBe(failure.message);
+  });
+
+  it("uses a safe message for an unknown backend validation error", () => {
+    const failure = getSignupFailure(
+      new ApiError({
+        kind: "validation",
+        code: "VALIDATION_ERROR",
+        message: "Invalid request",
+        details: ["unrecognized field"]
+      })
+    );
+    expect(failure.message).toBe(
+      "We could not validate your registration details. Review the form and try again."
+    );
+    expect(failure.fieldErrors).toEqual({});
   });
 
   it("tracks loading and redirect helpers", () => {

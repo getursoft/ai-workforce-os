@@ -1,6 +1,6 @@
 import {
   type User as PrismaUser,
-  UserRole as PrismaUserRole,
+  LegacyUserRole as PrismaUserRole,
   UserStatus as PrismaUserStatus
 } from "@prisma/client";
 import { OrganizationId } from "../../../../domain/organization/organization-id";
@@ -12,7 +12,7 @@ import { UserRole } from "../../../../domain/user/user-role";
 import { UserStatus } from "../../../../domain/user/user-status";
 
 export class UserPrismaMapper {
-  static toDomain(record: PrismaUser): User {
+  static toDomain(record: Omit<PrismaUser, "deletedAt"> & { deletedAt?: Date | null }): User {
     const email = Email.create(record.normalizedEmail);
     return User.reconstruct({
       id: UserId.from(record.id),

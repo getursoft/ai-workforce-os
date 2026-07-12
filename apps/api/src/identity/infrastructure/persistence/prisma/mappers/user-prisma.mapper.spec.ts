@@ -1,4 +1,4 @@
-import { UserRole as PrismaUserRole, UserStatus as PrismaUserStatus } from "@prisma/client";
+import { LegacyUserRole as PrismaUserRole, UserStatus as PrismaUserStatus } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { OrganizationId } from "../../../../domain/organization/organization-id";
 import { Email } from "../../../../domain/user/email";

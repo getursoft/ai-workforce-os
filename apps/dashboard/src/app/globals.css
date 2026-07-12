@@ -208,6 +208,27 @@ button {
   font-size: 0.92rem;
 }
 
+.password-requirements {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.password-requirements p,
+.password-requirements ul {
+  margin: 0;
+}
+
+.password-requirements ul {
+  display: grid;
+  gap: 3px;
+  padding: 6px 0 0;
+  list-style: none;
+}
+
+.password-requirements .is-met {
+  color: var(--success, #15803d);
+}
+
 .ui-label {
   color: var(--foreground);
   font-weight: 600;
@@ -365,8 +386,12 @@ button {
 
 .ui-skeleton {
   border-radius: 24px;
-  background:
-    linear-gradient(90deg, rgba(148, 163, 184, 0.12), rgba(148, 163, 184, 0.2), rgba(148, 163, 184, 0.12));
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12),
+    rgba(148, 163, 184, 0.2),
+    rgba(148, 163, 184, 0.12)
+  );
   background-size: 200% 100%;
   animation: ui-shimmer 1.5s infinite;
 }
@@ -585,7 +610,9 @@ button {
   align-items: center;
   color: var(--muted);
   font-weight: 700;
-  transition: background-color 160ms ease, color 160ms ease;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
 }
 
 .dashboard-nav__item:hover {
@@ -756,7 +783,10 @@ button {
   min-height: 168px;
   padding: 24px;
   border-color: rgba(255, 255, 255, 0.82);
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease;
 }
 
 .dashboard-home .ui-summary-card::before {
@@ -833,7 +863,9 @@ button {
   border-radius: 14px;
   color: var(--primary);
   font-weight: 700;
-  transition: background-color 160ms ease, transform 160ms ease;
+  transition:
+    background-color 160ms ease,
+    transform 160ms ease;
 }
 
 .dashboard-list a::before {
@@ -886,9 +918,7 @@ button {
 }
 
 .dashboard-home > .ui-card {
-  background:
-    linear-gradient(120deg, rgba(29, 78, 216, 0.045), transparent 42%),
-    var(--surface);
+  background: linear-gradient(120deg, rgba(29, 78, 216, 0.045), transparent 42%), var(--surface);
 }
 
 .dashboard-home > .ui-card > .ui-empty {
@@ -899,6 +929,138 @@ button {
 .dashboard-placeholder {
   display: grid;
   gap: 20px;
+}
+
+.organization-page,
+.organization-loading {
+  display: grid;
+  gap: 24px;
+  width: min(100%, 1120px);
+}
+
+.organization-card {
+  padding: clamp(22px, 3vw, 32px);
+  display: grid;
+  gap: 24px;
+}
+
+.organization-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.organization-card h2,
+.organization-empty h2 {
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+.organization-eyebrow {
+  margin: 0 0 7px;
+  color: var(--primary);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.organization-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.organization-form__wide {
+  grid-column: 1 / -1;
+}
+
+.organization-field-value {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
+.organization-form__footer {
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.organization-form__actions {
+  display: flex;
+  gap: 12px;
+}
+
+.organization-unsaved {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.organization-unsaved--active {
+  color: var(--warning);
+}
+
+.organization-unsaved--active::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.organization-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.organization-loading__card {
+  min-height: 290px;
+}
+
+.organization-loading__card--large {
+  min-height: 430px;
+}
+
+.organization-empty {
+  padding: 36px;
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+}
+
+.organization-empty p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.organization-toast {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 50;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 16px 20px;
+  border: 1px solid rgba(15, 157, 88, 0.24);
+  border-radius: 16px;
+  color: #0b6b3d;
+  background: rgba(240, 253, 244, 0.96);
+  box-shadow: var(--shadow-soft);
+  font-weight: 750;
+  backdrop-filter: blur(14px);
 }
 
 .profile-card {
@@ -1040,6 +1202,29 @@ button {
 
   .dashboard-user-chip {
     display: none;
+  }
+
+  .organization-form {
+    grid-template-columns: 1fr;
+  }
+
+  .organization-form__wide {
+    grid-column: auto;
+  }
+
+  .organization-form__footer,
+  .organization-card__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .organization-form__actions > * {
+    flex: 1;
+  }
+
+  .organization-toast {
+    right: 18px;
+    bottom: 18px;
   }
 
   .dashboard-home {

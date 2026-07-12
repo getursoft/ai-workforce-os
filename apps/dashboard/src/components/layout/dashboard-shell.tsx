@@ -5,15 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
 import { buildLoginRedirectPath } from "../../lib/return-url";
-import {
-  Avatar,
-  Badge,
-  Button,
-  Card,
-  DropdownMenu,
-  PageHeader,
-  Skeleton
-} from "../ui";
+import { Avatar, Badge, Button, Card, DropdownMenu, PageHeader, Skeleton } from "../ui";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
 
 const NAV_ITEMS = [
@@ -24,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/knowledge", label: "Knowledge" },
   { href: "/dashboard/integrations", label: "Integrations" },
   { href: "/dashboard/team", label: "Team" },
+  { href: "/dashboard/organization", label: "Organization" },
   { href: "/dashboard/settings", label: "Settings" }
 ] as const;
 
@@ -49,7 +42,9 @@ export function DashboardShell({
       return;
     }
     if (!state.isAuthenticated) {
-      router.replace(buildLoginRedirectPath(`${pathname}${search.toString() ? `?${search.toString()}` : ""}`));
+      router.replace(
+        buildLoginRedirectPath(`${pathname}${search.toString() ? `?${search.toString()}` : ""}`)
+      );
     }
   }, [pathname, router, search, state.isAuthenticated, state.isInitializing]);
 
@@ -57,7 +52,11 @@ export function DashboardShell({
     return (
       <main className="dashboard-shell dashboard-shell--loading">
         <section className="dashboard-loading">
-          <PageHeader eyebrow="AI Workforce OS" title="Loading your workspace" description="Restoring your authenticated session." />
+          <PageHeader
+            eyebrow="AI Workforce OS"
+            title="Loading your workspace"
+            description="Restoring your authenticated session."
+          />
           <div className="dashboard-loading__grid">
             <Skeleton className="dashboard-loading__sidebar" />
             <Skeleton className="dashboard-loading__content" />
@@ -141,18 +140,18 @@ export function DashboardShell({
                 <Link href="/dashboard/profile">Profile</Link>
                 <Link href="/dashboard/settings/sessions">Sessions</Link>
                 <Link href="/dashboard/settings">Settings</Link>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="dashboard-user-menu__logout"
-                    onClick={async () => {
-                      try {
-                        await logout();
-                      } finally {
-                        router.replace("/login");
-                      }
-                    }}
-                  >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="dashboard-user-menu__logout"
+                  onClick={async () => {
+                    try {
+                      await logout();
+                    } finally {
+                      router.replace("/login");
+                    }
+                  }}
+                >
                   Logout
                 </Button>
               </div>

@@ -53,17 +53,35 @@ import { RequestIdMiddleware } from "./presentation/http/request-id.middleware";
 import { SecurityEventLogger } from "./presentation/http/security-event-logger";
 import { AuditEventLogger } from "./presentation/http/audit-event.logger";
 import { GET_ORGANIZATION, GetOrganizationHandler } from "./application/handlers/get-organization";
-import { GET_ORGANIZATION_SETTINGS, GetOrganizationSettingsHandler } from "./application/handlers/get-organization-settings";
-import { UPDATE_ORGANIZATION, UpdateOrganizationHandler } from "./application/handlers/update-organization";
+import {
+  GET_ORGANIZATION_SETTINGS,
+  GetOrganizationSettingsHandler
+} from "./application/handlers/get-organization-settings";
+import {
+  UPDATE_ORGANIZATION,
+  UpdateOrganizationHandler
+} from "./application/handlers/update-organization";
 import {
   UPDATE_ORGANIZATION_SETTINGS,
   UpdateOrganizationSettingsHandler
 } from "./application/handlers/update-organization-settings";
 import type { OrganizationSettingRepository } from "./application/ports/organization-setting-repository";
+import { AuthorizationService } from "./application/services/authorization.service";
+import { ManagementService } from "./application/services/management.service";
+import {
+  InvitationAcceptanceController,
+  ManagementController
+} from "./presentation/http/management.controller";
+import { PermissionGuard } from "./presentation/http/permission.guard";
 
 @Module({
   imports: [PrismaModule],
-  controllers: [AuthController, OrganizationsController],
+  controllers: [
+    AuthController,
+    OrganizationsController,
+    ManagementController,
+    InvitationAcceptanceController
+  ],
   providers: [
     {
       provide: SECURITY_CONFIG,
@@ -279,7 +297,14 @@ import type { OrganizationSettingRepository } from "./application/ports/organiza
         organizationSettings: OrganizationSettingRepository,
         unitOfWork: IdentityUnitOfWork,
         identifiers: IdentifierGenerator
-      ) => new GetOrganizationSettingsHandler(users, organizations, organizationSettings, unitOfWork, identifiers)
+      ) =>
+        new GetOrganizationSettingsHandler(
+          users,
+          organizations,
+          organizationSettings,
+          unitOfWork,
+          identifiers
+        )
     },
     {
       provide: UPDATE_ORGANIZATION_SETTINGS,
@@ -308,7 +333,10 @@ import type { OrganizationSettingRepository } from "./application/ports/organiza
     JwtAccessGuard,
     RequestIdMiddleware,
     SecurityEventLogger,
-    AuditEventLogger
+    AuditEventLogger,
+    AuthorizationService,
+    ManagementService,
+    PermissionGuard
   ],
   exports: [
     ORGANIZATION_REPOSITORY,
@@ -320,7 +348,8 @@ import type { OrganizationSettingRepository } from "./application/ports/organiza
     ACCESS_TOKEN_SERVICE,
     REFRESH_TOKEN_SERVICE,
     CLOCK,
-    IDENTIFIER_GENERATOR
+    IDENTIFIER_GENERATOR,
+    AuthorizationService
   ]
 })
 export class IdentityModule implements NestModule {

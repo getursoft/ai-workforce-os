@@ -54,8 +54,18 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <section className={mergeClassNames("ui-card", className)} {...props} />;
 }
 
-export function Badge({ className, children, tone = "neutral" }: Readonly<{ className?: string; children: ReactNode; tone?: "neutral" | "success" | "warning" | "danger" }>) {
-  return <span className={mergeClassNames("ui-badge", `ui-badge--${tone}`, className)}>{children}</span>;
+export function Badge({
+  className,
+  children,
+  tone = "neutral"
+}: Readonly<{
+  className?: string;
+  children: ReactNode;
+  tone?: "neutral" | "success" | "warning" | "danger";
+}>) {
+  return (
+    <span className={mergeClassNames("ui-badge", `ui-badge--${tone}`, className)}>{children}</span>
+  );
 }
 
 export function Avatar({ name, className }: Readonly<{ name: string; className?: string }>) {
@@ -69,7 +79,11 @@ export function Avatar({ name, className }: Readonly<{ name: string; className?:
         .join("") || "A",
     [name]
   );
-  return <div className={mergeClassNames("ui-avatar", className)} aria-label={name}>{initials}</div>;
+  return (
+    <div className={mergeClassNames("ui-avatar", className)} aria-label={name}>
+      {initials}
+    </div>
+  );
 }
 
 export function Skeleton({ className }: Readonly<{ className?: string }>) {
@@ -81,7 +95,12 @@ export function Alert({
   tone = "neutral",
   title,
   children
-}: Readonly<{ className?: string; tone?: "neutral" | "success" | "warning" | "danger"; title: string; children?: ReactNode }>) {
+}: Readonly<{
+  className?: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+  title: string;
+  children?: ReactNode;
+}>) {
   return (
     <div className={mergeClassNames("ui-alert", `ui-alert--${tone}`, className)} role="alert">
       <strong>{title}</strong>
@@ -142,7 +161,9 @@ export function PasswordInput({
   value,
   onChange,
   autoComplete = "current-password",
-  placeholder
+  placeholder,
+  ariaInvalid,
+  ariaDescribedBy
 }: Readonly<{
   id: string;
   label: string;
@@ -150,6 +171,8 @@ export function PasswordInput({
   onChange(value: string): void;
   autoComplete?: string;
   placeholder?: string;
+  ariaInvalid?: boolean;
+  ariaDescribedBy?: string;
 }>) {
   const [visible, setVisible] = useState(false);
   return (
@@ -162,6 +185,8 @@ export function PasswordInput({
           value={value}
           autoComplete={autoComplete}
           placeholder={placeholder}
+          aria-invalid={ariaInvalid}
+          aria-describedby={ariaDescribedBy}
           onChange={(event) => onChange(event.target.value)}
         />
         <Button
@@ -236,7 +261,11 @@ export function DropdownMenu({
   trigger,
   triggerProps,
   children
-}: Readonly<{ trigger: ReactNode; triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>; children: ReactNode }>) {
+}: Readonly<{
+  trigger: ReactNode;
+  triggerProps?: ButtonHTMLAttributes<HTMLButtonElement>;
+  children: ReactNode;
+}>) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
