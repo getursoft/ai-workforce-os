@@ -674,6 +674,9 @@ button {
   border: none;
   padding: 0;
   background: transparent;
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: hidden;
 }
 
 .ui-dialog::backdrop {
@@ -682,7 +685,8 @@ button {
 }
 
 .ui-dialog__panel {
-  width: min(92vw, 560px);
+  width: min(calc(100vw - 32px), 680px);
+  box-sizing: border-box;
   margin: auto;
   border-radius: 24px;
   padding: 24px;
@@ -691,6 +695,46 @@ button {
   box-shadow: var(--shadow);
   max-height: min(88vh, 760px);
   overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.ui-dialog__panel > *,
+.plugin-configuration-dialog,
+.plugin-ai-section,
+.plugin-ai-form,
+.plugin-configuration-form {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.plugin-configuration-dialog {
+  display: grid;
+  gap: 24px;
+}
+
+.plugin-ai-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plugin-ai-field > input,
+.plugin-ai-field > select,
+.plugin-ai-form input,
+.plugin-ai-form select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.plugin-ai-field small {
+  overflow-wrap: anywhere;
+}
+
+.field-error {
+  color: var(--danger);
 }
 
 .ui-dialog__actions {
@@ -702,6 +746,22 @@ button {
   bottom: -24px;
   padding: 16px 0 4px;
   background: var(--surface-strong);
+  flex-wrap: wrap;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  .ui-dialog__panel {
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    padding: 18px;
+    border-radius: 18px;
+  }
+  .ui-dialog__actions > button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
 }
 
 .ui-dropdown {
