@@ -3,6 +3,7 @@ import type { AuthenticatedPrincipal } from "../../application/ports/authenticat
 export interface IdentityRequest {
   requestId: string;
   principal?: AuthenticatedPrincipal;
+  servicePermissions?: readonly string[];
   header(name: string): string | undefined;
 }
 

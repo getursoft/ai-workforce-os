@@ -10,7 +10,7 @@
     "test": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism",
     "test:unit": "vitest run --exclude '**/*.integration.spec.ts' --exclude '**/*.e2e.spec.ts'",
     "test:integration": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run src/identity/infrastructure/persistence/prisma/prisma-repositories.integration.spec.ts",
-    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/teams/team.e2e.spec.ts",
+    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/teams/team.e2e.spec.ts src/service-accounts/service-account.e2e.spec.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

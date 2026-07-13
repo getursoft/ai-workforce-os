@@ -22,6 +22,7 @@ export interface SecurityConfig {
     expiresInSeconds: number;
     pepper: string;
   };
+  apiKey: { pepper: string };
   browserAuth: {
     cookieDomain?: string;
     cookieSecure: boolean;
@@ -80,11 +81,7 @@ function optionalString(environment: Environment, variable: string): string | un
   return value ? value : undefined;
 }
 
-function boolean(
-  environment: Environment,
-  variable: string,
-  fallback: boolean
-): boolean {
+function boolean(environment: Environment, variable: string, fallback: boolean): boolean {
   const value = environment[variable]?.trim();
   if (!value) {
     return fallback;
@@ -142,6 +139,7 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
       expiresInSeconds: integer(environment, "REFRESH_TOKEN_EXPIRES_IN_SECONDS", 1, 31_536_000),
       pepper: secret(environment, "REFRESH_TOKEN_PEPPER")
     },
+    apiKey: { pepper: secret(environment, "API_KEY_PEPPER") },
     browserAuth
   };
 }

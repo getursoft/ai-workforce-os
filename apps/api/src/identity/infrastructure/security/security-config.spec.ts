@@ -12,6 +12,7 @@ function validEnvironment(): Record<string, string | undefined> {
     JWT_ACCESS_AUDIENCE: "test-audience",
     REFRESH_TOKEN_EXPIRES_IN_SECONDS: "2592000",
     REFRESH_TOKEN_PEPPER: "refresh-test-pepper-with-more-than-thirty-two-bytes",
+    API_KEY_PEPPER: "api-key-test-pepper-with-more-than-thirty-two-bytes",
     COOKIE_SECURE: "false",
     COOKIE_SAME_SITE: "lax",
     COOKIE_DOMAIN: "",

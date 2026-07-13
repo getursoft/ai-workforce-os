@@ -18,8 +18,14 @@ export class PermissionGuard implements CanActivate {
     if (!requirement) return true;
     const principal = context.switchToHttp().getRequest<IdentityRequest>().principal;
     if (!principal) throw new ForbiddenException("Authenticated principal is required");
-    const allowed =
-      requirement.mode === "any"
+    const servicePermissions = context
+      .switchToHttp()
+      .getRequest<IdentityRequest>().servicePermissions;
+    const allowed = servicePermissions
+      ? requirement.mode === "any"
+        ? requirement.permissions.some((x) => servicePermissions.includes(x))
+        : requirement.permissions.every((x) => servicePermissions.includes(x))
+      : requirement.mode === "any"
         ? await this.authorization.hasAnyPermission(
             principal.userId.toString(),
             principal.organizationId.toString(),

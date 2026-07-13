@@ -22,6 +22,11 @@ const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[]
 ] as const;
 
 export const ADMIN_ITEMS = [
+  {
+    href: "/dashboard/service-accounts",
+    label: "Service Accounts",
+    permission: "service_accounts.read"
+  },
   { href: "/dashboard/settings/users", label: "Users", permission: "users.read" },
   { href: "/dashboard/settings/roles", label: "Roles", permission: "roles.read" },
   { href: "/dashboard/settings/permissions", label: "Permissions", permission: "roles.read" },

@@ -352,8 +352,9 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     AuthorizationService,
     JwtAccessGuard,
     PermissionGuard,
-    AuditEventLogger
-    ,SecurityEventLogger
+    AuditEventLogger,
+    SecurityEventLogger,
+    SECURITY_CONFIG
   ]
 })
 export class IdentityModule implements NestModule {

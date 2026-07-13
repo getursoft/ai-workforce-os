@@ -18,7 +18,16 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_DELETE",
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
-    "TEAM_MEMBER_UPDATE"
+    "TEAM_MEMBER_UPDATE",
+    "service_accounts.read",
+    "service_accounts.create",
+    "service_accounts.update",
+    "service_accounts.delete",
+    "service_accounts.roles.manage",
+    "api_keys.read",
+    "api_keys.create",
+    "api_keys.rotate",
+    "api_keys.revoke"
   ],
   Admin: [
     "users.read",
@@ -35,7 +44,16 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_DELETE",
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
-    "TEAM_MEMBER_UPDATE"
+    "TEAM_MEMBER_UPDATE",
+    "service_accounts.read",
+    "service_accounts.create",
+    "service_accounts.update",
+    "service_accounts.delete",
+    "service_accounts.roles.manage",
+    "api_keys.read",
+    "api_keys.create",
+    "api_keys.rotate",
+    "api_keys.revoke"
   ],
   Manager: [
     "users.read",
@@ -47,7 +65,9 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_UPDATE",
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
-    "TEAM_MEMBER_UPDATE"
+    "TEAM_MEMBER_UPDATE",
+    "service_accounts.read",
+    "api_keys.read"
   ],
   Member: ["users.read", "roles.read", "TEAM_READ"],
   Viewer: ["users.read", "TEAM_READ"]
@@ -68,7 +88,16 @@ const descriptions: Record<string, string> = {
   TEAM_DELETE: "Archive teams",
   TEAM_MEMBER_ADD: "Add team members",
   TEAM_MEMBER_REMOVE: "Remove team members",
-  TEAM_MEMBER_UPDATE: "Update team members"
+  TEAM_MEMBER_UPDATE: "Update team members",
+  "service_accounts.read": "View service accounts",
+  "service_accounts.create": "Create service accounts",
+  "service_accounts.update": "Update service accounts",
+  "service_accounts.delete": "Archive service accounts",
+  "service_accounts.roles.manage": "Manage service account roles",
+  "api_keys.read": "View API key metadata",
+  "api_keys.create": "Create API keys",
+  "api_keys.rotate": "Rotate API keys",
+  "api_keys.revoke": "Revoke API keys"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
