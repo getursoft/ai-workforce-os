@@ -1,15 +1,10 @@
 import type { Metadata } from "next";
-import { PlaceholderPage } from "../../../components/dashboard/placeholder-page";
+import { ConversationsPage as ConversationsView } from "../../../features/agents/agent-pages";
 
 export const metadata: Metadata = {
   title: "Conversations | AI Workforce OS"
 };
 
 export default function ConversationsPage() {
-  return (
-    <PlaceholderPage
-      title="Conversations"
-      description="Conversation tooling is reserved for later sprint work."
-    />
-  );
+  return <ConversationsView />;
 }

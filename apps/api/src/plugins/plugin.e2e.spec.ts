@@ -17,7 +17,7 @@ for (const c of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "..
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 suite("Plugin runtime HTTP", () => {
-  let app: INestApplication, prisma: PrismaService, token: string, pluginId: string;
+  let app: INestApplication, prisma: PrismaService, token: string, pluginId: string, email: string;
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
     app.setGlobalPrefix("api/v1");
@@ -29,12 +29,13 @@ suite("Plugin runtime HTTP", () => {
     prisma = app.get(PrismaService);
     await prisma.pluginConfiguration.deleteMany();
     await prisma.plugin.deleteMany();
+    email = `plugin-${Date.now()}@example.com`;
     const r = await request(app.getHttpServer())
       .post("/api/v1/auth/register")
       .send({
         organizationName: "Plugin Org",
         firstName: "Owner",
-        email: `plugin-${Date.now()}@example.com`,
+        email,
         password: "StrongPassword@123"
       })
       .expect(201);
@@ -75,6 +76,32 @@ suite("Plugin runtime HTTP", () => {
       .set(auth)
       .expect(200);
     expect(health.body.status).toBe("READY");
+    const aiConfigured = await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .set(auth)
+      .send({
+        providerType: "DETERMINISTIC",
+        timeoutMs: 5000,
+        secrets: { apiKey: "never-return-this" }
+      })
+      .expect(200);
+    expect(aiConfigured.body.secrets.apiKey.configured).toBe(true);
+    expect(JSON.stringify(aiConfigured.body)).not.toContain("never-return-this");
+    const storedAi = await prisma.pluginAiConfiguration.findUniqueOrThrow({
+      where: { pluginInstallationId: pluginId }
+    });
+    expect(JSON.stringify(storedAi.encryptedSecrets)).not.toContain("never-return-this");
+    await request(app.getHttpServer())
+      .post(`/api/v1/plugins/${pluginId}/ai-configuration/test`)
+      .set(auth)
+      .expect(201);
+    const chat = await request(app.getHttpServer())
+      .post(`/api/v1/plugins/${pluginId}/chat`)
+      .set(auth)
+      .send({ message: "Plan a five-day Dubai trip for a family." })
+      .expect(201);
+    expect(chat.body.message).toContain("No booking was performed");
+    expect(chat.body.provider).toBe("deterministic");
     await request(app.getHttpServer())
       .post(`/api/v1/plugins/${pluginId}/disable`)
       .set(auth)
@@ -116,13 +143,71 @@ suite("Plugin runtime HTTP", () => {
       .set(auth)
       .send({
         pluginId: "dummy-echo",
-        grantedPermissions: ["MEMORY"],
+        grantedPermissions: [],
         configuration: { config: { prefix: "Scoped" }, secrets: {} },
         enable: true
       })
       .expect(201);
-    expect(installed.body.grantedPermissions).toEqual(["MEMORY"]);
+    expect(installed.body.grantedPermissions).toEqual([]);
     expect(installed.body.status).toBe("ACTIVE");
+    const granted = await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/grants`)
+      .set(auth)
+      .send({ grantedPermissions: ["MEMORY"] })
+      .expect(200);
+    expect(granted.body.grantedPermissions).toEqual(["MEMORY"]);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/grants`)
+      .set(auth)
+      .send({ grantedPermissions: ["UNDECLARED"] })
+      .expect(422);
+    expect(
+      (await prisma.plugin.findUniqueOrThrow({ where: { id: installed.body.id } }))
+        .grantedPermissions
+    ).toEqual(["MEMORY"]);
+    const employees = await request(app.getHttpServer())
+      .get("/api/v1/agents")
+      .set(auth)
+      .expect(200);
+    expect(
+      employees.body.find((item: { id: string }) => item.id === installed.body.id).runtimeReady
+    ).toBe(true);
+    const owner = await prisma.user.findFirstOrThrow({ where: { email } });
+    const ownerRole = await prisma.role.findFirstOrThrow({
+      where: { organizationId: owner.organizationId, name: "Owner" }
+    });
+    const memberRole = await prisma.role.findFirstOrThrow({
+      where: { organizationId: owner.organizationId, name: "Member" }
+    });
+    await prisma.userRole.delete({
+      where: { userId_roleId: { userId: owner.id, roleId: ownerRole.id } }
+    });
+    await prisma.userRole.create({ data: { userId: owner.id, roleId: memberRole.id } });
+    await prisma.user.update({ where: { id: owner.id }, data: { role: "MEMBER" } });
+    const memberLogin = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .send({ email, password: "StrongPassword@123" })
+      .expect(200);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/grants`)
+      .set("Authorization", `Bearer ${memberLogin.body.data.tokens.accessToken}`)
+      .send({ grantedPermissions: [] })
+      .expect(403);
+    await prisma.user.update({ where: { id: owner.id }, data: { role: "OWNER" } });
+    await prisma.userRole.delete({
+      where: { userId_roleId: { userId: owner.id, roleId: memberRole.id } }
+    });
+    await prisma.userRole.create({ data: { userId: owner.id, roleId: ownerRole.id } });
+    const revoked = await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/grants`)
+      .set(auth)
+      .send({ grantedPermissions: [] })
+      .expect(200);
+    expect(revoked.body.grantedPermissions).toEqual([]);
+    const notReady = await request(app.getHttpServer()).get("/api/v1/agents").set(auth).expect(200);
+    expect(
+      notReady.body.find((item: { id: string }) => item.id === installed.body.id).runtimeReady
+    ).toBe(false);
     const installedCatalogue = await request(app.getHttpServer())
       .get("/api/v1/plugins/available")
       .set(auth)

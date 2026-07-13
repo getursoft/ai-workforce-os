@@ -11,9 +11,10 @@ import { useEffectivePermissions } from "../../features/admin/authorization";
 
 const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/dashboard/ai-employees", label: "AI Employees" },
+  { href: "/ai-employees", label: "AI Employees", permission: "agents.run" },
   { href: "/dashboard/tasks", label: "Tasks" },
-  { href: "/dashboard/conversations", label: "Conversations" },
+  { href: "/conversations", label: "Conversations", permission: "agents.conversations.read" },
+  { href: "/execution-history", label: "Execution History", permission: "agents.executions.read" },
   { href: "/dashboard/knowledge", label: "Knowledge" },
   { href: "/dashboard/integrations", label: "Integrations" },
   { href: "/teams", label: "Teams", permission: "TEAM_READ" },

@@ -15,12 +15,14 @@ import {
 } from "../../components/ui";
 import {
   createPluginApi,
+  type PluginAiConfiguration,
   type PluginRecord,
   type PluginStatus,
   type PublicPluginManifest
 } from "./plugin-api";
 import { SchemaFields, valuesFromForm, isSecretProperty } from "./plugin-schema-form";
 import { canInstallPlugin, displayedHealth, isHealthPending } from "./plugin-page.logic";
+import { CapabilityGrants } from "./capability-grants";
 const key = ["plugins"] as const;
 function useApi() {
   const { client } = useAuth();
@@ -232,6 +234,7 @@ export function PluginsPage() {
           plugin={configuration}
           close={() => setConfiguration(null)}
           api={api}
+          refresh={refresh}
         />
       ) : null}
     </AccessGate>
@@ -355,15 +358,41 @@ function InstallDialog({
 function ConfigurationDialog({
   plugin,
   close,
-  api
+  api,
+  refresh
 }: {
   plugin: PluginRecord;
   close: () => void;
   api: ReturnType<typeof createPluginApi>;
+  refresh: () => Promise<unknown>;
 }) {
+  const { state } = useAuth();
+  const [currentGrants, setCurrentGrants] = useState(plugin.grantedPermissions);
   const q = useQuery({
     queryKey: [...key, plugin.id, "configuration"],
     queryFn: () => api.configuration(plugin.id)
+  });
+  const ai = useQuery({
+    queryKey: [...key, plugin.id, "ai-configuration"],
+    queryFn: () => api.aiConfiguration(plugin.id)
+  });
+  const [chatMessages, setChatMessages] = useState<
+    Array<{ role: "user" | "assistant"; content: string }>
+  >([]);
+  const aiSave = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.updateAiConfiguration(plugin.id, body),
+    onSuccess: () => void ai.refetch()
+  });
+  const aiTest = useMutation({ mutationFn: () => api.testAiConfiguration(plugin.id) });
+  const chat = useMutation({
+    mutationFn: (message: string) =>
+      api.chat(plugin.id, { message, conversation: chatMessages.slice(-20) }),
+    onSuccess: (result, message) =>
+      setChatMessages((old) => [
+        ...old,
+        { role: "user", content: message },
+        { role: "assistant", content: result.message }
+      ])
   });
   const m = useMutation({
     mutationFn: (body: {
@@ -371,6 +400,18 @@ function ConfigurationDialog({
       secrets: Record<string, string | null>;
     }) => api.updateConfiguration(plugin.id, body),
     onSuccess: () => close()
+  });
+  const grants = useMutation({
+    mutationFn: ({ capability, grant }: { capability: string; grant: boolean }) => {
+      const next = new Set(currentGrants);
+      if (grant) next.add(capability);
+      else next.delete(capability);
+      return api.updateGrants(plugin.id, [...next]);
+    },
+    onSuccess: async (updated) => {
+      setCurrentGrants(updated.grantedPermissions);
+      await refresh();
+    }
   });
   if (q.isLoading) return <Skeleton />;
   const schema = plugin.manifest.configSchema,
@@ -396,6 +437,41 @@ function ConfigurationDialog({
           m.mutate({ config: valuesFromForm(form, schema, false), secrets });
         }}
       >
+        <CapabilityGrants
+          declared={[...plugin.manifest.permissions, ...plugin.manifest.capabilities]}
+          granted={currentGrants}
+          canManage={state.user?.role === "OWNER" || state.user?.role === "ADMIN"}
+          {...(grants.isPending && grants.variables?.capability
+            ? { pending: grants.variables.capability }
+            : {})}
+          onChange={(capability, grant) => grants.mutate({ capability, grant })}
+        />
+        {grants.isSuccess ? <Alert tone="success" title="Capability grants updated" /> : null}
+        {grants.isError ? (
+          <Alert tone="danger" title="Unable to update capability grants">
+            Your previous grants remain unchanged.
+          </Alert>
+        ) : null}
+        <AiProviderSection
+          plugin={plugin}
+          configuration={ai.data}
+          canManage={state.user?.role === "OWNER" || state.user?.role === "ADMIN"}
+          saving={aiSave.isPending}
+          testing={aiTest.isPending}
+          save={(body) => aiSave.mutate(body)}
+          test={() => aiTest.mutate()}
+          saveError={aiSave.isError}
+          {...(aiTest.isSuccess
+            ? { testState: "success" as const }
+            : aiTest.isError
+              ? { testState: "error" as const }
+              : {})}
+          chatMessages={chatMessages}
+          chatPending={chat.isPending}
+          chatError={chat.isError}
+          send={(message) => chat.mutate(message)}
+          llmGranted={currentGrants.includes("LLM")}
+        />
         <section>
           <h3>Configuration</h3>
           <SchemaFields schema={schema} values={q.data?.config} />
@@ -431,6 +507,205 @@ function ConfigurationDialog({
         </div>
       </form>
     </Dialog>
+  );
+}
+
+function AiProviderSection({
+  plugin,
+  configuration,
+  canManage,
+  saving,
+  testing,
+  save,
+  test,
+  saveError,
+  testState,
+  chatMessages,
+  chatPending,
+  chatError,
+  send,
+  llmGranted
+}: {
+  plugin: PluginRecord;
+  configuration: PluginAiConfiguration | undefined;
+  canManage: boolean;
+  saving: boolean;
+  testing: boolean;
+  save: (body: Record<string, unknown>) => void;
+  test: () => void;
+  saveError: boolean;
+  testState?: "success" | "error";
+  chatMessages: Array<{ role: "user" | "assistant"; content: string }>;
+  chatPending: boolean;
+  chatError: boolean;
+  send: (message: string) => void;
+  llmGranted: boolean;
+}) {
+  const provider = configuration?.providerType ?? "DETERMINISTIC";
+  return (
+    <section>
+      <h3>AI Provider Configuration</h3>
+      <p>Provider credentials are encrypted. Stored secrets are never displayed.</p>
+      <form
+        className="admin-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          const nextProvider = String(data.get("providerType"));
+          const body: Record<string, unknown> = {
+            providerType: nextProvider,
+            timeoutMs: Number(data.get("timeoutMs") || 30000)
+          };
+          for (const key of ["model", "baseUrl", "endpoint", "deploymentName", "apiVersion"]) {
+            const value = String(data.get(key) ?? "").trim();
+            if (value) body[key] = value;
+          }
+          const apiKey = String(data.get("apiKey") ?? "").trim();
+          if (apiKey) body.secrets = { apiKey };
+          if (data.get("removeApiKey")) body.removeSecrets = ["apiKey"];
+          save(body);
+        }}
+      >
+        <label>
+          Provider type
+          <select name="providerType" defaultValue={provider} disabled={!canManage}>
+            <option value="DETERMINISTIC">Deterministic (development)</option>
+            <option value="OPENAI_COMPATIBLE">OpenAI-compatible</option>
+            <option value="AZURE_OPENAI">Azure OpenAI</option>
+          </select>
+        </label>
+        <Input
+          name="model"
+          aria-label="Model"
+          placeholder="Model"
+          defaultValue={configuration?.configuration.model ?? ""}
+          disabled={!canManage}
+        />
+        <Input
+          name="baseUrl"
+          aria-label="OpenAI-compatible base URL"
+          placeholder="OpenAI-compatible base URL"
+          defaultValue={configuration?.configuration.baseUrl ?? ""}
+          disabled={!canManage}
+        />
+        <Input
+          name="endpoint"
+          aria-label="Azure endpoint"
+          placeholder="Azure endpoint"
+          defaultValue={configuration?.configuration.endpoint ?? ""}
+          disabled={!canManage}
+        />
+        <Input
+          name="deploymentName"
+          aria-label="Azure deployment name"
+          placeholder="Azure deployment name"
+          defaultValue={configuration?.configuration.deploymentName ?? ""}
+          disabled={!canManage}
+        />
+        <Input
+          name="apiVersion"
+          aria-label="Azure API version"
+          placeholder="Azure API version"
+          defaultValue={configuration?.configuration.apiVersion ?? ""}
+          disabled={!canManage}
+        />
+        <Input
+          name="timeoutMs"
+          type="number"
+          aria-label="Timeout (milliseconds)"
+          placeholder="Timeout (milliseconds)"
+          defaultValue={String(configuration?.configuration.timeoutMs ?? 30000)}
+          disabled={!canManage}
+        />
+        <Input
+          name="apiKey"
+          type="password"
+          aria-label={`API key (${configuration?.secrets.apiKey.configured ? "Configured" : "Not configured"})`}
+          placeholder="Enter a new API key to replace the stored key"
+          autoComplete="new-password"
+          disabled={!canManage}
+        />
+        {canManage && configuration?.secrets.apiKey.configured ? (
+          <label>
+            <input type="checkbox" name="removeApiKey" /> Remove stored API key
+          </label>
+        ) : null}
+        {!canManage ? (
+          <p>Only organization Owners and Admins may change provider settings.</p>
+        ) : null}
+        {saveError ? (
+          <Alert tone="danger" title="Provider configuration was not saved">
+            Check the provider fields and try again.
+          </Alert>
+        ) : null}
+        {testState === "success" ? (
+          <Alert tone="success" title="Provider connection succeeded" />
+        ) : null}
+        {testState === "error" ? (
+          <Alert tone="danger" title="Provider connection failed">
+            Credentials and provider details could not be verified.
+          </Alert>
+        ) : null}
+        {canManage ? (
+          <div className="ui-dialog__actions">
+            <Button
+              type="button"
+              variant="secondary"
+              loading={testing}
+              disabled={testing || saving}
+              onClick={test}
+            >
+              Test connection
+            </Button>
+            <Button type="submit" loading={saving} disabled={saving || testing}>
+              Save AI provider
+            </Button>
+          </div>
+        ) : null}
+      </form>
+      <h3>Travel AI chat</h3>
+      <p>Use this assistant for planning only. It cannot complete bookings.</p>
+      {chatMessages.map((message, index) => (
+        <p key={index}>
+          <strong>{message.role === "user" ? "You" : "Travel AI"}:</strong> {message.content}
+        </p>
+      ))}
+      <form
+        className="admin-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const message = String(new FormData(form).get("message") ?? "").trim();
+          if (message) {
+            send(message);
+            form.reset();
+          }
+        }}
+      >
+        <Input
+          name="message"
+          aria-label="Message"
+          placeholder="Ask Travel AI"
+          disabled={
+            chatPending || plugin.status !== "ACTIVE" || !configuration?.configured || !llmGranted
+          }
+        />
+        {chatError ? (
+          <Alert tone="danger" title="Chat request failed">
+            The assistant is unavailable. Verify configuration, grants, and plugin status.
+          </Alert>
+        ) : null}
+        <Button
+          type="submit"
+          loading={chatPending}
+          disabled={
+            chatPending || plugin.status !== "ACTIVE" || !configuration?.configured || !llmGranted
+          }
+        >
+          Send
+        </Button>
+      </form>
+    </section>
   );
 }
 function permissionDescription(permission: string) {

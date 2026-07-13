@@ -30,6 +30,7 @@ import type {
   InstallPluginDto,
   PluginQueryDto,
   UpdatePluginConfigurationDto,
+  UpdatePluginGrantsDto,
   UpdatePluginDto
 } from "./plugin.dto";
 
@@ -205,6 +206,34 @@ export class PluginService implements OnModuleInit {
       }
     });
     return this.sanitize(updated);
+  }
+  async updateGrants(organizationId: string, id: string, dto: UpdatePluginGrantsDto) {
+    const plugin = await this.require(organizationId, id);
+    const manifest = plugin.manifest as unknown as PluginManifest;
+    const declared = new Set<string>([...manifest.permissions, ...(manifest.capabilities ?? [])]);
+    if (dto.grantedPermissions.some((permission) => !declared.has(permission)))
+      throw new UnprocessableEntityException("Granted permissions must be declared by the plugin");
+    return this.sanitize(
+      await this.prisma.plugin.update({
+        where: { id },
+        data: {
+          grantedPermissions: [
+            ...new Set(dto.grantedPermissions)
+          ] as unknown as Prisma.InputJsonValue
+        }
+      })
+    );
+  }
+  async canManageGrants(organizationId: string, userId: string): Promise<boolean> {
+    return (
+      (await this.prisma.userRole.count({
+        where: {
+          userId,
+          user: { organizationId, status: "ACTIVE", deletedAt: null },
+          role: { organizationId, isSystem: true, name: { in: ["Owner", "Admin"] } }
+        }
+      })) > 0
+    );
   }
   async enable(organizationId: string, id: string) {
     const plugin = await this.require(organizationId, id);

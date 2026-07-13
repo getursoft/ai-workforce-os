@@ -1,12 +1,14 @@
-import { PluginStatus } from "@prisma/client";
+import { PluginAiProviderType, PluginStatus } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
   IsArray,
   IsEnum,
   IsInt,
+  IsIn,
   IsObject,
   IsOptional,
   IsString,
+  ValidateNested,
   Max,
   MaxLength,
   Min
@@ -40,4 +42,34 @@ export class UpdatePluginDto {
 export class UpdatePluginConfigurationDto {
   @IsOptional() @IsObject() config?: Record<string, unknown>;
   @IsOptional() @IsObject() secrets?: Record<string, string | null>;
+}
+export class UpdatePluginGrantsDto {
+  @IsArray()
+  @IsString({ each: true })
+  grantedPermissions!: string[];
+}
+
+export class UpdatePluginAiConfigurationDto {
+  @IsOptional() @IsEnum(PluginAiProviderType) providerType?: PluginAiProviderType;
+  @IsOptional() @IsString() @MaxLength(200) model?: string;
+  @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string;
+  @IsOptional() @IsString() @MaxLength(1000) endpoint?: string;
+  @IsOptional() @IsString() @MaxLength(200) deploymentName?: string;
+  @IsOptional() @IsString() @MaxLength(100) apiVersion?: string;
+  @IsOptional() @IsInt() @Min(1000) @Max(120000) timeoutMs?: number;
+  @IsOptional() @IsObject() secrets?: { apiKey?: string };
+  @IsOptional() @IsArray() @IsString({ each: true }) removeSecrets?: string[];
+}
+
+export class PluginChatMessageDto {
+  @IsIn(["user", "assistant"]) role!: "user" | "assistant";
+  @IsString() @MaxLength(12000) content!: string;
+}
+export class PluginChatDto {
+  @IsString() @MaxLength(12000) message!: string;
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PluginChatMessageDto)
+  conversation?: PluginChatMessageDto[];
 }

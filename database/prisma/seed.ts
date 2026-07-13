@@ -32,7 +32,13 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.install",
     "plugin.update",
     "plugin.delete",
-    "plugin.execute"
+    "plugin.execute",
+    "agents.run",
+    "agents.conversations.read",
+    "agents.executions.read",
+    "agents.memory.read",
+    "agents.memory.write",
+    "agents.tools.execute"
   ],
   Admin: [
     "users.read",
@@ -63,7 +69,13 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.install",
     "plugin.update",
     "plugin.delete",
-    "plugin.execute"
+    "plugin.execute",
+    "agents.run",
+    "agents.conversations.read",
+    "agents.executions.read",
+    "agents.memory.read",
+    "agents.memory.write",
+    "agents.tools.execute"
   ],
   Manager: [
     "users.read",
@@ -81,9 +93,26 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.read",
     "plugin.install",
     "plugin.update",
-    "plugin.execute"
+    "plugin.execute",
+    "agents.run",
+    "agents.conversations.read",
+    "agents.executions.read",
+    "agents.memory.read",
+    "agents.memory.write",
+    "agents.tools.execute"
   ],
-  Member: ["users.read", "roles.read", "TEAM_READ", "plugin.read", "plugin.execute"],
+  Member: [
+    "users.read",
+    "roles.read",
+    "TEAM_READ",
+    "plugin.read",
+    "plugin.execute",
+    "agents.run",
+    "agents.conversations.read",
+    "agents.memory.read",
+    "agents.memory.write",
+    "agents.tools.execute"
+  ],
   Viewer: ["users.read", "TEAM_READ", "plugin.read"]
 } as const;
 
@@ -116,7 +145,13 @@ const descriptions: Record<string, string> = {
   "plugin.install": "Install plugins",
   "plugin.update": "Update plugin state and configuration",
   "plugin.delete": "Remove plugins",
-  "plugin.execute": "Execute plugin tools"
+  "plugin.execute": "Execute plugin tools",
+  "agents.run": "Run enabled AI employees",
+  "agents.conversations.read": "View agent conversations",
+  "agents.executions.read": "View agent execution history",
+  "agents.memory.read": "Read scoped agent memory",
+  "agents.memory.write": "Manage scoped agent memory",
+  "agents.tools.execute": "Execute approved agent tools"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

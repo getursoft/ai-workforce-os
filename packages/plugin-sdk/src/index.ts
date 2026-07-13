@@ -24,6 +24,39 @@ export enum PluginPermission {
   FILES = "FILES"
 }
 export type PluginCapability = string;
+export type AiMessageRole = "system" | "user" | "assistant" | "tool";
+export interface AiMessage {
+  role: AiMessageRole;
+  content: string;
+  name?: string;
+  toolCallId?: string;
+}
+export interface AiToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+export interface AiCompletionRequest {
+  messages: AiMessage[];
+  tools?: AiToolDefinition[];
+  temperature?: number;
+  maxOutputTokens?: number;
+}
+export interface AiToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+export interface AiCompletionResult {
+  content: string;
+  toolCalls: AiToolCall[];
+  provider: string;
+  model: string;
+  usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+}
+export interface AiProvider {
+  complete(request: AiCompletionRequest): Promise<AiCompletionResult>;
+}
 export interface PluginConfiguration {
   readonly values: Readonly<Record<string, unknown>>;
   readonly configuredSecretKeys: readonly string[];

@@ -49,12 +49,36 @@ export interface PluginRecord {
   updatedAt: string;
   lastHealthStatus: PluginHealthStatus | null;
   lastHealthCheckedAt: string | null;
+  grantedPermissions: string[];
 }
 export interface PluginConfiguration {
   pluginId: string;
   config: Record<string, unknown>;
   secretKeys: string[];
   updatedAt: string;
+}
+export type AiProviderType = "DETERMINISTIC" | "OPENAI_COMPATIBLE" | "AZURE_OPENAI";
+export interface PluginAiConfiguration {
+  pluginInstallationId: string;
+  configured: boolean;
+  providerType: AiProviderType | null;
+  configuration: {
+    model?: string;
+    baseUrl?: string;
+    endpoint?: string;
+    deploymentName?: string;
+    apiVersion?: string;
+    timeoutMs?: number;
+  };
+  secrets: { apiKey: { configured: boolean; updatedAt: string | null } };
+  updatedAt: string | null;
+}
+export interface PluginChatResult {
+  message: string;
+  provider: string;
+  model: string;
+  toolExecutions: Array<{ tool: string; status: string; durationMs: number }>;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 export function createPluginApi(client: ApiClient) {
   return {
@@ -100,10 +124,38 @@ export function createPluginApi(client: ApiClient) {
         method: "PATCH",
         body: JSON.stringify(body)
       }),
+    updateGrants: (id: string, grantedPermissions: string[]) =>
+      client.request<PluginRecord>(`/plugins/${id}/grants`, {
+        method: "PATCH",
+        body: JSON.stringify({ grantedPermissions })
+      }),
     health: (id: string) =>
       client.request<{ status: PluginHealthStatus | "DISABLED"; checkedAt: string }>(
         `/plugins/${id}/health`,
         { method: "POST" }
-      )
+      ),
+    aiConfiguration: (id: string) =>
+      client.request<PluginAiConfiguration>(`/plugins/${id}/ai-configuration`),
+    updateAiConfiguration: (id: string, body: Record<string, unknown>) =>
+      client.request<PluginAiConfiguration>(`/plugins/${id}/ai-configuration`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      }),
+    testAiConfiguration: (id: string) =>
+      client.request<{ success: boolean; provider: string; model: string }>(
+        `/plugins/${id}/ai-configuration/test`,
+        { method: "POST" }
+      ),
+    chat: (
+      id: string,
+      body: {
+        message: string;
+        conversation: Array<{ role: "user" | "assistant"; content: string }>;
+      }
+    ) =>
+      client.request<PluginChatResult>(`/plugins/${id}/chat`, {
+        method: "POST",
+        body: JSON.stringify(body)
+      })
   };
 }

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -22,11 +23,15 @@ import { RequirePermission } from "../identity/presentation/http/permission.deco
 import type { IdentityRequest } from "../identity/presentation/http/request-context";
 import {
   InstallPluginDto,
+  PluginChatDto,
   PluginQueryDto,
   UpdatePluginConfigurationDto,
-  UpdatePluginDto
+  UpdatePluginGrantsDto,
+  UpdatePluginDto,
+  UpdatePluginAiConfigurationDto
 } from "./plugin.dto";
 import { PluginService } from "./plugin.service";
+import { PluginAiService } from "./plugin-ai.service";
 
 @ApiTags("Plugins")
 @ApiBearerAuth()
@@ -35,6 +40,7 @@ import { PluginService } from "./plugin.service";
 export class PluginController {
   constructor(
     private readonly plugins: PluginService,
+    private readonly pluginAi: PluginAiService,
     private readonly audit: AuditEventLogger
   ) {}
   @Post("install") @RequirePermission("plugin.install") async install(
@@ -75,6 +81,18 @@ export class PluginController {
   ) {
     const result = await this.plugins.update(p.organizationId.toString(), id, dto);
     this.record("PLUGIN_UPDATED", req, p, id);
+    return result;
+  }
+  @Patch(":id/grants") @RequirePermission("plugin.update") async updateGrants(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdatePluginGrantsDto,
+    @Req() req: IdentityRequest
+  ) {
+    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
+      throw new ForbiddenException("PLUGIN_GRANT_MANAGEMENT_FORBIDDEN");
+    const result = await this.plugins.updateGrants(p.organizationId.toString(), id, dto);
+    this.record("PLUGIN_GRANTS_UPDATED", req, p, id);
     return result;
   }
   @Delete(":id") @RequirePermission("plugin.delete") @HttpCode(204) async remove(
@@ -149,6 +167,50 @@ export class PluginController {
     @Param("id", new ParseUUIDPipe()) id: string
   ) {
     return this.plugins.health(p.organizationId.toString(), id);
+  }
+  @Get(":id/ai-configuration") @RequirePermission("plugin.read") aiConfiguration(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string
+  ) {
+    return this.pluginAi.get(p.organizationId.toString(), id);
+  }
+  @Patch(":id/ai-configuration") @RequirePermission("plugin.update") async updateAiConfiguration(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdatePluginAiConfigurationDto,
+    @Req() req: IdentityRequest
+  ) {
+    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
+      throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
+    const result = await this.pluginAi.update(
+      p.organizationId.toString(),
+      p.userId.toString(),
+      id,
+      dto
+    );
+    this.record("PLUGIN_AI_CONFIGURATION_UPDATED", req, p, id);
+    return result;
+  }
+  @Post(":id/ai-configuration/test") @RequirePermission("plugin.update") async testAiConfiguration(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Req() req: IdentityRequest
+  ) {
+    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
+      throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
+    const result = await this.pluginAi.test(p.organizationId.toString(), id);
+    this.record("PLUGIN_AI_PROVIDER_TESTED", req, p, id);
+    return result;
+  }
+  @Post(":id/chat") @RequirePermission("plugin.execute") async chat(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: PluginChatDto,
+    @Req() req: IdentityRequest
+  ) {
+    const result = await this.pluginAi.chat(p.organizationId.toString(), id, dto);
+    this.record("PLUGIN_CHAT_EXECUTED", req, p, id);
+    return result;
   }
   private record(event: string, req: IdentityRequest, p: AuthenticatedPrincipal, targetId: string) {
     this.audit.record(event, req.requestId, {

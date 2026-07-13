@@ -80,21 +80,81 @@ enum PluginStatus {
   @@map("plugin_status")
 }
 
+enum ConversationStatus {
+  ACTIVE
+  ARCHIVED
+
+  @@map("conversation_status")
+}
+
+enum ConversationMessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+
+  @@map("conversation_message_role")
+}
+
+enum AgentExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  TIMED_OUT
+
+  @@map("agent_execution_status")
+}
+
+enum AgentToolExecutionStatus {
+  REQUESTED
+  RUNNING
+  COMPLETED
+  FAILED
+  DENIED
+  TIMED_OUT
+
+  @@map("agent_tool_execution_status")
+}
+
+enum AgentMemoryScope {
+  USER
+  CONVERSATION
+  PLUGIN
+  ORGANIZATION
+
+  @@map("agent_memory_scope")
+}
+
+enum PluginAiProviderType {
+  DETERMINISTIC
+  OPENAI_COMPATIBLE
+  AZURE_OPENAI
+
+  @@map("plugin_ai_provider_type")
+}
+
 model Organization {
-  id                   String                @id @default(uuid()) @db.Uuid
-  name                 String                @db.VarChar(120)
-  slug                 String                @unique @db.VarChar(100)
-  status               OrganizationStatus    @default(ACTIVE)
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
-  users                User[]
-  settings             OrganizationSetting?
-  roles                Role[]
-  invitations          Invitation[]
-  teams                Team[]
-  serviceAccounts      ServiceAccount[]
-  plugins              Plugin[]
-  pluginConfigurations PluginConfiguration[]
+  id                     String                  @id @default(uuid()) @db.Uuid
+  name                   String                  @db.VarChar(120)
+  slug                   String                  @unique @db.VarChar(100)
+  status                 OrganizationStatus      @default(ACTIVE)
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  users                  User[]
+  settings               OrganizationSetting?
+  roles                  Role[]
+  invitations            Invitation[]
+  teams                  Team[]
+  serviceAccounts        ServiceAccount[]
+  plugins                Plugin[]
+  pluginConfigurations   PluginConfiguration[]
+  conversations          Conversation[]
+  agentExecutions        AgentExecution[]
+  agentToolExecutions    AgentToolExecution[]
+  agentMemories          AgentMemory[]
+  pluginAiConfigurations PluginAiConfiguration[]
 
   @@map("organizations")
 }
@@ -113,29 +173,33 @@ model OrganizationSetting {
 }
 
 model User {
-  id                          String                  @id @default(uuid()) @db.Uuid
-  organizationId              String                  @map("organization_id") @db.Uuid
-  firstName                   String                  @map("first_name") @db.VarChar(80)
-  lastName                    String?                 @map("last_name") @db.VarChar(80)
-  email                       String                  @db.VarChar(320)
-  normalizedEmail             String                  @unique @map("normalized_email") @db.VarChar(320)
-  passwordHash                String                  @map("password_hash") @db.VarChar(255)
-  role                        LegacyUserRole
-  status                      UserStatus
-  lastLoginAt                 DateTime?               @map("last_login_at")
-  createdAt                   DateTime                @default(now()) @map("created_at")
-  updatedAt                   DateTime                @updatedAt @map("updated_at")
-  organization                Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  sessions                    AuthenticationSession[]
-  userRoles                   UserRole[]
-  invitationsSent             Invitation[]            @relation("InvitationSender")
-  managedTeams                Team[]                  @relation("TeamManager")
-  teamMemberships             TeamMember[]
-  serviceAccountsCreated      ServiceAccount[]        @relation("ServiceAccountCreator")
-  apiKeysCreated              ApiKey[]                @relation("ApiKeyCreator")
-  apiKeysRevoked              ApiKey[]                @relation("ApiKeyRevoker")
-  pluginConfigurationsUpdated PluginConfiguration[]   @relation("PluginConfigurationUpdater")
-  deletedAt                   DateTime?               @map("deleted_at")
+  id                            String                  @id @default(uuid()) @db.Uuid
+  organizationId                String                  @map("organization_id") @db.Uuid
+  firstName                     String                  @map("first_name") @db.VarChar(80)
+  lastName                      String?                 @map("last_name") @db.VarChar(80)
+  email                         String                  @db.VarChar(320)
+  normalizedEmail               String                  @unique @map("normalized_email") @db.VarChar(320)
+  passwordHash                  String                  @map("password_hash") @db.VarChar(255)
+  role                          LegacyUserRole
+  status                        UserStatus
+  lastLoginAt                   DateTime?               @map("last_login_at")
+  createdAt                     DateTime                @default(now()) @map("created_at")
+  updatedAt                     DateTime                @updatedAt @map("updated_at")
+  organization                  Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sessions                      AuthenticationSession[]
+  userRoles                     UserRole[]
+  invitationsSent               Invitation[]            @relation("InvitationSender")
+  managedTeams                  Team[]                  @relation("TeamManager")
+  teamMemberships               TeamMember[]
+  serviceAccountsCreated        ServiceAccount[]        @relation("ServiceAccountCreator")
+  apiKeysCreated                ApiKey[]                @relation("ApiKeyCreator")
+  apiKeysRevoked                ApiKey[]                @relation("ApiKeyRevoker")
+  pluginConfigurationsUpdated   PluginConfiguration[]   @relation("PluginConfigurationUpdater")
+  conversationsCreated          Conversation[]
+  agentExecutions               AgentExecution[]
+  agentMemories                 AgentMemory[]
+  pluginAiConfigurationsUpdated PluginAiConfiguration[] @relation("PluginAiConfigurationUpdater")
+  deletedAt                     DateTime?               @map("deleted_at")
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -143,39 +207,169 @@ model User {
 }
 
 model Plugin {
-  id                  String               @id @default(uuid()) @db.Uuid
-  organizationId      String               @map("organization_id") @db.Uuid
-  name                String               @db.VarChar(120)
-  slug                String               @db.VarChar(100)
-  version             String               @db.VarChar(50)
-  displayName         String               @map("display_name") @db.VarChar(160)
-  description         String               @db.VarChar(1000)
-  author              String               @db.VarChar(160)
-  status              PluginStatus         @default(DISABLED)
-  entryPoint          String               @map("entry_point") @db.VarChar(120)
+  id                  String                 @id @default(uuid()) @db.Uuid
+  organizationId      String                 @map("organization_id") @db.Uuid
+  name                String                 @db.VarChar(120)
+  slug                String                 @db.VarChar(100)
+  version             String                 @db.VarChar(50)
+  displayName         String                 @map("display_name") @db.VarChar(160)
+  description         String                 @db.VarChar(1000)
+  author              String                 @db.VarChar(160)
+  status              PluginStatus           @default(DISABLED)
+  entryPoint          String                 @map("entry_point") @db.VarChar(120)
   manifest            Json
-  configSchema        Json?                @map("config_schema")
-  grantedPermissions  Json                 @default("[]") @map("granted_permissions")
-  installedAt         DateTime             @default(now()) @map("installed_at")
-  enabledAt           DateTime?            @map("enabled_at")
-  disabledAt          DateTime?            @map("disabled_at")
-  lastStartedAt       DateTime?            @map("last_started_at")
-  lastStoppedAt       DateTime?            @map("last_stopped_at")
-  lastHealthStatus    String?              @map("last_health_status") @db.VarChar(32)
-  lastHealthCheckedAt DateTime?            @map("last_health_checked_at")
-  lastErrorCode       String?              @map("last_error_code") @db.VarChar(100)
-  lastErrorMessage    String?              @map("last_error_message") @db.VarChar(500)
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @updatedAt @map("updated_at")
-  deletedAt           DateTime?            @map("deleted_at")
-  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configSchema        Json?                  @map("config_schema")
+  grantedPermissions  Json                   @default("[]") @map("granted_permissions")
+  installedAt         DateTime               @default(now()) @map("installed_at")
+  enabledAt           DateTime?              @map("enabled_at")
+  disabledAt          DateTime?              @map("disabled_at")
+  lastStartedAt       DateTime?              @map("last_started_at")
+  lastStoppedAt       DateTime?              @map("last_stopped_at")
+  lastHealthStatus    String?                @map("last_health_status") @db.VarChar(32)
+  lastHealthCheckedAt DateTime?              @map("last_health_checked_at")
+  lastErrorCode       String?                @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage    String?                @map("last_error_message") @db.VarChar(500)
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  deletedAt           DateTime?              @map("deleted_at")
+  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   configuration       PluginConfiguration?
+  conversations       Conversation[]
+  agentExecutions     AgentExecution[]
+  agentMemories       AgentMemory[]
+  aiConfiguration     PluginAiConfiguration?
 
   @@index([organizationId, slug])
   @@index([organizationId])
   @@index([organizationId, status, deletedAt])
   @@index([organizationId, deletedAt])
   @@map("plugins")
+}
+
+model Conversation {
+  id                   String                @id @default(uuid()) @db.Uuid
+  organizationId       String                @map("organization_id") @db.Uuid
+  pluginInstallationId String                @map("plugin_installation_id") @db.Uuid
+  createdByUserId      String                @map("created_by_user_id") @db.Uuid
+  title                String                @db.VarChar(160)
+  status               ConversationStatus    @default(ACTIVE)
+  metadata             Json                  @default("{}")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  deletedAt            DateTime?             @map("deleted_at")
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin                @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  createdBy            User                  @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  messages             ConversationMessage[]
+  executions           AgentExecution[]
+  memories             AgentMemory[]
+
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, pluginInstallationId])
+  @@map("conversations")
+}
+
+model ConversationMessage {
+  id              String                  @id @default(uuid()) @db.Uuid
+  conversationId  String                  @map("conversation_id") @db.Uuid
+  organizationId  String                  @map("organization_id") @db.Uuid
+  toolExecutionId String?                 @map("tool_execution_id") @db.Uuid
+  role            ConversationMessageRole
+  content         String                  @db.Text
+  contentJson     Json?                   @map("content_json")
+  model           String?                 @db.VarChar(120)
+  inputTokens     Int?                    @map("input_tokens")
+  outputTokens    Int?                    @map("output_tokens")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  conversation    Conversation            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  toolExecution   AgentToolExecution?     @relation(fields: [toolExecutionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, conversationId, createdAt])
+  @@index([toolExecutionId])
+  @@map("conversation_messages")
+}
+
+model AgentExecution {
+  id                   String               @id @default(uuid()) @db.Uuid
+  organizationId       String               @map("organization_id") @db.Uuid
+  conversationId       String               @map("conversation_id") @db.Uuid
+  pluginInstallationId String               @map("plugin_installation_id") @db.Uuid
+  userId               String               @map("user_id") @db.Uuid
+  status               AgentExecutionStatus @default(QUEUED)
+  modelProvider        String?              @map("model_provider") @db.VarChar(80)
+  model                String?              @db.VarChar(120)
+  startedAt            DateTime?            @map("started_at")
+  completedAt          DateTime?            @map("completed_at")
+  latencyMs            Int?                 @map("latency_ms")
+  inputTokens          Int                  @default(0) @map("input_tokens")
+  outputTokens         Int                  @default(0) @map("output_tokens")
+  totalTokens          Int                  @default(0) @map("total_tokens")
+  estimatedCost        Decimal?             @map("estimated_cost") @db.Decimal(12, 6)
+  errorCode            String?              @map("error_code") @db.VarChar(100)
+  errorMessage         String?              @map("error_message") @db.VarChar(500)
+  requestId            String?              @map("request_id") @db.VarChar(100)
+  metadata             Json                 @default("{}")
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  toolExecutions       AgentToolExecution[]
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+  @@index([conversationId])
+  @@map("agent_executions")
+}
+
+model AgentToolExecution {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  executionId    String                   @map("execution_id") @db.Uuid
+  toolName       String                   @map("tool_name") @db.VarChar(160)
+  toolVersion    String                   @map("tool_version") @db.VarChar(50)
+  status         AgentToolExecutionStatus @default(REQUESTED)
+  input          Json
+  output         Json?
+  errorCode      String?                  @map("error_code") @db.VarChar(100)
+  errorMessage   String?                  @map("error_message") @db.VarChar(500)
+  startedAt      DateTime?                @map("started_at")
+  completedAt    DateTime?                @map("completed_at")
+  latencyMs      Int?                     @map("latency_ms")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  execution      AgentExecution           @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  messages       ConversationMessage[]
+
+  @@index([organizationId, executionId])
+  @@map("agent_tool_executions")
+}
+
+model AgentMemory {
+  id                   String           @id @default(uuid()) @db.Uuid
+  organizationId       String           @map("organization_id") @db.Uuid
+  pluginInstallationId String           @map("plugin_installation_id") @db.Uuid
+  userId               String?          @map("user_id") @db.Uuid
+  conversationId       String?          @map("conversation_id") @db.Uuid
+  scope                AgentMemoryScope
+  key                  String           @db.VarChar(160)
+  value                Json
+  searchableText       String?          @map("searchable_text") @db.Text
+  metadata             Json             @default("{}")
+  expiresAt            DateTime?        @map("expires_at")
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+  deletedAt            DateTime?        @map("deleted_at")
+  organization         Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin           @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  user                 User?            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation         Conversation?    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, pluginInstallationId, userId, conversationId, scope, key])
+  @@index([organizationId, pluginInstallationId, scope])
+  @@index([organizationId, userId, deletedAt])
+  @@map("agent_memories")
 }
 
 model PluginConfiguration {
@@ -194,6 +388,26 @@ model PluginConfiguration {
   @@index([organizationId])
   @@index([organizationId, pluginId])
   @@map("plugin_configurations")
+}
+
+model PluginAiConfiguration {
+  id                   String               @id @default(uuid()) @db.Uuid
+  organizationId       String               @map("organization_id") @db.Uuid
+  pluginInstallationId String               @unique @map("plugin_installation_id") @db.Uuid
+  providerType         PluginAiProviderType @map("provider_type")
+  configuration        Json
+  encryptedSecrets     Json                 @map("encrypted_secrets")
+  encryptionVersion    Int                  @default(1) @map("encryption_version")
+  updatedBy            String               @map("updated_by") @db.Uuid
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  updater              User                 @relation("PluginAiConfigurationUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, providerType])
+  @@index([organizationId, pluginInstallationId])
+  @@map("plugin_ai_configurations")
 }
 
 model Team {

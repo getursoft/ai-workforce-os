@@ -32,6 +32,18 @@ vi.mock("../../features/auth/auth-provider", () => ({
   useLogout: () => vi.fn()
 }));
 
+vi.mock("../../features/admin/authorization", () => ({
+  useEffectivePermissions: () =>
+    new Set([
+      "agents.run",
+      "agents.conversations.read",
+      "agents.executions.read",
+      "users.read",
+      "roles.read",
+      "invitations.read"
+    ])
+}));
+
 describe("DashboardShell", () => {
   it("renders the authenticated dashboard shell", () => {
     const html = renderToStaticMarkup(

@@ -4,7 +4,8 @@ import {
   type PluginExecutionResult,
   type PluginHealth,
   type PluginManifest,
-  PluginHealthStatus
+  PluginHealthStatus,
+  PluginPermission
 } from "@ai-workforce-os/plugin-sdk";
 
 export const dummyEchoManifest: PluginManifest = {
@@ -15,7 +16,8 @@ export const dummyEchoManifest: PluginManifest = {
   description: "Built-in plugin used to verify the plugin runtime",
   author: "AI Workforce OS",
   entryPoint: "dummy-echo",
-  permissions: [],
+  permissions: [PluginPermission.LLM, PluginPermission.MEMORY, PluginPermission.EVENTS],
+  capabilities: ["dummy.echo", "travel.chat", "platform.http.request"],
   tools: [{ name: "echo", description: "Returns the provided input" }],
   configSchema: {
     type: "object",

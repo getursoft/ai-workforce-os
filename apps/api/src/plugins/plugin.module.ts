@@ -8,6 +8,8 @@ import {
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PluginController } from "./plugin.controller";
 import { PluginService } from "./plugin.service";
+import { PluginAiService } from "./plugin-ai.service";
+import { SafeHttpTool } from "./plugin-ai.runtime";
 import {
   ConfigurationSchemaValidator,
   ManifestValidator,
@@ -42,6 +44,8 @@ import {
       useFactory: (config: SecurityConfig) =>
         new PluginSecretsEncryptionService(config.pluginSecrets.encryptionKey)
     },
+    SafeHttpTool,
+    PluginAiService,
     PluginService
   ],
   exports: [PluginRegistry, PluginService]

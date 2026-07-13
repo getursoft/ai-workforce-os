@@ -6,8 +6,8 @@
   "description": "Reference plugin used to validate the plugin runtime.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["MEMORY", "EVENTS"],
-  "capabilities": ["dummy.echo"],
+  "permissions": ["LLM", "MEMORY", "EVENTS"],
+  "capabilities": ["dummy.echo", "travel.chat", "platform.http.request"],
   "tools": [{ "name": "echo", "description": "Returns the provided input" }],
   "configSchema": {
     "type": "object",
