@@ -56,6 +56,11 @@ export class PluginController {
   ) {
     return this.plugins.list(p.organizationId.toString(), q);
   }
+  @Get("available") @RequirePermission("plugin.read") available(
+    @CurrentPrincipal() p: AuthenticatedPrincipal
+  ) {
+    return this.plugins.available(p.organizationId.toString());
+  }
   @Get(":id") @RequirePermission("plugin.read") get(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string
@@ -89,6 +94,13 @@ export class PluginController {
     this.record("PLUGIN_ENABLED", req, p, id);
     return result;
   }
+  @Patch(":id/enable") @RequirePermission("plugin.update") enablePatch(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Req() req: IdentityRequest
+  ) {
+    return this.enable(p, id, req);
+  }
   @Post(":id/disable") @RequirePermission("plugin.update") async disable(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string,
@@ -97,6 +109,13 @@ export class PluginController {
     const result = await this.plugins.disable(p.organizationId.toString(), id);
     this.record("PLUGIN_DISABLED", req, p, id);
     return result;
+  }
+  @Patch(":id/disable") @RequirePermission("plugin.update") disablePatch(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Req() req: IdentityRequest
+  ) {
+    return this.disable(p, id, req);
   }
   @Get(":id/configuration") @RequirePermission("plugin.read") configuration(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
@@ -120,6 +139,12 @@ export class PluginController {
     return result;
   }
   @Get(":id/health") @RequirePermission("plugin.read") health(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string
+  ) {
+    return this.plugins.health(p.organizationId.toString(), id);
+  }
+  @Post(":id/health") @RequirePermission("plugin.read") healthPost(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string
   ) {

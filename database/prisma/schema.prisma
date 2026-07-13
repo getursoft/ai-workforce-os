@@ -75,6 +75,7 @@ enum PluginStatus {
   ACTIVE
   DISABLED
   DEPRECATED
+  FAILED
 
   @@map("plugin_status")
 }
@@ -142,25 +143,35 @@ model User {
 }
 
 model Plugin {
-  id             String               @id @default(uuid()) @db.Uuid
-  organizationId String               @map("organization_id") @db.Uuid
-  name           String               @db.VarChar(120)
-  slug           String               @db.VarChar(100)
-  version        String               @db.VarChar(50)
-  displayName    String               @map("display_name") @db.VarChar(160)
-  description    String               @db.VarChar(1000)
-  author         String               @db.VarChar(160)
-  status         PluginStatus         @default(DISABLED)
-  entryPoint     String               @map("entry_point") @db.VarChar(120)
-  manifest       Json
-  configSchema   Json?                @map("config_schema")
-  createdAt      DateTime             @default(now()) @map("created_at")
-  updatedAt      DateTime             @updatedAt @map("updated_at")
-  deletedAt      DateTime?            @map("deleted_at")
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  configuration  PluginConfiguration?
+  id                  String               @id @default(uuid()) @db.Uuid
+  organizationId      String               @map("organization_id") @db.Uuid
+  name                String               @db.VarChar(120)
+  slug                String               @db.VarChar(100)
+  version             String               @db.VarChar(50)
+  displayName         String               @map("display_name") @db.VarChar(160)
+  description         String               @db.VarChar(1000)
+  author              String               @db.VarChar(160)
+  status              PluginStatus         @default(DISABLED)
+  entryPoint          String               @map("entry_point") @db.VarChar(120)
+  manifest            Json
+  configSchema        Json?                @map("config_schema")
+  grantedPermissions  Json                 @default("[]") @map("granted_permissions")
+  installedAt         DateTime             @default(now()) @map("installed_at")
+  enabledAt           DateTime?            @map("enabled_at")
+  disabledAt          DateTime?            @map("disabled_at")
+  lastStartedAt       DateTime?            @map("last_started_at")
+  lastStoppedAt       DateTime?            @map("last_stopped_at")
+  lastHealthStatus    String?              @map("last_health_status") @db.VarChar(32)
+  lastHealthCheckedAt DateTime?            @map("last_health_checked_at")
+  lastErrorCode       String?              @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage    String?              @map("last_error_message") @db.VarChar(500)
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+  deletedAt           DateTime?            @map("deleted_at")
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configuration       PluginConfiguration?
 
-  @@unique([organizationId, slug])
+  @@index([organizationId, slug])
   @@index([organizationId])
   @@index([organizationId, status, deletedAt])
   @@index([organizationId, deletedAt])

@@ -13,7 +13,14 @@ import {
   Input,
   Skeleton
 } from "../../components/ui";
-import { createPluginApi, type PluginRecord, type PluginStatus } from "./plugin-api";
+import {
+  createPluginApi,
+  type PluginRecord,
+  type PluginStatus,
+  type PublicPluginManifest
+} from "./plugin-api";
+import { SchemaFields, valuesFromForm, isSecretProperty } from "./plugin-schema-form";
+import { canInstallPlugin, displayedHealth, isHealthPending } from "./plugin-page.logic";
 const key = ["plugins"] as const;
 function useApi() {
   const { client } = useAuth();
@@ -25,7 +32,7 @@ export function PluginsPage() {
     [page, setPage] = useState(1),
     [search, setSearch] = useState(""),
     [status, setStatus] = useState<PluginStatus | "">(""),
-    [install, setInstall] = useState(false),
+    [install, setInstall] = useState<PublicPluginManifest | null>(null),
     [selected, setSelected] = useState<PluginRecord | null>(null),
     [configuration, setConfiguration] = useState<PluginRecord | null>(null);
   const q = useQuery({
@@ -33,13 +40,15 @@ export function PluginsPage() {
     queryFn: () =>
       api.list({ page, pageSize: 20, ...(search ? { search } : {}), ...(status ? { status } : {}) })
   });
+  const available = useQuery({ queryKey: [...key, "available"], queryFn: api.available });
   const refresh = () => qc.invalidateQueries({ queryKey: key });
   const state = useMutation({
       mutationFn: ({ id, active }: { id: string; active: boolean }) =>
         active ? api.enable(id) : api.disable(id),
       onSuccess: () => void refresh()
     }),
-    remove = useMutation({ mutationFn: api.remove, onSuccess: () => void refresh() });
+    remove = useMutation({ mutationFn: api.remove, onSuccess: () => void refresh() }),
+    health = useMutation({ mutationFn: api.health, onSuccess: () => void refresh() });
   return (
     <AccessGate permission="plugin.read">
       <section className="admin-page">
@@ -48,10 +57,45 @@ export function PluginsPage() {
             <h1>Plugins</h1>
             <p>Install and safely configure organization-scoped runtime adapters.</p>
           </div>
-          <Can permission="plugin.install">
-            <Button onClick={() => setInstall(true)}>Install plugin</Button>
-          </Can>
         </header>
+        <Card>
+          <h2>Available plugins</h2>
+          {available.isLoading ? (
+            <Skeleton />
+          ) : available.data?.items.length ? (
+            <div className="admin-toolbar">
+              {available.data.items.map((manifest) => (
+                <Card key={manifest.id}>
+                  <strong>{manifest.displayName}</strong>
+                  <p>{manifest.description}</p>
+                  <Badge>{manifest.version}</Badge>
+                  <Can permission="plugin.install">
+                    {!canInstallPlugin(manifest) ? (
+                      <>
+                        <Badge>Installed</Badge>
+                        <Button
+                          disabled
+                          aria-label={`${manifest.displayName} is already installed`}
+                        >
+                          Installed
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        onClick={() => setInstall(manifest)}
+                        aria-label={`Install ${manifest.displayName}`}
+                      >
+                        Install
+                      </Button>
+                    )}
+                  </Can>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <p>No trusted repository plugins were discovered.</p>
+          )}
+        </Card>
         <Card className="admin-toolbar">
           <Input
             aria-label="Search plugins"
@@ -92,7 +136,8 @@ export function PluginsPage() {
                     <th>Plugin</th>
                     <th>Version</th>
                     <th>Author</th>
-                    <th>Status</th>
+                    <th>Lifecycle status</th>
+                    <th>Health</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -109,11 +154,26 @@ export function PluginsPage() {
                         <Badge>{p.status}</Badge>
                       </td>
                       <td>
+                        <Badge>{displayedHealth(p.lastHealthStatus)}</Badge>
+                        {p.lastHealthCheckedAt ? (
+                          <small>{new Date(p.lastHealthCheckedAt).toLocaleString()}</small>
+                        ) : null}
+                      </td>
+                      <td>
                         <Button variant="ghost" onClick={() => setSelected(p)}>
                           Manifest
                         </Button>
                         <Button variant="ghost" onClick={() => setConfiguration(p)}>
                           Configuration
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          loading={isHealthPending(health.isPending, health.variables, p.id)}
+                          disabled={isHealthPending(health.isPending, health.variables, p.id)}
+                          onClick={() => health.mutate(p.id)}
+                          aria-label={`Check health for ${p.displayName}`}
+                        >
+                          Check health
                         </Button>
                         <Can permission="plugin.update">
                           <Button
@@ -124,6 +184,9 @@ export function PluginsPage() {
                             {p.status === "ACTIVE" ? "Disable" : "Enable"}
                           </Button>
                         </Can>
+                        {health.isError && health.variables === p.id ? (
+                          <small role="alert">Health check failed. Try again.</small>
+                        ) : null}
                         <Can permission="plugin.delete">
                           <Button
                             variant="danger"
@@ -153,7 +216,7 @@ export function PluginsPage() {
           </>
         )}
       </section>
-      <InstallDialog open={install} close={() => setInstall(false)} api={api} refresh={refresh} />
+      <InstallDialog plugin={install} close={() => setInstall(null)} api={api} refresh={refresh} />
       <Dialog
         open={!!selected}
         onCancel={() => setSelected(null)}
@@ -175,12 +238,12 @@ export function PluginsPage() {
   );
 }
 function InstallDialog({
-  open,
+  plugin,
   close,
   api,
   refresh
 }: {
-  open: boolean;
+  plugin: PublicPluginManifest | null;
   close: () => void;
   api: ReturnType<typeof createPluginApi>;
   refresh: () => Promise<unknown>;
@@ -194,44 +257,97 @@ function InstallDialog({
   });
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const f = new FormData(e.currentTarget);
-    try {
-      m.mutate({
-        manifest: JSON.parse(String(f.get("manifest"))) as Record<string, unknown>,
-        configuration: {
-          config: JSON.parse(String(f.get("config") || "{}")) as Record<string, unknown>,
-          secrets: JSON.parse(String(f.get("secrets") || "{}")) as Record<string, string>
-        }
-      });
-    } catch {}
+    if (!plugin || m.isPending) return;
+    const form = e.currentTarget,
+      data = new FormData(form),
+      declared = new Set(plugin.permissions),
+      granted = data
+        .getAll("permission")
+        .map(String)
+        .filter((permission) => declared.has(permission));
+    m.mutate({
+      pluginId: plugin.id,
+      grantedPermissions: granted,
+      configuration: {
+        config: valuesFromForm(form, plugin.configSchema, false),
+        secrets: valuesFromForm(form, plugin.configSchema, true) as Record<string, string>
+      },
+      enable: data.get("enable") !== null
+    });
   };
+  if (!plugin) return null;
+  const secretFields = Object.values(plugin.configSchema?.properties ?? {}).some(isSecretProperty);
   return (
     <Dialog
-      open={open}
+      open
       onCancel={close}
       onConfirm={() => undefined}
-      title="Install plugin"
-      confirmLabel="Use form button"
+      title={`Install ${plugin.displayName}`}
+      description={plugin.description}
+      showActions={false}
     >
       <form className="admin-form" onSubmit={submit}>
+        <section>
+          <h3>Plugin details</h3>
+          <dl>
+            <dt>Version</dt>
+            <dd>{plugin.version}</dd>
+            <dt>Author</dt>
+            <dd>{plugin.author}</dd>
+          </dl>
+          <div>
+            {plugin.capabilities.map((capability) => (
+              <Badge key={capability}>{capability}</Badge>
+            ))}
+          </div>
+        </section>
+        <fieldset>
+          <legend>Permissions</legend>
+          {plugin.permissions.length ? (
+            plugin.permissions.map((permission) => (
+              <label key={permission}>
+                <input type="checkbox" name="permission" value={permission} />
+                <span>
+                  <strong>{permission}</strong>
+                  <small>{permissionDescription(permission)}</small>
+                </span>
+              </label>
+            ))
+          ) : (
+            <p>This plugin requests no service permissions.</p>
+          )}
+        </fieldset>
+        {Object.values(plugin.configSchema?.properties ?? {}).some(
+          (property) => !isSecretProperty(property)
+        ) ? (
+          <section>
+            <h3>Configuration</h3>
+            <SchemaFields schema={plugin.configSchema} />
+          </section>
+        ) : null}
+        {secretFields ? (
+          <section>
+            <h3>Secrets</h3>
+            <p>Secret values are encrypted and will not be shown again.</p>
+            <SchemaFields schema={plugin.configSchema} secretMode />
+          </section>
+        ) : null}
         <label>
-          Manifest JSON
-          <textarea className="ui-input" name="manifest" required rows={12} />
-        </label>
-        <label>
-          Configuration JSON
-          <textarea className="ui-input" name="config" defaultValue="{}" />
-        </label>
-        <label>
-          Secrets JSON
-          <textarea className="ui-input" name="secrets" defaultValue="{}" autoComplete="off" />
+          <input type="checkbox" name="enable" /> Enable after installation
         </label>
         {m.error ? (
           <Alert tone="danger" title="Installation failed">
-            Validate the manifest, configuration, and secret object.
+            The plugin could not be installed. Review the highlighted fields and permission grants.
           </Alert>
         ) : null}
-        <Button loading={m.isPending}>Install</Button>
+        <div className="ui-dialog__actions">
+          <Button type="button" variant="secondary" onClick={close} disabled={m.isPending}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={m.isPending} disabled={m.isPending}>
+            Install plugin
+          </Button>
+        </div>
       </form>
     </Dialog>
   );
@@ -257,44 +373,78 @@ function ConfigurationDialog({
     onSuccess: () => close()
   });
   if (q.isLoading) return <Skeleton />;
+  const schema = plugin.manifest.configSchema,
+    secretKeys = Object.entries(schema?.properties ?? {})
+      .filter(([, property]) => isSecretProperty(property))
+      .map(([key]) => key);
   return (
     <Dialog
       open
       onCancel={close}
       onConfirm={() => undefined}
       title={`Configure ${plugin.displayName}`}
-      confirmLabel="Use form button"
+      showActions={false}
     >
       <form
         className="admin-form"
         onSubmit={(e) => {
           e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          try {
-            m.mutate({
-              config: JSON.parse(String(f.get("config"))) as Record<string, unknown>,
-              secrets: JSON.parse(String(f.get("secrets") || "{}")) as Record<string, string | null>
-            });
-          } catch {}
+          const form = e.currentTarget,
+            data = new FormData(form),
+            secrets = valuesFromForm(form, schema, true) as Record<string, string | null>;
+          for (const key of secretKeys) if (data.get(`clear:${key}`) !== null) secrets[key] = null;
+          m.mutate({ config: valuesFromForm(form, schema, false), secrets });
         }}
       >
-        <p>Configured secrets: {q.data?.secretKeys.join(", ") || "None"}</p>
-        <label>
-          Configuration JSON
-          <textarea
-            className="ui-input"
-            name="config"
-            rows={8}
-            defaultValue={JSON.stringify(q.data?.config ?? {}, null, 2)}
-          />
-        </label>
-        <label>
-          Secret replacements/removals
-          <textarea className="ui-input" name="secrets" defaultValue="{}" />
-          <small>Omitted keys remain unchanged. Set a key to null to remove it.</small>
-        </label>
-        <Button loading={m.isPending}>Save</Button>
+        <section>
+          <h3>Configuration</h3>
+          <SchemaFields schema={schema} values={q.data?.config} />
+        </section>
+        {secretKeys.length ? (
+          <section>
+            <h3>Secrets</h3>
+            <p>Existing values are never displayed. Leave blank to keep the current value.</p>
+            <SchemaFields
+              schema={schema}
+              values={Object.fromEntries((q.data?.secretKeys ?? []).map((key) => [key, true]))}
+              secretMode
+            />
+            {secretKeys.map((key) => (
+              <label key={key}>
+                <input type="checkbox" name={`clear:${key}`} /> Clear {key}
+              </label>
+            ))}
+          </section>
+        ) : null}
+        {m.error ? (
+          <Alert tone="danger" title="Unable to save configuration">
+            Review the configuration fields and try again.
+          </Alert>
+        ) : null}
+        <div className="ui-dialog__actions">
+          <Button type="button" variant="secondary" onClick={close} disabled={m.isPending}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={m.isPending} disabled={m.isPending}>
+            Save configuration
+          </Button>
+        </div>
       </form>
     </Dialog>
   );
+}
+function permissionDescription(permission: string) {
+  const descriptions: Record<string, string> = {
+    LLM: "Use the configured language-model service.",
+    MEMORY: "Read and write plugin-scoped memory.",
+    EVENTS: "Publish and receive organization-scoped events.",
+    TOOLS: "Register and use approved tools.",
+    EMAIL: "Use the organization email adapter.",
+    CALENDAR: "Use the organization calendar adapter.",
+    CRM: "Use the organization CRM adapter.",
+    VOICE: "Use approved voice services.",
+    SEARCH: "Use the approved search adapter.",
+    FILES: "Use plugin-scoped file services."
+  };
+  return descriptions[permission] ?? "Grants access to this scoped platform service.";
 }

@@ -210,6 +210,7 @@ export function Dialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   destructive = false,
+  showActions = true,
   onConfirm,
   onCancel,
   children
@@ -220,6 +221,7 @@ export function Dialog({
   confirmLabel?: string;
   cancelLabel?: string;
   destructive?: boolean;
+  showActions?: boolean;
   onConfirm(): void | Promise<void>;
   onCancel(): void;
   children?: ReactNode;
@@ -239,19 +241,29 @@ export function Dialog({
   }, [open]);
 
   return (
-    <dialog ref={dialogRef} className="ui-dialog" aria-labelledby="dialog-title">
+    <dialog
+      ref={dialogRef}
+      className="ui-dialog"
+      aria-labelledby="dialog-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        onCancel();
+      }}
+    >
       <div className="ui-dialog__panel">
         <h2 id="dialog-title">{title}</h2>
         {description ? <p>{description}</p> : null}
         {children}
-        <div className="ui-dialog__actions">
-          <Button type="button" variant="secondary" onClick={onCancel}>
-            {cancelLabel}
-          </Button>
-          <Button type="button" variant={destructive ? "danger" : "primary"} onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
-        </div>
+        {showActions ? (
+          <div className="ui-dialog__actions">
+            <Button type="button" variant="secondary" onClick={onCancel}>
+              {cancelLabel}
+            </Button>
+            <Button type="button" variant={destructive ? "danger" : "primary"} onClick={onConfirm}>
+              {confirmLabel}
+            </Button>
+          </div>
+        ) : null}
       </div>
     </dialog>
   );

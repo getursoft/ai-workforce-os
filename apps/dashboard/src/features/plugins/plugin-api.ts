@@ -1,5 +1,40 @@
 import type { ApiClient } from "../../lib/api-client";
-export type PluginStatus = "ACTIVE" | "DISABLED" | "DEPRECATED";
+export type PluginStatus = "ACTIVE" | "DISABLED" | "DEPRECATED" | "FAILED";
+export interface PluginSchemaProperty {
+  type: "string" | "boolean" | "number" | "integer";
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: Array<string | number>;
+  format?: string;
+  writeOnly?: boolean;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+}
+export interface PluginConfigurationSchema {
+  type: "object";
+  properties?: Record<string, PluginSchemaProperty>;
+  required?: string[];
+  additionalProperties?: boolean;
+}
+export interface PublicPluginManifest {
+  id: string;
+  name: string;
+  displayName: string;
+  description: string;
+  version: string;
+  author: string;
+  permissions: string[];
+  capabilities: string[];
+  tools: Array<{ name: string; description: string }>;
+  configSchema?: PluginConfigurationSchema;
+}
+export interface AvailablePlugin extends PublicPluginManifest {
+  installed: boolean;
+}
+export type PluginHealthStatus = "READY" | "DEGRADED" | "FAILED" | "UNKNOWN";
 export interface PluginRecord {
   id: string;
   name: string;
@@ -9,9 +44,11 @@ export interface PluginRecord {
   description: string;
   author: string;
   status: PluginStatus;
-  manifest: Record<string, unknown>;
+  manifest: PublicPluginManifest;
   createdAt: string;
   updatedAt: string;
+  lastHealthStatus: PluginHealthStatus | null;
+  lastHealthCheckedAt: string | null;
 }
 export interface PluginConfiguration {
   pluginId: string;
@@ -21,6 +58,11 @@ export interface PluginConfiguration {
 }
 export function createPluginApi(client: ApiClient) {
   return {
+    available: () =>
+      client.request<{
+        items: AvailablePlugin[];
+        errors: Array<{ plugin: string; code: string }>;
+      }>("/plugins/available"),
     list: (q: { page: number; pageSize: number; search?: string; status?: string }) =>
       client.request<{
         items: PluginRecord[];
@@ -34,7 +76,9 @@ export function createPluginApi(client: ApiClient) {
       ),
     get: (id: string) => client.request<PluginRecord>(`/plugins/${id}`),
     install: (body: {
-      manifest: Record<string, unknown>;
+      pluginId: string;
+      grantedPermissions: string[];
+      enable: boolean;
       configuration: { config: Record<string, unknown>; secrets: Record<string, string> };
     }) =>
       client.request<PluginRecord>("/plugins/install", {
@@ -57,8 +101,9 @@ export function createPluginApi(client: ApiClient) {
         body: JSON.stringify(body)
       }),
     health: (id: string) =>
-      client.request<{ status: "READY" | "FAILED" | "DISABLED"; checkedAt: string }>(
-        `/plugins/${id}/health`
+      client.request<{ status: PluginHealthStatus | "DISABLED"; checkedAt: string }>(
+        `/plugins/${id}/health`,
+        { method: "POST" }
       )
   };
 }

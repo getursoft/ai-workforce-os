@@ -7,13 +7,22 @@ import {
 } from "@nestjs/common";
 import { PluginStatus, Prisma } from "@prisma/client";
 import { DummyEchoPlugin } from "@ai-workforce-os/plugin-dummy";
-import type { PluginManifest } from "@ai-workforce-os/plugin-sdk";
+import {
+  PluginHealthStatus,
+  PluginPermission,
+  type PluginContext,
+  type PluginManifest
+} from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import {
   ConfigurationSchemaValidator,
   ManifestValidator,
   type EncryptedPayload,
   PluginRegistry,
+  PluginDiscovery,
+  PluginLifecycleEngine,
+  createPluginServices,
+  type DiscoveredPlugin,
   PluginSecretsEncryptionService,
   PluginValidationError
 } from "./plugin.runtime";
@@ -26,22 +35,53 @@ import type {
 
 @Injectable()
 export class PluginService implements OnModuleInit {
+  private catalog = new Map<string, DiscoveredPlugin>();
+  private discoveryErrors: readonly { plugin: string; code: string; details: readonly string[] }[] =
+    [];
   constructor(
     private readonly prisma: PrismaService,
     private readonly manifests: ManifestValidator,
     private readonly schemas: ConfigurationSchemaValidator,
     private readonly secrets: PluginSecretsEncryptionService,
-    private readonly registry: PluginRegistry
+    private readonly registry: PluginRegistry,
+    private readonly discovery: PluginDiscovery,
+    private readonly lifecycle: PluginLifecycleEngine
   ) {}
 
   async onModuleInit(): Promise<void> {
+    const discovered = await this.discovery.discover();
+    this.catalog = new Map(discovered.plugins.map((plugin) => [plugin.manifest.id, plugin]));
+    this.discoveryErrors = discovered.errors;
     await this.synchronizeRegistry();
   }
 
+  async available(organizationId: string) {
+    const installed = new Set(
+      (
+        await this.prisma.plugin.findMany({
+          where: { organizationId, deletedAt: null },
+          select: { slug: true }
+        })
+      ).map((plugin) => plugin.slug)
+    );
+    return {
+      items: [...this.catalog.values()].map(({ manifest }) => ({
+        ...this.publicManifest(manifest),
+        installed: installed.has(manifest.id)
+      })),
+      errors: this.discoveryErrors
+    };
+  }
+
   async install(organizationId: string, userId: string, dto: InstallPluginDto) {
-    const manifest = this.validateManifest(dto.manifest);
-    if (manifest.id !== manifest.entryPoint)
-      throw new UnprocessableEntityException("Manifest id and entryPoint must match");
+    const discovered = dto.pluginId ? this.catalog.get(dto.pluginId) : undefined;
+    if (dto.pluginId && !discovered) throw new NotFoundException("PLUGIN_NOT_FOUND");
+    if (!dto.manifest && !discovered)
+      throw new UnprocessableEntityException("pluginId is required");
+    const manifest = discovered?.manifest ?? this.validateManifest(dto.manifest);
+    const granted = dto.grantedPermissions ?? manifest.permissions;
+    if (granted.some((permission) => !manifest.permissions.includes(permission)))
+      throw new UnprocessableEntityException("Granted permissions must be declared by the plugin");
     const config = dto.configuration?.config ?? {};
     this.validateConfig(`${organizationId}:${manifest.id}`, manifest, config);
     const encrypted = this.secrets.encrypt(dto.configuration?.secrets ?? {});
@@ -61,6 +101,7 @@ export class PluginService implements OnModuleInit {
             configSchema: manifest.configSchema
               ? (manifest.configSchema as Prisma.InputJsonValue)
               : Prisma.JsonNull,
+            grantedPermissions: granted as unknown as Prisma.InputJsonValue,
             configuration: {
               create: {
                 organizationId,
@@ -71,7 +112,30 @@ export class PluginService implements OnModuleInit {
             }
           }
         });
-        return this.sanitize(plugin);
+        const instance = discovered?.create() ?? this.adapter(manifest.entryPoint),
+          context = this.context(plugin, userId, config, manifest, granted);
+        try {
+          await this.lifecycle.install(instance, context);
+        } catch (error) {
+          await tx.plugin.update({
+            where: { id: plugin.id },
+            data: {
+              status: PluginStatus.FAILED,
+              lastErrorCode: error instanceof Error ? error.message : "PLUGIN_LIFECYCLE_FAILED",
+              lastErrorMessage: "Plugin install hook failed"
+            }
+          });
+          throw new ConflictException("PLUGIN_LIFECYCLE_FAILED");
+        }
+        if (dto.enable) {
+          await this.lifecycle.enable(instance, context);
+          await tx.plugin.update({
+            where: { id: plugin.id },
+            data: { status: PluginStatus.ACTIVE, enabledAt: new Date(), lastStartedAt: new Date() }
+          });
+          this.registry.register(organizationId, plugin.slug, instance);
+        }
+        return this.sanitize(await tx.plugin.findUniqueOrThrow({ where: { id: plugin.id } }));
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
@@ -144,22 +208,83 @@ export class PluginService implements OnModuleInit {
   }
   async enable(organizationId: string, id: string) {
     const plugin = await this.require(organizationId, id);
+    if (plugin.status === PluginStatus.ACTIVE) return this.sanitize(plugin);
     if (plugin.status === PluginStatus.DEPRECATED) throw new ConflictException("PLUGIN_DEPRECATED");
+    const instance = this.catalog.get(plugin.slug)?.create() ?? this.adapter(plugin.entryPoint),
+      context = await this.contextFor(plugin);
+    try {
+      await this.lifecycle.enable(instance, context);
+    } catch {
+      await this.prisma.plugin.update({
+        where: { id },
+        data: {
+          status: PluginStatus.FAILED,
+          lastErrorCode: "PLUGIN_LIFECYCLE_FAILED",
+          lastErrorMessage: "Plugin enable hook failed"
+        }
+      });
+      throw new ConflictException("PLUGIN_LIFECYCLE_FAILED");
+    }
     if (!this.registry.has(organizationId, plugin.slug))
-      this.registry.register(organizationId, plugin.slug, this.adapter(plugin.entryPoint));
+      this.registry.register(organizationId, plugin.slug, instance);
     return this.sanitize(
-      await this.prisma.plugin.update({ where: { id }, data: { status: PluginStatus.ACTIVE } })
+      await this.prisma.plugin.update({
+        where: { id },
+        data: {
+          status: PluginStatus.ACTIVE,
+          enabledAt: new Date(),
+          lastStartedAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }
+      })
     );
   }
   async disable(organizationId: string, id: string) {
     const plugin = await this.require(organizationId, id);
+    if (plugin.status === PluginStatus.DISABLED) return this.sanitize(plugin);
+    const instance =
+      this.registry.lookup(organizationId, plugin.slug) ??
+      this.catalog.get(plugin.slug)?.create() ??
+      this.adapter(plugin.entryPoint);
+    try {
+      await this.lifecycle.disable(instance, await this.contextFor(plugin));
+    } catch {
+      await this.prisma.plugin.update({
+        where: { id },
+        data: {
+          status: PluginStatus.FAILED,
+          lastErrorCode: "PLUGIN_LIFECYCLE_FAILED",
+          lastErrorMessage: "Plugin disable hook failed"
+        }
+      });
+      throw new ConflictException("PLUGIN_LIFECYCLE_FAILED");
+    }
     this.registry.unregister(organizationId, plugin.slug);
     return this.sanitize(
-      await this.prisma.plugin.update({ where: { id }, data: { status: PluginStatus.DISABLED } })
+      await this.prisma.plugin.update({
+        where: { id },
+        data: {
+          status: PluginStatus.DISABLED,
+          disabledAt: new Date(),
+          lastStoppedAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }
+      })
     );
   }
   async remove(organizationId: string, id: string) {
     const plugin = await this.require(organizationId, id);
+    const instance =
+      this.registry.lookup(organizationId, plugin.slug) ??
+      this.catalog.get(plugin.slug)?.create() ??
+      this.adapter(plugin.entryPoint);
+    try {
+      await this.lifecycle.uninstall(instance, await this.contextFor(plugin));
+    } catch {
+      throw new ConflictException("PLUGIN_LIFECYCLE_FAILED");
+    }
     this.registry.unregister(organizationId, plugin.slug);
     await this.prisma.plugin.update({
       where: { id },
@@ -196,11 +321,14 @@ export class PluginService implements OnModuleInit {
       config
     );
     const removals = new Set(
-      Object.entries(dto.secrets ?? {}).filter(([, value]) => value === null).map(([key]) => key)
+      Object.entries(dto.secrets ?? {})
+        .filter(([, value]) => value === null)
+        .map(([key]) => key)
     );
     const merged = Object.fromEntries(
-      Object.entries(this.secrets.decrypt(row.encryptedSecrets as unknown as EncryptedPayload))
-        .filter(([key]) => !removals.has(key))
+      Object.entries(
+        this.secrets.decrypt(row.encryptedSecrets as unknown as EncryptedPayload)
+      ).filter(([key]) => !removals.has(key))
     );
     for (const [key, value] of Object.entries(dto.secrets ?? {})) {
       if (value !== null) merged[key] = value;
@@ -223,8 +351,25 @@ export class PluginService implements OnModuleInit {
   async health(organizationId: string, id: string) {
     const plugin = await this.require(organizationId, id);
     if (plugin.status !== PluginStatus.ACTIVE)
-      return { status: "DISABLED", checkedAt: new Date().toISOString() };
-    return this.registry.health(organizationId, plugin.slug);
+      return { status: PluginHealthStatus.DISABLED, checkedAt: new Date().toISOString() };
+    const instance = this.registry.lookup(organizationId, plugin.slug);
+    if (!instance)
+      return { status: PluginHealthStatus.UNKNOWN, checkedAt: new Date().toISOString() };
+    let result;
+    try {
+      result = await this.lifecycle.health(instance, await this.contextFor(plugin));
+    } catch {
+      result = {
+        status: PluginHealthStatus.FAILED,
+        checkedAt: new Date().toISOString(),
+        message: "Health check failed"
+      };
+    }
+    await this.prisma.plugin.update({
+      where: { id },
+      data: { lastHealthStatus: result.status, lastHealthCheckedAt: new Date() }
+    });
+    return result;
   }
   async synchronizeRegistry(): Promise<void> {
     const plugins = await this.prisma.plugin.findMany({
@@ -237,7 +382,7 @@ export class PluginService implements OnModuleInit {
           this.registry.register(
             plugin.organizationId,
             plugin.slug,
-            this.adapter(plugin.entryPoint)
+            this.catalog.get(plugin.slug)?.create() ?? this.adapter(plugin.entryPoint)
           );
       } catch {
         /* one invalid installation must not stop startup */
@@ -274,6 +419,68 @@ export class PluginService implements OnModuleInit {
     }
   }
   private sanitize<T extends { manifest: unknown; configSchema: unknown }>(plugin: T) {
-    return plugin;
+    return { ...plugin, manifest: this.publicManifest(plugin.manifest as PluginManifest) };
+  }
+  private publicManifest(manifest: PluginManifest) {
+    return {
+      id: manifest.id,
+      name: manifest.name,
+      displayName: manifest.displayName,
+      description: manifest.description,
+      version: manifest.version,
+      author: manifest.author,
+      permissions: manifest.permissions,
+      capabilities: manifest.capabilities ?? [],
+      tools: manifest.tools,
+      configSchema: this.publicSchema(manifest.configSchema)
+    };
+  }
+  private publicSchema(schema: Record<string, unknown> | undefined) {
+    if (!schema) return undefined;
+    const clone = structuredClone(schema);
+    if (typeof clone.properties === "object" && clone.properties !== null)
+      for (const value of Object.values(clone.properties as Record<string, unknown>)) {
+        if (
+          typeof value === "object" &&
+          value !== null &&
+          ((value as { writeOnly?: unknown }).writeOnly === true ||
+            (value as { format?: unknown }).format === "password")
+        )
+          Reflect.deleteProperty(value, "default");
+      }
+    return clone;
+  }
+  private context<T extends { id: string; organizationId: string; grantedPermissions: unknown }>(
+    plugin: T,
+    userId: string | undefined,
+    config: Record<string, unknown>,
+    manifest: PluginManifest,
+    grantedInput?: PluginPermission[]
+  ): PluginContext {
+    const granted = new Set(grantedInput ?? (plugin.grantedPermissions as PluginPermission[]));
+    return {
+      organizationId: plugin.organizationId,
+      ...(userId ? { actorUserId: userId } : {}),
+      installationId: plugin.id,
+      requestId: plugin.id,
+      manifest,
+      config: Object.freeze({ ...config }),
+      permissions: granted,
+      services: createPluginServices(granted),
+      logger: { debug() {}, info() {}, warn() {}, error() {} }
+    };
+  }
+  private async contextFor(
+    plugin: Awaited<ReturnType<PluginService["require"]>>
+  ): Promise<PluginContext> {
+    const configuration = await this.prisma.pluginConfiguration.findUnique({
+      where: { pluginId: plugin.id }
+    });
+    return this.context(
+      plugin,
+      undefined,
+      (configuration?.config ?? {}) as Record<string, unknown>,
+      plugin.manifest as unknown as PluginManifest
+    );
   }
 }

@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { resolve } from "node:path";
 import { IdentityModule } from "../identity/identity.module";
 import {
   SECURITY_CONFIG,
@@ -11,6 +12,9 @@ import {
   ConfigurationSchemaValidator,
   ManifestValidator,
   PluginRegistry,
+  PluginDiscovery,
+  PluginLifecycleEngine,
+  PluginEventBus,
   PluginSecretsEncryptionService
 } from "./plugin.runtime";
 
@@ -21,6 +25,17 @@ import {
     ManifestValidator,
     ConfigurationSchemaValidator,
     PluginRegistry,
+    PluginLifecycleEngine,
+    PluginEventBus,
+    {
+      provide: PluginDiscovery,
+      inject: [ManifestValidator],
+      useFactory: (validator: ManifestValidator) =>
+        new PluginDiscovery(
+          process.env.PLUGIN_DIRECTORY?.trim() || resolve(__dirname, "../../../../plugins"),
+          validator
+        )
+    },
     {
       provide: PluginSecretsEncryptionService,
       inject: [SECURITY_CONFIG],

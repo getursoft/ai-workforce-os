@@ -1,0 +1,24 @@
+{
+  "id": "dummy-echo",
+  "name": "Dummy Echo",
+  "version": "1.0.0",
+  "displayName": "Dummy Echo Plugin",
+  "description": "Reference plugin used to validate the plugin runtime.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["MEMORY", "EVENTS"],
+  "capabilities": ["dummy.echo"],
+  "tools": [{ "name": "echo", "description": "Returns the provided input" }],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "prefix": {
+        "type": "string",
+        "title": "Prefix",
+        "description": "Text prepended by the echo capability.",
+        "default": "Hello"
+      }
+    },
+    "additionalProperties": false
+  }
+}

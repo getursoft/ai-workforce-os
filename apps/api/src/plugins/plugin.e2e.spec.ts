@@ -97,4 +97,58 @@ suite("Plugin runtime HTTP", () => {
       .expect(404);
     await request(app.getHttpServer()).get("/api/v1/plugins").expect(401);
   });
+  it("discovers repository plugins and installs with a least-privilege grant", async () => {
+    const auth = { Authorization: `Bearer ${token}` };
+    const available = await request(app.getHttpServer())
+      .get("/api/v1/plugins/available")
+      .set(auth)
+      .expect(200);
+    expect(available.body.items.some((item: { id: string }) => item.id === "dummy-echo")).toBe(
+      true
+    );
+    expect(JSON.stringify(available.body)).not.toContain("entryPoint");
+    expect(
+      available.body.items.find((item: { id: string }) => item.id === "dummy-echo").configSchema
+        .properties.prefix.default
+    ).toBe("Hello");
+    const installed = await request(app.getHttpServer())
+      .post("/api/v1/plugins/install")
+      .set(auth)
+      .send({
+        pluginId: "dummy-echo",
+        grantedPermissions: ["MEMORY"],
+        configuration: { config: { prefix: "Scoped" }, secrets: {} },
+        enable: true
+      })
+      .expect(201);
+    expect(installed.body.grantedPermissions).toEqual(["MEMORY"]);
+    expect(installed.body.status).toBe("ACTIVE");
+    const installedCatalogue = await request(app.getHttpServer())
+      .get("/api/v1/plugins/available")
+      .set(auth)
+      .expect(200);
+    expect(
+      installedCatalogue.body.items.find((item: { id: string }) => item.id === "dummy-echo")
+        .installed
+    ).toBe(true);
+    await request(app.getHttpServer())
+      .post(`/api/v1/plugins/${installed.body.id}/health`)
+      .set(auth)
+      .expect(201);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/disable`)
+      .set(auth)
+      .expect(200);
+    await request(app.getHttpServer())
+      .delete(`/api/v1/plugins/${installed.body.id}`)
+      .set(auth)
+      .expect(204);
+    const availableAgain = await request(app.getHttpServer())
+      .get("/api/v1/plugins/available")
+      .set(auth)
+      .expect(200);
+    expect(
+      availableAgain.body.items.find((item: { id: string }) => item.id === "dummy-echo").installed
+    ).toBe(false);
+  });
 });

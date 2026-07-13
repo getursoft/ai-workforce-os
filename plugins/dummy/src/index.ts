@@ -3,7 +3,8 @@ import {
   type PluginExecutionRequest,
   type PluginExecutionResult,
   type PluginHealth,
-  type PluginManifest
+  type PluginManifest,
+  PluginHealthStatus
 } from "@ai-workforce-os/plugin-sdk";
 
 export const dummyEchoManifest: PluginManifest = {
@@ -18,7 +19,14 @@ export const dummyEchoManifest: PluginManifest = {
   tools: [{ name: "echo", description: "Returns the provided input" }],
   configSchema: {
     type: "object",
-    properties: { prefix: { type: "string" } },
+    properties: {
+      prefix: {
+        type: "string",
+        title: "Prefix",
+        description: "Text prepended by the echo capability.",
+        default: "Hello"
+      }
+    },
     additionalProperties: false
   }
 };
@@ -27,8 +35,15 @@ export class DummyEchoPlugin extends BasePlugin {
   readonly manifest = dummyEchoManifest;
 
   async health(): Promise<PluginHealth> {
-    return { status: "READY", checkedAt: new Date().toISOString() };
+    return { status: PluginHealthStatus.READY, checkedAt: new Date().toISOString() };
   }
+
+  override async install(): Promise<void> {}
+  override async enable(): Promise<void> {}
+  override async start(): Promise<void> {}
+  override async stop(): Promise<void> {}
+  override async disable(): Promise<void> {}
+  override async uninstall(): Promise<void> {}
 
   async execute(request: PluginExecutionRequest): Promise<PluginExecutionResult> {
     const started = Date.now();

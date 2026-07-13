@@ -1,0 +1,3 @@
+ALTER TYPE "plugin_status" ADD VALUE IF NOT EXISTS 'FAILED';
+ALTER TABLE "plugins" ADD COLUMN "granted_permissions" JSONB NOT NULL DEFAULT '[]',ADD COLUMN "installed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,ADD COLUMN "enabled_at" TIMESTAMP(3),ADD COLUMN "disabled_at" TIMESTAMP(3),ADD COLUMN "last_started_at" TIMESTAMP(3),ADD COLUMN "last_stopped_at" TIMESTAMP(3),ADD COLUMN "last_health_status" VARCHAR(32),ADD COLUMN "last_health_checked_at" TIMESTAMP(3),ADD COLUMN "last_error_code" VARCHAR(100),ADD COLUMN "last_error_message" VARCHAR(500);
+CREATE INDEX "plugins_organization_id_slug_deleted_at_idx" ON "plugins"("organization_id","slug","deleted_at");

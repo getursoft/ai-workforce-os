@@ -1,10 +1,22 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { readdir, readFile, realpath } from "node:fs/promises";
+import { isAbsolute, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import Ajv, { type ValidateFunction } from "ajv";
 import semver from "semver";
-import type { BasePlugin, PluginManifest } from "@ai-workforce-os/plugin-sdk";
+import {
+  PluginHealthStatus,
+  PluginPermission,
+  type BasePlugin,
+  type PluginContext,
+  type PluginEvent,
+  type PluginManifest,
+  type PluginServices
+} from "@ai-workforce-os/plugin-sdk";
 
 const IDENTIFIER = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const forbidden = new Set(["__proto__", "prototype", "constructor"]);
+const permissions = new Set(Object.values(PluginPermission));
 
 export class PluginValidationError extends Error {
   constructor(readonly details: readonly string[]) {
@@ -42,8 +54,8 @@ export class ManifestValidator {
         errors.push(`${key} must be a non-blank string`);
     if (typeof value.id === "string" && !IDENTIFIER.test(value.id))
       errors.push("id must be a slug-like identifier");
-    if (typeof value.entryPoint === "string" && !IDENTIFIER.test(value.entryPoint))
-      errors.push("entryPoint must be a safe identifier");
+    if (typeof value.entryPoint === "string" && !safeEntry(value.entryPoint))
+      errors.push("entryPoint must be a safe relative JavaScript path or built-in identifier");
     if (typeof value.version === "string" && !semver.valid(value.version))
       errors.push("version must be valid semantic version");
     if (
@@ -53,6 +65,17 @@ export class ManifestValidator {
       errors.push("permissions must be non-blank strings");
     else if (new Set(value.permissions).size !== value.permissions.length)
       errors.push("permissions must be unique");
+    else if (value.permissions.some((x) => !permissions.has(x as PluginPermission)))
+      errors.push("permissions contain an unsupported value");
+    if (value.capabilities !== undefined) {
+      if (
+        !Array.isArray(value.capabilities) ||
+        value.capabilities.some((x) => typeof x !== "string" || !x.trim())
+      )
+        errors.push("capabilities must be non-blank strings");
+      else if (new Set(value.capabilities).size !== value.capabilities.length)
+        errors.push("capabilities must be unique");
+    }
     if (!Array.isArray(value.tools)) errors.push("tools must be an array");
     else {
       const names: string[] = [];
@@ -69,7 +92,7 @@ export class ManifestValidator {
       }
       if (new Set(names).size !== names.length) errors.push("tool names must be unique");
     }
-    const allowed = new Set([...required, "configSchema"]);
+    const allowed = new Set([...required, "configSchema", "capabilities"]);
     for (const key of Object.keys(value))
       if (!allowed.has(key) || forbidden.has(key))
         errors.push(`unsupported manifest field: ${key}`);
@@ -182,6 +205,186 @@ export class PluginRegistry {
   }
 }
 
+export interface DiscoveredPlugin {
+  manifest: PluginManifest;
+  create(): BasePlugin;
+}
+export interface DiscoveryResult {
+  plugins: readonly DiscoveredPlugin[];
+  errors: readonly { plugin: string; code: string; details: readonly string[] }[];
+}
+export class PluginDiscovery {
+  constructor(
+    private readonly baseDirectory: string,
+    private readonly validator: ManifestValidator
+  ) {}
+  async discover(): Promise<DiscoveryResult> {
+    const plugins: DiscoveredPlugin[] = [],
+      errors: DiscoveryResult["errors"][number][] = [],
+      ids = new Set<string>();
+    let directories: string[] = [];
+    try {
+      directories = (await readdir(this.baseDirectory, { withFileTypes: true }))
+        .filter((x) => x.isDirectory())
+        .map((x) => x.name)
+        .sort();
+    } catch {
+      return {
+        plugins,
+        errors: [
+          {
+            plugin: "<directory>",
+            code: "PLUGIN_LOAD_FAILED",
+            details: ["Plugin directory is unavailable"]
+          }
+        ]
+      };
+    }
+    for (const directory of directories) {
+      try {
+        const root = await realpath(resolve(this.baseDirectory, directory)),
+          manifestPath = resolve(root, "plugin.json");
+        const manifest = this.validator.validate(JSON.parse(await readFile(manifestPath, "utf8")));
+        if (ids.has(manifest.id)) throw new PluginValidationError(["duplicate plugin id"]);
+        ids.add(manifest.id);
+        const entry = resolve(root, manifest.entryPoint),
+          rel = relative(root, entry);
+        if (rel.startsWith("..") || isAbsolute(rel))
+          throw new PluginValidationError(["entry path escapes plugin directory"]);
+        const loaded = await import(pathToFileURL(entry).href);
+        const Candidate = loaded.DummyEchoPlugin ?? loaded.default;
+        if (typeof Candidate !== "function")
+          throw new PluginValidationError(["entry module does not export a plugin constructor"]);
+        const instance = new Candidate() as BasePlugin;
+        if (!instance.manifest || typeof instance.health !== "function")
+          throw new PluginValidationError(["entry module does not implement the plugin contract"]);
+        plugins.push({ manifest, create: () => new Candidate() as BasePlugin });
+      } catch (error) {
+        errors.push({
+          plugin: directory,
+          code: "PLUGIN_LOAD_FAILED",
+          details:
+            error instanceof PluginValidationError ? error.details : ["Plugin could not be loaded"]
+        });
+      }
+    }
+    return { plugins, errors };
+  }
+}
+
+export class PluginPermissionError extends Error {
+  constructor(readonly permission: PluginPermission) {
+    super("PLUGIN_PERMISSION_DENIED");
+  }
+}
+export function createPluginServices(granted: ReadonlySet<PluginPermission>): PluginServices {
+  const service = (permission: PluginPermission) => Object.freeze({ permission });
+  return Object.freeze({
+    ...(granted.has(PluginPermission.LLM) ? { llm: service(PluginPermission.LLM) } : {}),
+    ...(granted.has(PluginPermission.MEMORY)
+      ? {
+          memory: {
+            ...service(PluginPermission.MEMORY),
+            async get() {
+              return undefined;
+            },
+            async set() {}
+          }
+        }
+      : {}),
+    ...(granted.has(PluginPermission.EVENTS) ? { events: service(PluginPermission.EVENTS) } : {}),
+    ...(granted.has(PluginPermission.TOOLS) ? { tools: service(PluginPermission.TOOLS) } : {}),
+    ...(granted.has(PluginPermission.FILES) ? { files: service(PluginPermission.FILES) } : {}),
+    ...(granted.has(PluginPermission.EMAIL) ? { email: service(PluginPermission.EMAIL) } : {}),
+    ...(granted.has(PluginPermission.CALENDAR)
+      ? { calendar: service(PluginPermission.CALENDAR) }
+      : {}),
+    ...(granted.has(PluginPermission.CRM) ? { crm: service(PluginPermission.CRM) } : {}),
+    ...(granted.has(PluginPermission.VOICE) ? { voice: service(PluginPermission.VOICE) } : {}),
+    ...(granted.has(PluginPermission.SEARCH) ? { search: service(PluginPermission.SEARCH) } : {})
+  });
+}
+export function requirePluginService<T>(service: T | undefined, permission: PluginPermission): T {
+  if (!service) throw new PluginPermissionError(permission);
+  return service;
+}
+
+export class PluginLifecycleEngine {
+  constructor(private readonly timeoutMs = 5000) {}
+  async install(plugin: BasePlugin, context: PluginContext) {
+    await this.run(plugin.install?.bind(plugin), context);
+  }
+  async enable(plugin: BasePlugin, context: PluginContext) {
+    await this.run(plugin.enable?.bind(plugin), context);
+    await this.run(plugin.start?.bind(plugin), context);
+  }
+  async disable(plugin: BasePlugin, context: PluginContext) {
+    await this.run(plugin.stop?.bind(plugin), context);
+    await this.run(plugin.disable?.bind(plugin), context);
+  }
+  async uninstall(plugin: BasePlugin, context: PluginContext) {
+    await this.disable(plugin, context);
+    await this.run(plugin.uninstall?.bind(plugin), context);
+  }
+  async health(plugin: BasePlugin, context: PluginContext) {
+    if (!plugin.health)
+      return { status: PluginHealthStatus.UNKNOWN, checkedAt: new Date().toISOString() };
+    return this.timeout(plugin.health(context));
+  }
+  private async run(
+    hook: ((context: PluginContext) => Promise<void>) | undefined,
+    context: PluginContext
+  ) {
+    if (hook) await this.timeout(hook(context));
+  }
+  private timeout<T>(operation: Promise<T>): Promise<T> {
+    return new Promise((resolvePromise, reject) => {
+      const timer = setTimeout(() => reject(new Error("PLUGIN_OPERATION_TIMEOUT")), this.timeoutMs);
+      void operation.then(
+        (value) => {
+          clearTimeout(timer);
+          resolvePromise(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        }
+      );
+    });
+  }
+}
+
+type EventHandler = (event: PluginEvent) => Promise<void>;
+export class PluginEventBus {
+  private readonly handlers = new Map<string, Map<string, EventHandler>>();
+  constructor(private readonly timeoutMs = 5000) {}
+  subscribe(organizationId: string, pluginId: string, type: string, handler: EventHandler) {
+    const key = `${organizationId}:${type}`,
+      bucket = this.handlers.get(key) ?? new Map();
+    if (bucket.has(pluginId)) throw new Error("PLUGIN_DUPLICATE_SUBSCRIPTION");
+    bucket.set(pluginId, handler);
+    this.handlers.set(key, bucket);
+  }
+  unsubscribe(organizationId: string, pluginId: string) {
+    for (const [key, bucket] of this.handlers)
+      if (key.startsWith(`${organizationId}:`)) bucket.delete(pluginId);
+  }
+  async publish(event: PluginEvent) {
+    const bucket = this.handlers.get(`${event.organizationId}:${event.type}`);
+    if (!bucket) return;
+    await Promise.allSettled(
+      [...bucket.values()].map((handler) =>
+        Promise.race([
+          handler(event),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error("PLUGIN_OPERATION_TIMEOUT")), this.timeoutMs)
+          )
+        ])
+      )
+    );
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -191,4 +394,10 @@ function rejectDangerous(value: unknown): void {
     if (forbidden.has(key)) throw new PluginValidationError(["unsafe object key"]);
     if (isRecord(child)) rejectDangerous(child);
   }
+}
+function safeEntry(value: string): boolean {
+  return (
+    IDENTIFIER.test(value) ||
+    (!isAbsolute(value) && !value.includes("..") && /^[a-zA-Z0-9_./-]+\.js$/.test(value))
+  );
 }

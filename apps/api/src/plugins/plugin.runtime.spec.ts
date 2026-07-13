@@ -5,8 +5,16 @@ import {
   ConfigurationSchemaValidator,
   ManifestValidator,
   PluginRegistry,
-  PluginSecretsEncryptionService
+  PluginSecretsEncryptionService,
+  PluginDiscovery,
+  PluginLifecycleEngine,
+  PluginEventBus,
+  createPluginServices,
+  requirePluginService,
+  PluginPermissionError
 } from "./plugin.runtime";
+import { PluginPermission } from "@ai-workforce-os/plugin-sdk";
+import { resolve } from "node:path";
 
 describe("plugin runtime foundation", () => {
   it("validates manifests and rejects duplicates and invalid versions", () => {
@@ -56,5 +64,60 @@ describe("plugin runtime foundation", () => {
     expect(() => plugin.enable()).toThrow("PLUGIN_DEPRECATED");
     plugin.remove();
     expect(() => plugin.enable()).toThrow("PLUGIN_STATE_CONFLICT");
+  });
+  it("discovers the trusted dummy plugin from a configurable directory", async () => {
+    const result = await new PluginDiscovery(
+      resolve(process.cwd(), "../../plugins"),
+      new ManifestValidator()
+    ).discover();
+    expect(result.plugins.map((x) => x.manifest.id)).toContain("dummy-echo");
+    expect(result.errors).toEqual([]);
+  });
+  it("runs lifecycle hooks in order and enforces timeouts", async () => {
+    const calls: string[] = [],
+      plugin = new DummyEchoPlugin();
+    plugin.enable = async () => {
+      calls.push("enable");
+    };
+    plugin.start = async () => {
+      calls.push("start");
+    };
+    const engine = new PluginLifecycleEngine(50),
+      context = {
+        organizationId: "o",
+        installationId: "i",
+        requestId: "r",
+        manifest: dummyEchoManifest,
+        config: {},
+        permissions: new Set<PluginPermission>(),
+        services: {},
+        logger: { debug() {}, info() {}, warn() {}, error() {} }
+      };
+    await engine.enable(plugin, context);
+    expect(calls).toEqual(["enable", "start"]);
+    plugin.start = () => new Promise(() => undefined);
+    await expect(engine.enable(plugin, context)).rejects.toThrow("PLUGIN_OPERATION_TIMEOUT");
+  });
+  it("provides only granted services and isolates event delivery by organization", async () => {
+    const services = createPluginServices(new Set([PluginPermission.MEMORY]));
+    expect(services.memory).toBeDefined();
+    expect(() => requirePluginService(services.llm, PluginPermission.LLM)).toThrow(
+      PluginPermissionError
+    );
+    const bus = new PluginEventBus(),
+      received: string[] = [];
+    bus.subscribe("a", "plugin", "USER_CREATED", async () => {
+      received.push("a");
+    });
+    bus.subscribe("b", "plugin", "USER_CREATED", async () => {
+      received.push("b");
+    });
+    await bus.publish({
+      type: "USER_CREATED",
+      organizationId: "a",
+      payload: {},
+      occurredAt: new Date().toISOString()
+    });
+    expect(received).toEqual(["a"]);
   });
 });

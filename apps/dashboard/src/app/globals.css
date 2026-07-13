@@ -689,6 +689,8 @@ button {
   border: 1px solid var(--border);
   background: var(--surface-strong);
   box-shadow: var(--shadow);
+  max-height: min(88vh, 760px);
+  overflow-y: auto;
 }
 
 .ui-dialog__actions {
@@ -696,6 +698,10 @@ button {
   display: flex;
   gap: 12px;
   justify-content: flex-end;
+  position: sticky;
+  bottom: -24px;
+  padding: 16px 0 4px;
+  background: var(--surface-strong);
 }
 
 .ui-dropdown {

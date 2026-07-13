@@ -1,6 +1,7 @@
 import { PluginStatus } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
+  IsArray,
   IsEnum,
   IsInt,
   IsObject,
@@ -10,6 +11,7 @@ import {
   MaxLength,
   Min
 } from "class-validator";
+import { PluginPermission } from "@ai-workforce-os/plugin-sdk";
 
 export class PluginQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
@@ -18,7 +20,13 @@ export class PluginQueryDto {
   @IsOptional() @IsEnum(PluginStatus) status?: PluginStatus;
 }
 export class InstallPluginDto {
-  @IsObject() manifest!: Record<string, unknown>;
+  @IsOptional() @IsObject() manifest?: Record<string, unknown>;
+  @IsOptional() @IsString() @MaxLength(100) pluginId?: string;
+  @IsOptional()
+  @IsArray()
+  @IsEnum(PluginPermission, { each: true })
+  grantedPermissions?: PluginPermission[];
+  @IsOptional() enable?: boolean;
   @IsOptional() @IsObject() configuration?: {
     config?: Record<string, unknown>;
     secrets?: Record<string, string>;
