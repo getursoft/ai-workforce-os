@@ -74,7 +74,7 @@ suite("Sprint 2.2 management HTTP API", () => {
     expect(
       roles.find(({ name }) => name === "Owner")?.users.some(({ userId }) => userId === ownerId)
     ).toBe(true);
-    expect(roles.find(({ name }) => name === "Owner")?.permissions).toHaveLength(24);
+    expect(roles.find(({ name }) => name === "Owner")?.permissions).toHaveLength(29);
   });
 
   it("supports custom roles, multi-role users, filtering, and system-role protection", async () => {

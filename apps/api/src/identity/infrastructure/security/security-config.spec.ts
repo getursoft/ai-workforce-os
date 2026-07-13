@@ -13,6 +13,7 @@ function validEnvironment(): Record<string, string | undefined> {
     REFRESH_TOKEN_EXPIRES_IN_SECONDS: "2592000",
     REFRESH_TOKEN_PEPPER: "refresh-test-pepper-with-more-than-thirty-two-bytes",
     API_KEY_PEPPER: "api-key-test-pepper-with-more-than-thirty-two-bytes",
+    PLUGIN_SECRETS_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     COOKIE_SECURE: "false",
     COOKIE_SAME_SITE: "lax",
     COOKIE_DOMAIN: "",

@@ -27,7 +27,12 @@ export const DEFAULT_PERMISSIONS = {
     "api_keys.read",
     "api_keys.create",
     "api_keys.rotate",
-    "api_keys.revoke"
+    "api_keys.revoke",
+    "plugin.read",
+    "plugin.install",
+    "plugin.update",
+    "plugin.delete",
+    "plugin.execute"
   ],
   Admin: [
     "users.read",
@@ -53,7 +58,12 @@ export const DEFAULT_PERMISSIONS = {
     "api_keys.read",
     "api_keys.create",
     "api_keys.rotate",
-    "api_keys.revoke"
+    "api_keys.revoke",
+    "plugin.read",
+    "plugin.install",
+    "plugin.update",
+    "plugin.delete",
+    "plugin.execute"
   ],
   Manager: [
     "users.read",
@@ -67,10 +77,14 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_MEMBER_REMOVE",
     "TEAM_MEMBER_UPDATE",
     "service_accounts.read",
-    "api_keys.read"
+    "api_keys.read",
+    "plugin.read",
+    "plugin.install",
+    "plugin.update",
+    "plugin.execute"
   ],
-  Member: ["users.read", "roles.read", "TEAM_READ"],
-  Viewer: ["users.read", "TEAM_READ"]
+  Member: ["users.read", "roles.read", "TEAM_READ", "plugin.read", "plugin.execute"],
+  Viewer: ["users.read", "TEAM_READ", "plugin.read"]
 } as const;
 
 const descriptions: Record<string, string> = {
@@ -97,7 +111,12 @@ const descriptions: Record<string, string> = {
   "api_keys.read": "View API key metadata",
   "api_keys.create": "Create API keys",
   "api_keys.rotate": "Rotate API keys",
-  "api_keys.revoke": "Revoke API keys"
+  "api_keys.revoke": "Revoke API keys",
+  "plugin.read": "View installed plugins",
+  "plugin.install": "Install plugins",
+  "plugin.update": "Update plugin state and configuration",
+  "plugin.delete": "Remove plugins",
+  "plugin.execute": "Execute plugin tools"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

@@ -1,0 +1,16 @@
+CREATE TYPE "plugin_status" AS ENUM ('ACTIVE', 'DISABLED', 'DEPRECATED');
+CREATE TABLE "plugins" ("id" UUID NOT NULL,"organization_id" UUID NOT NULL,"name" VARCHAR(120) NOT NULL,"slug" VARCHAR(100) NOT NULL,"version" VARCHAR(50) NOT NULL,"display_name" VARCHAR(160) NOT NULL,"description" VARCHAR(1000) NOT NULL,"author" VARCHAR(160) NOT NULL,"status" "plugin_status" NOT NULL DEFAULT 'DISABLED',"entry_point" VARCHAR(120) NOT NULL,"manifest" JSONB NOT NULL,"config_schema" JSONB,"created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updated_at" TIMESTAMP(3) NOT NULL,"deleted_at" TIMESTAMP(3),CONSTRAINT "plugins_pkey" PRIMARY KEY ("id"));
+CREATE TABLE "plugin_configurations" ("id" UUID NOT NULL,"organization_id" UUID NOT NULL,"plugin_id" UUID NOT NULL,"config" JSONB NOT NULL,"encrypted_secrets" JSONB NOT NULL,"updated_by" UUID NOT NULL,"created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,"updated_at" TIMESTAMP(3) NOT NULL,CONSTRAINT "plugin_configurations_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "plugins_organization_id_slug_key" ON "plugins"("organization_id", "slug");
+CREATE INDEX "plugins_organization_id_idx" ON "plugins"("organization_id");
+CREATE INDEX "plugins_organization_id_status_deleted_at_idx" ON "plugins"("organization_id", "status", "deleted_at");
+CREATE INDEX "plugins_organization_id_deleted_at_idx" ON "plugins"("organization_id", "deleted_at");
+CREATE UNIQUE INDEX "plugin_configurations_plugin_id_key" ON "plugin_configurations"("plugin_id");
+CREATE INDEX "plugin_configurations_organization_id_idx" ON "plugin_configurations"("organization_id");
+CREATE INDEX "plugin_configurations_organization_id_plugin_id_idx" ON "plugin_configurations"("organization_id", "plugin_id");
+ALTER TABLE "plugins" ADD CONSTRAINT "plugins_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "plugin_configurations" ADD CONSTRAINT "plugin_configurations_organization_id_fkey" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "plugin_configurations" ADD CONSTRAINT "plugin_configurations_plugin_id_fkey" FOREIGN KEY ("plugin_id") REFERENCES "plugins"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "plugin_configurations" ADD CONSTRAINT "plugin_configurations_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+INSERT INTO "permissions" ("id", "key", "description") VALUES (gen_random_uuid(),'plugin.read','View installed plugins'),(gen_random_uuid(),'plugin.install','Install plugins'),(gen_random_uuid(),'plugin.update','Update plugin state and configuration'),(gen_random_uuid(),'plugin.delete','Remove plugins'),(gen_random_uuid(),'plugin.execute','Execute plugin tools') ON CONFLICT ("key") DO NOTHING;
+INSERT INTO "role_permissions" ("role_id", "permission_id") SELECT r."id",p."id" FROM "roles" r CROSS JOIN "permissions" p WHERE (r."name" IN ('Owner','Admin') AND p."key" LIKE 'plugin.%') OR (r."name"='Manager' AND p."key" IN ('plugin.read','plugin.install','plugin.update','plugin.execute')) OR (r."name"='Member' AND p."key" IN ('plugin.read','plugin.execute')) OR (r."name"='Viewer' AND p."key"='plugin.read') ON CONFLICT DO NOTHING;

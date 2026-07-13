@@ -19,4 +19,5 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "sideEffects": false
+  ,"dependencies": { "@ai-workforce-os/plugin-sdk": "workspace:*" }
 }

@@ -23,6 +23,7 @@ export interface SecurityConfig {
     pepper: string;
   };
   apiKey: { pepper: string };
+  pluginSecrets: { encryptionKey: Buffer };
   browserAuth: {
     cookieDomain?: string;
     cookieSecure: boolean;
@@ -65,6 +66,15 @@ function secret(environment: Environment, variable: string): string {
     throw new InvalidSecurityConfigurationError(variable);
   }
   return value;
+}
+
+function base64Key(environment: Environment, variable: string): Buffer {
+  const raw = required(environment, variable);
+  const key = Buffer.from(raw, "base64");
+  if (key.length !== 32 || key.toString("base64") !== raw) {
+    throw new InvalidSecurityConfigurationError(variable);
+  }
+  return key;
 }
 
 function url(environment: Environment, variable: string): string {
@@ -140,6 +150,7 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
       pepper: secret(environment, "REFRESH_TOKEN_PEPPER")
     },
     apiKey: { pepper: secret(environment, "API_KEY_PEPPER") },
+    pluginSecrets: { encryptionKey: base64Key(environment, "PLUGIN_SECRETS_ENCRYPTION_KEY") },
     browserAuth
   };
 }

@@ -11,7 +11,9 @@ export type IdentityErrorCode =
   | "REFRESH_TOKEN_EXPIRED"
   | "REFRESH_TOKEN_REUSED"
   | "CONFLICT"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "PLUGIN_MANIFEST_INVALID"
+  | "PLUGIN_CONFIGURATION_INVALID";
 
 export class IdentityApplicationError extends Error {
   constructor(

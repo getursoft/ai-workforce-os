@@ -71,19 +71,29 @@ enum ApiKeyEnvironment {
   @@map("api_key_environment")
 }
 
+enum PluginStatus {
+  ACTIVE
+  DISABLED
+  DEPRECATED
+
+  @@map("plugin_status")
+}
+
 model Organization {
-  id              String               @id @default(uuid()) @db.Uuid
-  name            String               @db.VarChar(120)
-  slug            String               @unique @db.VarChar(100)
-  status          OrganizationStatus   @default(ACTIVE)
-  createdAt       DateTime             @default(now()) @map("created_at")
-  updatedAt       DateTime             @updatedAt @map("updated_at")
-  users           User[]
-  settings        OrganizationSetting?
-  roles           Role[]
-  invitations     Invitation[]
-  teams           Team[]
-  serviceAccounts ServiceAccount[]
+  id                   String                @id @default(uuid()) @db.Uuid
+  name                 String                @db.VarChar(120)
+  slug                 String                @unique @db.VarChar(100)
+  status               OrganizationStatus    @default(ACTIVE)
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  users                User[]
+  settings             OrganizationSetting?
+  roles                Role[]
+  invitations          Invitation[]
+  teams                Team[]
+  serviceAccounts      ServiceAccount[]
+  plugins              Plugin[]
+  pluginConfigurations PluginConfiguration[]
 
   @@map("organizations")
 }
@@ -102,32 +112,77 @@ model OrganizationSetting {
 }
 
 model User {
-  id                     String                  @id @default(uuid()) @db.Uuid
-  organizationId         String                  @map("organization_id") @db.Uuid
-  firstName              String                  @map("first_name") @db.VarChar(80)
-  lastName               String?                 @map("last_name") @db.VarChar(80)
-  email                  String                  @db.VarChar(320)
-  normalizedEmail        String                  @unique @map("normalized_email") @db.VarChar(320)
-  passwordHash           String                  @map("password_hash") @db.VarChar(255)
-  role                   LegacyUserRole
-  status                 UserStatus
-  lastLoginAt            DateTime?               @map("last_login_at")
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
-  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  sessions               AuthenticationSession[]
-  userRoles              UserRole[]
-  invitationsSent        Invitation[]            @relation("InvitationSender")
-  managedTeams           Team[]                  @relation("TeamManager")
-  teamMemberships        TeamMember[]
-  serviceAccountsCreated ServiceAccount[]        @relation("ServiceAccountCreator")
-  apiKeysCreated         ApiKey[]                @relation("ApiKeyCreator")
-  apiKeysRevoked         ApiKey[]                @relation("ApiKeyRevoker")
-  deletedAt              DateTime?               @map("deleted_at")
+  id                          String                  @id @default(uuid()) @db.Uuid
+  organizationId              String                  @map("organization_id") @db.Uuid
+  firstName                   String                  @map("first_name") @db.VarChar(80)
+  lastName                    String?                 @map("last_name") @db.VarChar(80)
+  email                       String                  @db.VarChar(320)
+  normalizedEmail             String                  @unique @map("normalized_email") @db.VarChar(320)
+  passwordHash                String                  @map("password_hash") @db.VarChar(255)
+  role                        LegacyUserRole
+  status                      UserStatus
+  lastLoginAt                 DateTime?               @map("last_login_at")
+  createdAt                   DateTime                @default(now()) @map("created_at")
+  updatedAt                   DateTime                @updatedAt @map("updated_at")
+  organization                Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sessions                    AuthenticationSession[]
+  userRoles                   UserRole[]
+  invitationsSent             Invitation[]            @relation("InvitationSender")
+  managedTeams                Team[]                  @relation("TeamManager")
+  teamMemberships             TeamMember[]
+  serviceAccountsCreated      ServiceAccount[]        @relation("ServiceAccountCreator")
+  apiKeysCreated              ApiKey[]                @relation("ApiKeyCreator")
+  apiKeysRevoked              ApiKey[]                @relation("ApiKeyRevoker")
+  pluginConfigurationsUpdated PluginConfiguration[]   @relation("PluginConfigurationUpdater")
+  deletedAt                   DateTime?               @map("deleted_at")
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@map("users")
+}
+
+model Plugin {
+  id             String               @id @default(uuid()) @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  name           String               @db.VarChar(120)
+  slug           String               @db.VarChar(100)
+  version        String               @db.VarChar(50)
+  displayName    String               @map("display_name") @db.VarChar(160)
+  description    String               @db.VarChar(1000)
+  author         String               @db.VarChar(160)
+  status         PluginStatus         @default(DISABLED)
+  entryPoint     String               @map("entry_point") @db.VarChar(120)
+  manifest       Json
+  configSchema   Json?                @map("config_schema")
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  deletedAt      DateTime?            @map("deleted_at")
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configuration  PluginConfiguration?
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, deletedAt])
+  @@map("plugins")
+}
+
+model PluginConfiguration {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  pluginId         String       @unique @map("plugin_id") @db.Uuid
+  config           Json
+  encryptedSecrets Json         @map("encrypted_secrets")
+  updatedBy        String       @map("updated_by") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plugin           Plugin       @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+  updater          User         @relation("PluginConfigurationUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([organizationId, pluginId])
+  @@map("plugin_configurations")
 }
 
 model Team {

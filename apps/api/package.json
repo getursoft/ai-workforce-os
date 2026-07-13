@@ -10,24 +10,29 @@
     "test": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism",
     "test:unit": "vitest run --exclude '**/*.integration.spec.ts' --exclude '**/*.e2e.spec.ts'",
     "test:integration": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run src/identity/infrastructure/persistence/prisma/prisma-repositories.integration.spec.ts",
-    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/teams/team.e2e.spec.ts src/service-accounts/service-account.e2e.spec.ts",
+    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/teams/team.e2e.spec.ts src/service-accounts/service-account.e2e.spec.ts src/plugins/plugin.e2e.spec.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@ai-workforce-os/plugin-dummy": "workspace:^",
+    "@ai-workforce-os/plugin-sdk": "workspace:^",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",
     "@nestjs/swagger": "^7.4.2",
     "@prisma/client": "6.19.3",
+    "ajv": "^8.20.0",
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "jose": "^6.2.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "semver": "^7.8.5"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.9",
+    "@types/semver": "^7.7.1",
     "@types/supertest": "^7.2.0",
     "supertest": "^7.2.2",
     "vitest": "^4.1.10"

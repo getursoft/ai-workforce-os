@@ -7,7 +7,8 @@ import {
   type ExceptionFilter,
   HttpStatus,
   NotFoundException,
-  UnauthorizedException
+  UnauthorizedException,
+  UnprocessableEntityException
 } from "@nestjs/common";
 import {
   IdentityApplicationError,
@@ -44,7 +45,9 @@ const STATUS: Record<IdentityErrorCode, number> = {
   REFRESH_TOKEN_EXPIRED: HttpStatus.UNAUTHORIZED,
   REFRESH_TOKEN_REUSED: HttpStatus.UNAUTHORIZED,
   CONFLICT: HttpStatus.CONFLICT,
-  INTERNAL_ERROR: HttpStatus.INTERNAL_SERVER_ERROR
+  INTERNAL_ERROR: HttpStatus.INTERNAL_SERVER_ERROR,
+  PLUGIN_MANIFEST_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  PLUGIN_CONFIGURATION_INVALID: HttpStatus.UNPROCESSABLE_ENTITY
 };
 
 @Catch()
@@ -75,6 +78,20 @@ export class ApiExceptionFilter implements ExceptionFilter {
         "VALIDATION_ERROR",
         "The request is invalid.",
         this.validationDetails(exception)
+      );
+    }
+    if (exception instanceof UnprocessableEntityException) {
+      const response = exception.getResponse();
+      const details =
+        typeof response === "object" && response !== null && "message" in response
+          ? Array.isArray((response as { message?: unknown }).message)
+            ? (response as { message: string[] }).message
+            : [String((response as { message?: unknown }).message ?? "Plugin validation failed")]
+          : [];
+      return new IdentityApplicationError(
+        "PLUGIN_MANIFEST_INVALID",
+        "Plugin validation failed.",
+        details
       );
     }
     if (exception instanceof UnauthorizedException) {
