@@ -135,6 +135,98 @@ enum PluginAiProviderType {
   @@map("plugin_ai_provider_type")
 }
 
+enum ConnectorAuthType {
+  NONE
+  API_KEY
+  BEARER_TOKEN
+  BASIC_AUTH
+  OAUTH2
+  CUSTOM
+
+  @@map("connector_auth_type")
+}
+
+enum ConnectorDefinitionStatus {
+  ACTIVE
+  DEPRECATED
+  DISABLED
+
+  @@map("connector_definition_status")
+}
+
+enum ConnectorInstallationStatus {
+  DRAFT
+  CONNECTED
+  READY
+  DISABLED
+  AUTH_FAILED
+  EXPIRED
+  DEGRADED
+  FAILED
+  DISCONNECTED
+  ARCHIVED
+
+  @@map("connector_installation_status")
+}
+
+enum ConnectorHealthStatus {
+  UNKNOWN
+  READY
+  DEGRADED
+  FAILED
+  AUTH_FAILED
+  EXPIRED
+  RATE_LIMITED
+  DISCONNECTED
+
+  @@map("connector_health_status")
+}
+
+enum ConnectorRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("connector_risk_level")
+}
+
+enum ConnectorOperationType {
+  READ
+  WRITE
+
+  @@map("connector_operation_type")
+}
+
+enum ConnectorExecutionStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DENIED
+  TIMED_OUT
+
+  @@map("connector_execution_status")
+}
+
+enum ConnectorActorType {
+  USER
+  SERVICE_ACCOUNT
+  AGENT
+  SYSTEM
+
+  @@map("connector_actor_type")
+}
+
+enum ConnectorEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  IGNORED
+  DUPLICATE
+
+  @@map("connector_event_status")
+}
+
 model Organization {
   id                     String                  @id @default(uuid()) @db.Uuid
   name                   String                  @db.VarChar(120)
@@ -155,6 +247,11 @@ model Organization {
   agentToolExecutions    AgentToolExecution[]
   agentMemories          AgentMemory[]
   pluginAiConfigurations PluginAiConfiguration[]
+  connectorInstallations ConnectorInstallation[]
+  connectorExecutions    ConnectorExecution[]
+  connectorEvents        ConnectorEvent[]
+  connectorAuditEvents   ConnectorAuditEvent[]
+  dummyCrmLeads          DummyCrmLead[]
 
   @@map("organizations")
 }
@@ -199,6 +296,8 @@ model User {
   agentExecutions               AgentExecution[]
   agentMemories                 AgentMemory[]
   pluginAiConfigurationsUpdated PluginAiConfiguration[] @relation("PluginAiConfigurationUpdater")
+  connectorInstallationsCreated ConnectorInstallation[] @relation("ConnectorInstallationCreator")
+  connectorAuditEvents          ConnectorAuditEvent[]
   deletedAt                     DateTime?               @map("deleted_at")
 
   @@index([organizationId])
@@ -605,4 +704,165 @@ model AuthenticationSession {
   @@index([expiresAt])
   @@index([userId, revokedAt])
   @@map("authentication_sessions")
+}
+
+model ConnectorDefinition {
+  id                   String                    @id @default(uuid()) @db.Uuid
+  key                  String                    @unique @db.VarChar(100)
+  name                 String                    @db.VarChar(160)
+  description          String                    @db.VarChar(1000)
+  category             String                    @db.VarChar(80)
+  version              String                    @db.VarChar(50)
+  authType             ConnectorAuthType         @map("auth_type")
+  manifest             Json
+  declaredCapabilities Json                      @map("declared_capabilities")
+  configurationSchema  Json                      @map("configuration_schema")
+  credentialSchema     Json                      @map("credential_schema")
+  status               ConnectorDefinitionStatus @default(ACTIVE)
+  createdAt            DateTime                  @default(now()) @map("created_at")
+  updatedAt            DateTime                  @updatedAt @map("updated_at")
+  tools                ConnectorTool[]
+  installations        ConnectorInstallation[]
+
+  @@index([status, category])
+  @@map("connector_definitions")
+}
+
+model ConnectorTool {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  connectorId        String                 @map("connector_id") @db.Uuid
+  name               String                 @db.VarChar(120)
+  displayName        String                 @map("display_name") @db.VarChar(160)
+  description        String                 @db.VarChar(1000)
+  inputSchema        Json                   @map("input_schema")
+  outputSchema       Json?                  @map("output_schema")
+  requiredCapability String                 @map("required_capability") @db.VarChar(120)
+  operationType      ConnectorOperationType @map("operation_type")
+  riskLevel          ConnectorRiskLevel     @map("risk_level")
+  timeoutMs          Int                    @default(10000) @map("timeout_ms")
+  enabled            Boolean                @default(true)
+  connector          ConnectorDefinition    @relation(fields: [connectorId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorId, name])
+  @@index([connectorId, enabled])
+  @@map("connector_tools")
+}
+
+model ConnectorInstallation {
+  id                   String                      @id @default(uuid()) @db.Uuid
+  organizationId       String                      @map("organization_id") @db.Uuid
+  connectorId          String                      @map("connector_id") @db.Uuid
+  displayName          String                      @map("display_name") @db.VarChar(160)
+  status               ConnectorInstallationStatus @default(DRAFT)
+  configuration        Json                        @default("{}")
+  encryptedCredentials Json                        @map("encrypted_credentials")
+  credentialMetadata   Json                        @default("{}") @map("credential_metadata")
+  grantedCapabilities  Json                        @default("[]") @map("granted_capabilities")
+  lastHealthStatus     ConnectorHealthStatus       @default(UNKNOWN) @map("last_health_status")
+  lastHealthCheckedAt  DateTime?                   @map("last_health_checked_at")
+  lastErrorCode        String?                     @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage     String?                     @map("last_error_message") @db.VarChar(500)
+  credentialExpiresAt  DateTime?                   @map("credential_expires_at")
+  createdByUserId      String                      @map("created_by_user_id") @db.Uuid
+  createdAt            DateTime                    @default(now()) @map("created_at")
+  updatedAt            DateTime                    @updatedAt @map("updated_at")
+  deletedAt            DateTime?                   @map("deleted_at")
+  organization         Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connector            ConnectorDefinition         @relation(fields: [connectorId], references: [id], onDelete: Restrict)
+  createdBy            User                        @relation("ConnectorInstallationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  executions           ConnectorExecution[]
+  events               ConnectorEvent[]
+  auditEvents          ConnectorAuditEvent[]
+  dummyCrmLeads        DummyCrmLead[]
+
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, connectorId])
+  @@map("connector_installations")
+}
+
+model ConnectorExecution {
+  id                      String                   @id @default(uuid()) @db.Uuid
+  organizationId          String                   @map("organization_id") @db.Uuid
+  connectorInstallationId String                   @map("connector_installation_id") @db.Uuid
+  agentExecutionId        String?                  @map("agent_execution_id") @db.Uuid
+  toolName                String                   @map("tool_name") @db.VarChar(180)
+  actorType               ConnectorActorType       @map("actor_type")
+  actorId                 String?                  @map("actor_id") @db.Uuid
+  requestMetadata         Json                     @default("{}") @map("request_metadata")
+  input                   Json
+  output                  Json?
+  status                  ConnectorExecutionStatus @default(RUNNING)
+  latencyMs               Int?                     @map("latency_ms")
+  externalStatusCode      Int?                     @map("external_status_code")
+  errorCode               String?                  @map("error_code") @db.VarChar(100)
+  errorMessage            String?                  @map("error_message") @db.VarChar(500)
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorInstallation   ConnectorInstallation    @relation(fields: [connectorInstallationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, createdAt])
+  @@index([connectorInstallationId, createdAt])
+  @@index([agentExecutionId])
+  @@map("connector_executions")
+}
+
+model ConnectorEvent {
+  id                      String                @id @default(uuid()) @db.Uuid
+  organizationId          String                @map("organization_id") @db.Uuid
+  connectorInstallationId String                @map("connector_installation_id") @db.Uuid
+  eventType               String                @map("event_type") @db.VarChar(120)
+  externalEventId         String                @map("external_event_id") @db.VarChar(255)
+  payload                 Json
+  status                  ConnectorEventStatus  @default(RECEIVED)
+  receivedAt              DateTime              @default(now()) @map("received_at")
+  processedAt             DateTime?             @map("processed_at")
+  errorCode               String?               @map("error_code") @db.VarChar(100)
+  errorMessage            String?               @map("error_message") @db.VarChar(500)
+  organization            Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorInstallation   ConnectorInstallation @relation(fields: [connectorInstallationId], references: [id], onDelete: Cascade)
+
+  @@unique([connectorInstallationId, externalEventId])
+  @@index([organizationId, receivedAt])
+  @@index([connectorInstallationId, status])
+  @@map("connector_events")
+}
+
+model ConnectorAuditEvent {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  organizationId          String                 @map("organization_id") @db.Uuid
+  connectorInstallationId String?                @map("connector_installation_id") @db.Uuid
+  userId                  String?                @map("user_id") @db.Uuid
+  event                   String                 @db.VarChar(120)
+  requestId               String                 @map("request_id") @db.VarChar(100)
+  metadata                Json                   @default("{}")
+  createdAt               DateTime               @default(now()) @map("created_at")
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorInstallation   ConnectorInstallation? @relation(fields: [connectorInstallationId], references: [id], onDelete: SetNull)
+  user                    User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([connectorInstallationId, createdAt])
+  @@map("connector_audit_events")
+}
+
+model DummyCrmLead {
+  id                      String                @id @default(uuid()) @db.Uuid
+  organizationId          String                @map("organization_id") @db.Uuid
+  connectorInstallationId String                @map("connector_installation_id") @db.Uuid
+  firstName               String?               @map("first_name") @db.VarChar(100)
+  lastName                String?               @map("last_name") @db.VarChar(100)
+  phone                   String?               @db.VarChar(40)
+  email                   String?               @db.VarChar(320)
+  source                  String                @db.VarChar(100)
+  interest                String?               @db.VarChar(255)
+  notes                   String?               @db.Text
+  metadata                Json                  @default("{}")
+  createdAt               DateTime              @default(now()) @map("created_at")
+  updatedAt               DateTime              @updatedAt @map("updated_at")
+  organization            Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  connectorInstallation   ConnectorInstallation @relation(fields: [connectorInstallationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([connectorInstallationId])
+  @@map("dummy_crm_leads")
 }

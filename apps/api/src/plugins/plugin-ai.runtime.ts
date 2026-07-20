@@ -108,6 +108,37 @@ export class DeterministicTravelProvider implements AiProvider {
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
     const last = request.messages.at(-1),
       user = [...request.messages].reverse().find((x) => x.role === "user")?.content ?? "";
+    const crmTool = request.tools?.find((tool) => tool.name.endsWith("crm.create_lead"));
+    if (
+      last?.role !== "tool" &&
+      crmTool &&
+      /dubai/i.test(user) &&
+      /(?:adult|budget|trip|travel)/i.test(user)
+    )
+      return {
+        content: "",
+        toolCalls: [
+          {
+            id: "crm-lead-1",
+            name: crmTool.name,
+            arguments: {
+              source: "AI_TRAVEL_AGENT",
+              interest: "Dubai trip",
+              notes: user,
+              metadata: {
+                destination: "Dubai",
+                durationDays: /five|5/i.test(user) ? 5 : null,
+                travelMonth: /december/i.test(user) ? "December" : null,
+                adults: /two|2/i.test(user) ? 2 : null,
+                budgetInr: /2\\s*lakh|200000/i.test(user) ? 200000 : null
+              }
+            }
+          }
+        ],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 30, outputTokens: 10, totalTokens: 40 }
+      };
     if (
       last?.role !== "tool" &&
       /remember.+prefer/i.test(user) &&
@@ -148,7 +179,9 @@ export class DeterministicTravelProvider implements AiProvider {
       };
     return {
       content: /dubai/i.test(user)
-        ? "Here is a five-day Dubai plan covering Old Dubai, Downtown, the desert, the marina, and a relaxed final day. I have remembered your food preference and will prioritize vegetarian options."
+        ? last?.role === "tool" && /LEAD-/i.test(last.content)
+          ? `Your Dubai travel request has been captured in the CRM. ${last.content}`
+          : "Here is a five-day Dubai plan covering Old Dubai, Downtown, the desert, the marina, and a relaxed final day. I have remembered your food preference and will prioritize vegetarian options. No booking was performed, and prices or availability should be verified."
         : "I can help draft a practical travel itinerary. No booking was performed, and any prices or availability should be verified with a live provider.",
       toolCalls: [],
       provider: "deterministic",
@@ -280,11 +313,12 @@ export class SafeHttpTool {
     private readonly resolver: (host: string) => Promise<string[]> = resolveHost
   ) {}
   async execute(
-    input: HttpToolInput
+    input: HttpToolInput,
+    trustedHeaders: Readonly<Record<string, string>> = {}
   ): Promise<{ status: number; contentType: string; body: unknown }> {
     if (input.method !== "GET" && input.method !== "POST")
       throw new Error("HTTP_TOOL_INPUT_INVALID");
-    const headers = safeHeaders(input.headers ?? {});
+    const headers = { ...safeHeaders(input.headers ?? {}), ...trustedHeaders };
     let current = new URL(input.url),
       redirects = 0;
     while (true) {

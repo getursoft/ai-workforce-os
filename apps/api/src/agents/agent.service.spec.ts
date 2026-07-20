@@ -4,6 +4,7 @@ import type { AuthorizationService } from "../identity/application/services/auth
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { AiProviderError } from "../plugins/plugin-ai.runtime";
 import type { PluginAiService } from "../plugins/plugin-ai.service";
+import type { ConnectorService } from "../connectors/connector.service";
 import { AgentService, type MemoryService } from "./agent.service";
 
 describe("AgentService configured provider selection", () => {
@@ -38,9 +39,7 @@ describe("AgentService configured provider selection", () => {
       }
     } as unknown as PrismaService;
     const provider = {
-      complete: vi
-        .fn()
-        .mockRejectedValue(new AiProviderError("AI_PROVIDER_QUOTA_EXCEEDED", 429))
+      complete: vi.fn().mockRejectedValue(new AiProviderError("AI_PROVIDER_QUOTA_EXCEEDED", 429))
     };
     const pluginAi = {
       resolveProvider: vi.fn().mockResolvedValue({
@@ -58,7 +57,11 @@ describe("AgentService configured provider selection", () => {
         getEffectivePermissions: vi.fn().mockResolvedValue([])
       } as unknown as AuthorizationService,
       { search: vi.fn().mockResolvedValue([]) } as unknown as MemoryService,
-      pluginAi
+      pluginAi,
+      {
+        toolHandlers: () => [],
+        availableToolNames: vi.fn().mockResolvedValue([])
+      } as unknown as ConnectorService
     );
 
     await expect(
@@ -182,7 +185,11 @@ function harness(provider: { complete: ReturnType<typeof vi.fn> }, failAssistant
         getEffectivePermissions: vi.fn().mockResolvedValue([])
       } as unknown as AuthorizationService,
       { search: vi.fn().mockResolvedValue([]) } as unknown as MemoryService,
-      pluginAi as unknown as PluginAiService
+      pluginAi as unknown as PluginAiService,
+      {
+        toolHandlers: () => [],
+        availableToolNames: vi.fn().mockResolvedValue([])
+      } as unknown as ConnectorService
     )
   };
 }

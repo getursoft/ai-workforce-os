@@ -38,7 +38,21 @@ export const DEFAULT_PERMISSIONS = {
     "agents.executions.read",
     "agents.memory.read",
     "agents.memory.write",
-    "agents.tools.execute"
+    "agents.tools.execute",
+    "connector.read",
+    "connector.install",
+    "connector.update",
+    "connector.configure",
+    "connector.authenticate",
+    "connector.enable",
+    "connector.disable",
+    "connector.test",
+    "connector.health",
+    "connector.disconnect",
+    "connector.remove",
+    "connector.audit.read",
+    "connector.execution.read",
+    "connector.event.read"
   ],
   Admin: [
     "users.read",
@@ -75,7 +89,21 @@ export const DEFAULT_PERMISSIONS = {
     "agents.executions.read",
     "agents.memory.read",
     "agents.memory.write",
-    "agents.tools.execute"
+    "agents.tools.execute",
+    "connector.read",
+    "connector.install",
+    "connector.update",
+    "connector.configure",
+    "connector.authenticate",
+    "connector.enable",
+    "connector.disable",
+    "connector.test",
+    "connector.health",
+    "connector.disconnect",
+    "connector.remove",
+    "connector.audit.read",
+    "connector.execution.read",
+    "connector.event.read"
   ],
   Manager: [
     "users.read",
@@ -99,7 +127,12 @@ export const DEFAULT_PERMISSIONS = {
     "agents.executions.read",
     "agents.memory.read",
     "agents.memory.write",
-    "agents.tools.execute"
+    "agents.tools.execute",
+    "connector.read",
+    "connector.test",
+    "connector.health",
+    "connector.execution.read",
+    "connector.event.read"
   ],
   Member: [
     "users.read",
@@ -113,7 +146,7 @@ export const DEFAULT_PERMISSIONS = {
     "agents.memory.write",
     "agents.tools.execute"
   ],
-  Viewer: ["users.read", "TEAM_READ", "plugin.read"]
+  Viewer: ["users.read", "TEAM_READ", "plugin.read", "connector.read"]
 } as const;
 
 const descriptions: Record<string, string> = {
@@ -151,7 +184,21 @@ const descriptions: Record<string, string> = {
   "agents.executions.read": "View agent execution history",
   "agents.memory.read": "Read scoped agent memory",
   "agents.memory.write": "Manage scoped agent memory",
-  "agents.tools.execute": "Execute approved agent tools"
+  "agents.tools.execute": "Execute approved agent tools",
+  "connector.read": "View connector catalogue and installations",
+  "connector.install": "Install organization connectors",
+  "connector.update": "Update connector metadata",
+  "connector.configure": "Configure connectors and capability grants",
+  "connector.authenticate": "Manage connector credentials and authentication",
+  "connector.enable": "Enable connectors",
+  "connector.disable": "Disable connectors",
+  "connector.test": "Test connector connections",
+  "connector.health": "Check connector health",
+  "connector.disconnect": "Disconnect connectors",
+  "connector.remove": "Archive connector installations",
+  "connector.audit.read": "View connector audit history",
+  "connector.execution.read": "View connector executions",
+  "connector.event.read": "View connector inbound events"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

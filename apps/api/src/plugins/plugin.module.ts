@@ -48,6 +48,12 @@ import {
     PluginAiService,
     PluginService
   ],
-  exports: [PluginRegistry, PluginService, PluginAiService]
+  exports: [
+    PluginRegistry,
+    PluginService,
+    PluginAiService,
+    PluginSecretsEncryptionService,
+    SafeHttpTool
+  ]
 })
 export class PluginModule {}

@@ -13,6 +13,7 @@
     "check": "pnpm health && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "clean": "turbo run clean && rm -rf .turbo",
     "dev": "turbo run dev",
+    "db:migrate": "prisma migrate deploy --schema=database/prisma/schema.prisma",
     "health": "node --experimental-strip-types scripts/health-check.ts",
     "lint": "turbo run lint",
     "format": "prettier --write .",

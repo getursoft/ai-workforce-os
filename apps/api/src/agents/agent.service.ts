@@ -31,6 +31,7 @@ import {
 } from "./agent.runtime";
 import { AiProviderError, type ProviderSettings } from "../plugins/plugin-ai.runtime";
 import { PluginAiService } from "../plugins/plugin-ai.service";
+import { ConnectorService } from "../connectors/connector.service";
 
 @Injectable()
 export class MemoryService {
@@ -169,10 +170,12 @@ export class AgentService {
     private readonly prisma: PrismaService,
     private readonly authorization: AuthorizationService,
     private readonly memories: MemoryService,
-    private readonly pluginAi: PluginAiService
+    private readonly pluginAi: PluginAiService,
+    private readonly connectors: ConnectorService
   ) {
     this.executor = new ToolExecutor(this.tools, new ToolPermissionPolicy());
     this.registerTools();
+    for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
   }
   async run(organizationId: string, userId: string, requestId: string, dto: AgentRunDto) {
     const plugin = await this.prisma.plugin.findFirst({
@@ -180,10 +183,7 @@ export class AgentService {
     });
     if (!plugin) throw new NotFoundException("PLUGIN_INSTALLATION_NOT_FOUND");
     if (plugin.status !== PluginStatus.ACTIVE) throw new ConflictException("PLUGIN_DISABLED");
-    const { provider, settings } = await this.pluginAi.resolveProvider(
-      organizationId,
-      plugin.id
-    );
+    const { provider, settings } = await this.pluginAi.resolveProvider(organizationId, plugin.id);
     const configuredModel = providerModel(settings);
     const conversation = dto.conversationId
       ? await this.prisma.conversation.findFirst({
@@ -250,6 +250,8 @@ export class AgentService {
         available.add("platform.memory.save");
         available.add("platform.memory.search");
       }
+      for (const name of await this.connectors.availableToolNames(organizationId, grants))
+        available.add(name);
       const recentMemories = await this.memories.search(organizationId, userId, {
         pluginInstallationId: plugin.id,
         query: "preference",
@@ -667,8 +669,7 @@ function providerName(settings: ProviderSettings): string {
   return "deterministic";
 }
 function providerModel(settings: ProviderSettings): string {
-  if (settings.providerType === "AZURE_OPENAI")
-    return settings.deploymentName ?? "unconfigured";
+  if (settings.providerType === "AZURE_OPENAI") return settings.deploymentName ?? "unconfigured";
   if (settings.providerType === "OPENAI_COMPATIBLE") return settings.model ?? "unconfigured";
   return "travel-test-v1";
 }

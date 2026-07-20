@@ -23,6 +23,7 @@ const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[]
 ] as const;
 
 export const ADMIN_ITEMS = [
+  { href: "/connectors", label: "Connectors", permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", permission: "plugin.read" },
   {
     href: "/dashboard/service-accounts",

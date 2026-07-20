@@ -16,8 +16,13 @@ export const dummyEchoManifest: PluginManifest = {
   description: "Built-in plugin used to verify the plugin runtime",
   author: "AI Workforce OS",
   entryPoint: "dummy-echo",
-  permissions: [PluginPermission.LLM, PluginPermission.MEMORY, PluginPermission.EVENTS],
-  capabilities: ["dummy.echo", "travel.chat", "platform.http.request"],
+  permissions: [
+    PluginPermission.LLM,
+    PluginPermission.MEMORY,
+    PluginPermission.EVENTS,
+    PluginPermission.CRM
+  ],
+  capabilities: ["dummy.echo", "travel.chat", "platform.http.request", "CRM"],
   tools: [{ name: "echo", description: "Returns the provided input" }],
   configSchema: {
     type: "object",

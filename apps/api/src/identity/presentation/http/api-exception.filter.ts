@@ -5,6 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
   type ExceptionFilter,
+  HttpException,
   HttpStatus,
   NotFoundException,
   UnauthorizedException,
@@ -59,7 +60,24 @@ const STATUS: Record<IdentityErrorCode, number> = {
   AI_PROVIDER_UNAVAILABLE: HttpStatus.SERVICE_UNAVAILABLE,
   AI_PROVIDER_TEST_FAILED: HttpStatus.BAD_GATEWAY,
   AI_PROVIDER_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY,
-  AGENT_EXECUTION_FAILED: HttpStatus.INTERNAL_SERVER_ERROR
+  AGENT_EXECUTION_FAILED: HttpStatus.INTERNAL_SERVER_ERROR,
+  CONNECTOR_NOT_FOUND: HttpStatus.NOT_FOUND,
+  CONNECTOR_INSTALLATION_NOT_FOUND: HttpStatus.NOT_FOUND,
+  CONNECTOR_ALREADY_INSTALLED: HttpStatus.CONFLICT,
+  CONNECTOR_CONFIGURATION_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  CONNECTOR_CREDENTIALS_REQUIRED: HttpStatus.UNPROCESSABLE_ENTITY,
+  CONNECTOR_CREDENTIALS_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  CONNECTOR_AUTHENTICATION_FAILED: HttpStatus.UNPROCESSABLE_ENTITY,
+  CONNECTOR_AUTHENTICATION_EXPIRED: HttpStatus.UNPROCESSABLE_ENTITY,
+  CONNECTOR_DISABLED: HttpStatus.CONFLICT,
+  CONNECTOR_DISCONNECTED: HttpStatus.CONFLICT,
+  CONNECTOR_CAPABILITY_NOT_GRANTED: HttpStatus.FORBIDDEN,
+  CONNECTOR_TOOL_NOT_FOUND: HttpStatus.NOT_FOUND,
+  CONNECTOR_TOOL_EXECUTION_FAILED: HttpStatus.BAD_GATEWAY,
+  CONNECTOR_TOOL_TIMEOUT: HttpStatus.GATEWAY_TIMEOUT,
+  CONNECTOR_RATE_LIMITED: HttpStatus.TOO_MANY_REQUESTS,
+  CONNECTOR_HEALTH_CHECK_FAILED: HttpStatus.BAD_GATEWAY,
+  CONNECTOR_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY
 };
 
 @Catch()
@@ -93,6 +111,10 @@ export class ApiExceptionFilter implements ExceptionFilter {
         "PLUGIN_SECRETS_KEY_INVALID",
         "Plugin secret encryption is not configured."
       );
+    }
+    if (exception instanceof HttpException) {
+      const code = connectorErrorCode(exception);
+      if (code) return new IdentityApplicationError(code, connectorErrorMessage(code));
     }
     if (exception instanceof BadRequestException) {
       return new IdentityApplicationError(
@@ -156,4 +178,34 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
     return [];
   }
+}
+
+function connectorErrorCode(exception: HttpException): IdentityErrorCode | undefined {
+  const response = exception.getResponse();
+  const message =
+    typeof response === "string"
+      ? response
+      : typeof response === "object" &&
+          response !== null &&
+          "message" in response &&
+          typeof (response as { message?: unknown }).message === "string"
+        ? (response as { message: string }).message
+        : undefined;
+  return message?.startsWith("CONNECTOR_") ? (message as IdentityErrorCode) : undefined;
+}
+
+function connectorErrorMessage(code: IdentityErrorCode): string {
+  const messages: Partial<Record<IdentityErrorCode, string>> = {
+    CONNECTOR_NOT_FOUND: "The connector was not found.",
+    CONNECTOR_INSTALLATION_NOT_FOUND: "The connector installation was not found.",
+    CONNECTOR_ALREADY_INSTALLED: "The connector is already installed.",
+    CONNECTOR_CONFIGURATION_INVALID: "The connector configuration is invalid.",
+    CONNECTOR_CREDENTIALS_REQUIRED: "Connector credentials are required.",
+    CONNECTOR_CREDENTIALS_INVALID: "The connector credentials are invalid.",
+    CONNECTOR_CAPABILITY_NOT_GRANTED: "The connector capability is not granted.",
+    CONNECTOR_DISABLED: "The connector is disabled.",
+    CONNECTOR_DISCONNECTED: "The connector is disconnected.",
+    CONNECTOR_TOOL_TIMEOUT: "The connector tool timed out."
+  };
+  return messages[code] ?? "The connector operation could not be completed safely.";
 }

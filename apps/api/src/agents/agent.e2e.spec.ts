@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { ValidationPipe, type INestApplication } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { NestFactory } from "@nestjs/core";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
