@@ -8,6 +8,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUrl,
   ValidateNested,
   Max,
   MaxLength,
@@ -49,16 +50,27 @@ export class UpdatePluginGrantsDto {
   grantedPermissions!: string[];
 }
 
+export class PluginAiSecretsDto {
+  @IsOptional() @IsString() @MaxLength(10000) apiKey?: string;
+}
+
 export class UpdatePluginAiConfigurationDto {
   @IsOptional() @IsEnum(PluginAiProviderType) providerType?: PluginAiProviderType;
   @IsOptional() @IsString() @MaxLength(200) model?: string;
-  @IsOptional() @IsString() @MaxLength(1000) baseUrl?: string;
-  @IsOptional() @IsString() @MaxLength(1000) endpoint?: string;
+  @IsOptional() @IsUrl({ require_protocol: true }) @MaxLength(1000) baseUrl?: string;
+  @IsOptional()
+  @IsUrl({ protocols: ["https"], require_protocol: true })
+  @MaxLength(1000)
+  endpoint?: string;
   @IsOptional() @IsString() @MaxLength(200) deploymentName?: string;
   @IsOptional() @IsString() @MaxLength(100) apiVersion?: string;
   @IsOptional() @IsInt() @Min(1000) @Max(120000) timeoutMs?: number;
-  @IsOptional() @IsObject() secrets?: { apiKey?: string };
-  @IsOptional() @IsArray() @IsString({ each: true }) removeSecrets?: string[];
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PluginAiSecretsDto)
+  secrets?: PluginAiSecretsDto;
+  @IsOptional() @IsArray() @IsIn(["apiKey"], { each: true }) removeSecrets?: string[];
 }
 
 export class PluginChatMessageDto {

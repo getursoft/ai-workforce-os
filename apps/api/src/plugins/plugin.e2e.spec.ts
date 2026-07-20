@@ -80,17 +80,36 @@ suite("Plugin runtime HTTP", () => {
       .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
       .set(auth)
       .send({
-        providerType: "DETERMINISTIC",
-        timeoutMs: 5000,
+        providerType: "OPENAI_COMPATIBLE",
+        model: "gpt-4.1-mini",
+        baseUrl: "https://api.openai.com/v1",
+        timeoutMs: 30000,
         secrets: { apiKey: "never-return-this" }
       })
       .expect(200);
+    expect(aiConfigured.body.configuration).toEqual({
+      model: "gpt-4.1-mini",
+      baseUrl: "https://api.openai.com/v1",
+      timeoutMs: 30000
+    });
     expect(aiConfigured.body.secrets.apiKey.configured).toBe(true);
     expect(JSON.stringify(aiConfigured.body)).not.toContain("never-return-this");
     const storedAi = await prisma.pluginAiConfiguration.findUniqueOrThrow({
       where: { pluginInstallationId: pluginId }
     });
     expect(JSON.stringify(storedAi.encryptedSecrets)).not.toContain("never-return-this");
+    expect(storedAi.providerType).toBe("OPENAI_COMPATIBLE");
+    const sanitized = await request(app.getHttpServer())
+      .get(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .set(auth)
+      .expect(200);
+    expect(sanitized.body.secrets.apiKey.configured).toBe(true);
+    expect(JSON.stringify(sanitized.body)).not.toContain("never-return-this");
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .set(auth)
+      .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
+      .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/plugins/${pluginId}/ai-configuration/test`)
       .set(auth)
@@ -192,6 +211,11 @@ suite("Plugin runtime HTTP", () => {
       .patch(`/api/v1/plugins/${installed.body.id}/grants`)
       .set("Authorization", `Bearer ${memberLogin.body.data.tokens.accessToken}`)
       .send({ grantedPermissions: [] })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${installed.body.id}/ai-configuration`)
+      .set("Authorization", `Bearer ${memberLogin.body.data.tokens.accessToken}`)
+      .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
       .expect(403);
     await prisma.user.update({ where: { id: owner.id }, data: { role: "OWNER" } });
     await prisma.userRole.delete({

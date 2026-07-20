@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPluginApi } from "./plugin-api";
+import { createPluginApi, saveAndTestAiConfiguration } from "./plugin-api";
 describe("plugin api", () => {
   it("uses scoped lifecycle endpoints and serializes secrets only in writes", async () => {
     const request = vi.fn().mockResolvedValue({});
@@ -52,5 +52,25 @@ describe("plugin api", () => {
       method: "POST",
       body: JSON.stringify({ message: "Plan a trip", conversation: [] })
     });
+  });
+  it("saves once, refreshes sanitized metadata, then calls the provider test endpoint", async () => {
+    const calls: string[] = [];
+    const api = {
+      updateAiConfiguration: vi.fn(async () => {
+        calls.push("save");
+        return {} as never;
+      }),
+      testAiConfiguration: vi.fn(async () => {
+        calls.push("test");
+        return { success: true, provider: "openai-compatible", model: "configured-model" };
+      })
+    };
+    const refresh = vi.fn(async () => {
+      calls.push("refresh");
+    });
+    await saveAndTestAiConfiguration(api, "p1", { providerType: "OPENAI_COMPATIBLE" }, refresh);
+    expect(calls).toEqual(["save", "refresh", "test"]);
+    expect(api.updateAiConfiguration).toHaveBeenCalledOnce();
+    expect(api.testAiConfiguration).toHaveBeenCalledOnce();
   });
 });

@@ -1,15 +1,22 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { PluginAiProviderType, PluginStatus, Prisma } from "@prisma/client";
 import type { AiMessage, AiToolDefinition } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { IdentityApplicationError } from "../identity/application/errors/identity.error";
 import type { PluginChatDto, UpdatePluginAiConfigurationDto } from "./plugin.dto";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "./plugin.runtime";
-import { createAiProvider, SafeHttpTool, type ProviderSettings } from "./plugin-ai.runtime";
+import {
+  AiProviderError,
+  createAiProvider,
+  SafeHttpTool,
+  type ProviderSettings
+} from "./plugin-ai.runtime";
 
 type StoredSettings = Omit<ProviderSettings, "providerType">;
 
 @Injectable()
 export class PluginAiService {
+  private readonly logger = new Logger(PluginAiService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: PluginSecretsEncryptionService,
@@ -46,6 +53,27 @@ export class PluginAiService {
   }
 
   async update(
+    organizationId: string,
+    userId: string,
+    pluginId: string,
+    dto: UpdatePluginAiConfigurationDto
+  ) {
+    try {
+      return await this.persistUpdate(organizationId, userId, pluginId, dto);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2021" || error.code === "P2022")
+      )
+        throw new IdentityApplicationError(
+          "DATABASE_SCHEMA_OUT_OF_DATE",
+          "The database schema is not ready for plugin AI configuration."
+        );
+      throw error;
+    }
+  }
+
+  private async persistUpdate(
     organizationId: string,
     userId: string,
     pluginId: string,
@@ -95,17 +123,34 @@ export class PluginAiService {
   }
 
   async test(organizationId: string, pluginId: string) {
-    const { provider, settings } = await this.provider(organizationId, pluginId);
-    const result = await provider.complete({
-      messages: [{ role: "user", content: "Reply with OK." }],
-      maxOutputTokens: 8
-    });
-    return {
-      success: true,
-      provider: result.provider,
-      model: result.model,
-      configuredProvider: settings.providerType
-    };
+    let providerType = "UNKNOWN";
+    try {
+      const { provider, settings } = await this.resolveProvider(organizationId, pluginId);
+      providerType = settings.providerType;
+      this.logger.log({ event: "AI_PROVIDER_TEST_STARTED", providerType, pluginId });
+      const result = await provider.complete({
+        messages: [{ role: "user", content: "Reply with OK." }],
+        maxOutputTokens: 8
+      });
+      this.logger.log({ event: "AI_PROVIDER_TEST_SUCCEEDED", providerType, pluginId });
+      return {
+        success: true,
+        provider: result.provider,
+        model: result.model,
+        configuredProvider: settings.providerType
+      };
+    } catch (error) {
+      const mapped =
+        error instanceof AiProviderError ? error : new AiProviderError("AI_PROVIDER_TEST_FAILED");
+      this.logger.warn({
+        event: "AI_PROVIDER_TEST_FAILED",
+        providerType,
+        pluginId,
+        category: mapped.code,
+        ...(mapped.upstreamStatus ? { upstreamStatus: mapped.upstreamStatus } : {})
+      });
+      throw new IdentityApplicationError(mapped.code, providerTestMessage(mapped.code));
+    }
   }
 
   async chat(organizationId: string, pluginId: string, dto: PluginChatDto) {
@@ -115,7 +160,7 @@ export class PluginAiService {
       ? plugin.grantedPermissions.filter((x): x is string => typeof x === "string")
       : [];
     if (!grants.includes("LLM")) throw new BadRequestException("TOOL_CAPABILITY_NOT_GRANTED");
-    const { provider } = await this.provider(organizationId, pluginId);
+    const { provider } = await this.resolveProvider(organizationId, pluginId);
     const tools: AiToolDefinition[] = grants.includes("platform.http.request")
       ? [
           {
@@ -186,7 +231,7 @@ export class PluginAiService {
     throw new BadRequestException("AI_EXECUTION_LIMIT_REACHED");
   }
 
-  private async provider(organizationId: string, pluginId: string) {
+  async resolveProvider(organizationId: string, pluginId: string) {
     await this.plugin(organizationId, pluginId);
     const stored = await this.prisma.pluginAiConfiguration.findUnique({
       where: { pluginInstallationId: pluginId }
@@ -203,19 +248,26 @@ export class PluginAiService {
     const plugin = await this.prisma.plugin.findFirst({
       where: { id, organizationId, deletedAt: null }
     });
-    if (!plugin) throw new NotFoundException("PLUGIN_NOT_FOUND");
+    if (!plugin)
+      throw new IdentityApplicationError("PLUGIN_NOT_FOUND", "Plugin installation was not found.");
     return plugin;
   }
   private validate(type: PluginAiProviderType, settings: StoredSettings) {
     if (type === "OPENAI_COMPATIBLE" && !settings.model?.trim())
-      throw new BadRequestException("AI_PROVIDER_CONFIGURATION_INVALID");
+      throw new IdentityApplicationError(
+        "AI_PROVIDER_CONFIGURATION_INVALID",
+        "The AI provider configuration is invalid."
+      );
     if (
       type === "AZURE_OPENAI" &&
       (!settings.endpoint?.trim() ||
         !settings.deploymentName?.trim() ||
         !settings.apiVersion?.trim())
     )
-      throw new BadRequestException("AI_PROVIDER_CONFIGURATION_INVALID");
+      throw new IdentityApplicationError(
+        "AI_PROVIDER_CONFIGURATION_INVALID",
+        "The AI provider configuration is invalid."
+      );
   }
   private secretKeys(value: unknown) {
     try {
@@ -224,4 +276,16 @@ export class PluginAiService {
       return [];
     }
   }
+}
+
+function providerTestMessage(code: AiProviderError["code"]): string {
+  const messages: Record<AiProviderError["code"], string> = {
+    AI_PROVIDER_AUTHENTICATION_FAILED: "The AI provider rejected the configured credentials.",
+    AI_PROVIDER_MODEL_NOT_FOUND: "The configured AI model or deployment was not found.",
+    AI_PROVIDER_QUOTA_EXCEEDED: "The AI provider quota has been exceeded.",
+    AI_PROVIDER_UNAVAILABLE: "The AI provider is currently unavailable.",
+    AI_PROVIDER_TEST_FAILED: "The AI provider connection test failed.",
+    AI_PROVIDER_RESPONSE_INVALID: "The AI provider returned an invalid response."
+  };
+  return messages[code];
 }

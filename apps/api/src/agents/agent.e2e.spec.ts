@@ -2,12 +2,14 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { ValidationPipe, type INestApplication } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { NestFactory } from "@nestjs/core";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
     loadEnvFile(path);
@@ -35,6 +37,7 @@ suite("Agent runtime HTTP", () => {
     await prisma.agentExecution.deleteMany();
     await prisma.agentMemory.deleteMany();
     await prisma.conversation.deleteMany();
+    await prisma.pluginAiConfiguration.deleteMany();
     await prisma.pluginConfiguration.deleteMany();
     await prisma.plugin.deleteMany();
     const registered = await request(app.getHttpServer())
@@ -58,6 +61,21 @@ suite("Agent runtime HTTP", () => {
       })
       .expect(201);
     pluginId = installed.body.id;
+    const plugin = await prisma.plugin.findUniqueOrThrow({ where: { id: pluginId } });
+    const owner = await prisma.user.findFirstOrThrow({
+      where: { organizationId: plugin.organizationId }
+    });
+    const encryption = app.get(PluginSecretsEncryptionService);
+    await prisma.pluginAiConfiguration.create({
+      data: {
+        organizationId: plugin.organizationId,
+        pluginInstallationId: pluginId,
+        providerType: "DETERMINISTIC",
+        configuration: { timeoutMs: 30000 },
+        encryptedSecrets: encryption.encrypt({}) as unknown as Prisma.InputJsonValue,
+        updatedBy: owner.id
+      }
+    });
   });
   afterAll(async () => {
     if (prisma) {
@@ -66,6 +84,7 @@ suite("Agent runtime HTTP", () => {
       await prisma.agentExecution.deleteMany();
       await prisma.agentMemory.deleteMany();
       await prisma.conversation.deleteMany();
+      await prisma.pluginAiConfiguration.deleteMany();
       await prisma.pluginConfiguration.deleteMany();
       await prisma.plugin.deleteMany();
     }

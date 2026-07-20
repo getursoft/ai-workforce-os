@@ -4,7 +4,8 @@ import type {
   AiCompletionRequest,
   AiCompletionResult,
   AiProvider,
-  AiToolCall
+  AiToolCall,
+  AiToolDefinition
 } from "@ai-workforce-os/plugin-sdk";
 import { withTimeout } from "../agents/agent.runtime";
 
@@ -18,6 +19,23 @@ export interface ProviderSettings {
   timeoutMs: number;
 }
 type Fetcher = typeof fetch;
+export type AiProviderErrorCode =
+  | "AI_PROVIDER_AUTHENTICATION_FAILED"
+  | "AI_PROVIDER_MODEL_NOT_FOUND"
+  | "AI_PROVIDER_QUOTA_EXCEEDED"
+  | "AI_PROVIDER_UNAVAILABLE"
+  | "AI_PROVIDER_TEST_FAILED"
+  | "AI_PROVIDER_RESPONSE_INVALID";
+export class AiProviderError extends Error {
+  constructor(
+    readonly code: AiProviderErrorCode,
+    readonly upstreamStatus?: number,
+    readonly stage: "provider_call" | "response_parse" = "provider_call"
+  ) {
+    super(code);
+    this.name = "AiProviderError";
+  }
+}
 
 export class OpenAiCompatibleProvider implements AiProvider {
   constructor(
@@ -53,16 +71,20 @@ export class OpenAiCompatibleProvider implements AiProvider {
       throw safeProviderError(error);
     }
     if (response.status === 401 || response.status === 403)
-      throw new Error("AI_PROVIDER_AUTHENTICATION_FAILED");
-    if (!response.ok)
-      throw new Error(
-        response.status >= 500 ? "AI_PROVIDER_UNAVAILABLE" : "AI_PROVIDER_REQUEST_FAILED"
-      );
+      throw new AiProviderError("AI_PROVIDER_AUTHENTICATION_FAILED", response.status);
+    if (response.status === 404)
+      throw new AiProviderError("AI_PROVIDER_MODEL_NOT_FOUND", response.status);
+    if (response.status === 429)
+      throw new AiProviderError("AI_PROVIDER_QUOTA_EXCEEDED", response.status);
+    if (response.status >= 500)
+      throw new AiProviderError("AI_PROVIDER_UNAVAILABLE", response.status);
+    if (!response.ok) throw new AiProviderError("AI_PROVIDER_TEST_FAILED", response.status);
     const body = await safeJson(response);
     return mapResponse(
       body,
       this.settings.providerType === "AZURE_OPENAI" ? "azure-openai" : "openai-compatible",
-      model
+      model,
+      toolNameMap(request.tools ?? [])
     );
   }
 }
@@ -88,6 +110,26 @@ export class DeterministicTravelProvider implements AiProvider {
       user = [...request.messages].reverse().find((x) => x.role === "user")?.content ?? "";
     if (
       last?.role !== "tool" &&
+      /remember.+prefer/i.test(user) &&
+      request.tools?.some((x) => x.name === "platform.memory.save")
+    ) {
+      const preference = /prefer\s+([^.,]+)/i.exec(user)?.[1]?.trim() ?? "vegetarian food";
+      return {
+        content: "",
+        toolCalls: [
+          {
+            id: "memory-1",
+            name: "platform.memory.save",
+            arguments: { key: "preference.food", value: preference, scope: "USER" }
+          }
+        ],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
+      };
+    }
+    if (
+      last?.role !== "tool" &&
       /live|current price|availability/i.test(user) &&
       request.tools?.some((x) => x.name === "platform.http.request")
     )
@@ -105,8 +147,9 @@ export class DeterministicTravelProvider implements AiProvider {
         usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
       };
     return {
-      content:
-        "I can help draft a practical travel itinerary. No booking was performed, and any prices or availability should be verified with a live provider.",
+      content: /dubai/i.test(user)
+        ? "Here is a five-day Dubai plan covering Old Dubai, Downtown, the desert, the marina, and a relaxed final day. I have remembered your food preference and will prioritize vegetarian options."
+        : "I can help draft a practical travel itinerary. No booking was performed, and any prices or availability should be verified with a live provider.",
       toolCalls: [],
       provider: "deterministic",
       model: "travel-test-v1",
@@ -120,22 +163,30 @@ export function createAiProvider(
   fetcher: Fetcher = fetch
 ): AiProvider {
   if (settings.providerType === "DETERMINISTIC") return new DeterministicTravelProvider();
-  if (!apiKey) throw new Error("AI_PROVIDER_SECRET_MISSING");
-  return settings.providerType === "AZURE_OPENAI"
-    ? new AzureOpenAiProvider(settings, apiKey, fetcher)
-    : new OpenAiCompatibleProvider(settings, apiKey, fetcher);
+  if (!apiKey) throw new AiProviderError("AI_PROVIDER_AUTHENTICATION_FAILED");
+  if (settings.providerType === "AZURE_OPENAI")
+    return new AzureOpenAiProvider(settings, apiKey, fetcher);
+  if (settings.providerType === "OPENAI_COMPATIBLE")
+    return new OpenAiCompatibleProvider(settings, apiKey, fetcher);
+  throw new AiProviderError("AI_PROVIDER_TEST_FAILED");
 }
 
 function mapRequest(request: AiCompletionRequest, model: string) {
+  const names = toolNameMap(request.tools ?? []);
   return {
     model,
-    messages: request.messages,
+    messages: request.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+      ...(message.name ? { name: names.get(message.name) ?? safeToolName(message.name) } : {}),
+      ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {})
+    })),
     ...(request.tools?.length
       ? {
           tools: request.tools.map((tool) => ({
             type: "function",
             function: {
-              name: tool.name,
+              name: names.get(tool.name) ?? safeToolName(tool.name),
               description: tool.description,
               parameters: tool.inputSchema
             }
@@ -149,12 +200,19 @@ function mapRequest(request: AiCompletionRequest, model: string) {
 function mapResponse(
   body: Record<string, unknown>,
   provider: string,
-  model: string
+  model: string,
+  names: ReadonlyMap<string, string>
 ): AiCompletionResult {
   const choices = Array.isArray(body.choices) ? body.choices : [],
     first = asRecord(choices[0]),
     message = asRecord(first.message),
     rawCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  if (
+    choices.length === 0 ||
+    Object.keys(message).length === 0 ||
+    (typeof message.content !== "string" && rawCalls.length === 0)
+  )
+    throw new AiProviderError("AI_PROVIDER_RESPONSE_INVALID", undefined, "response_parse");
   const toolCalls: AiToolCall[] = rawCalls.map((raw) => {
     const call = asRecord(raw),
       fn = asRecord(call.function);
@@ -162,10 +220,16 @@ function mapResponse(
     try {
       args = JSON.parse(String(fn.arguments ?? "{}"));
     } catch {
-      throw new Error("AI_TOOL_INPUT_INVALID");
+      throw new AiProviderError("AI_PROVIDER_RESPONSE_INVALID", undefined, "response_parse");
     }
-    if (!isRecord(args)) throw new Error("AI_TOOL_INPUT_INVALID");
-    return { id: String(call.id ?? "tool-call"), name: String(fn.name ?? ""), arguments: args };
+    if (!isRecord(args))
+      throw new AiProviderError("AI_PROVIDER_RESPONSE_INVALID", undefined, "response_parse");
+    const externalName = String(fn.name ?? "");
+    return {
+      id: String(call.id ?? "tool-call"),
+      name: names.get(externalName) ?? externalName,
+      arguments: args
+    };
   });
   const usage = asRecord(body.usage),
     inputTokens = numberOrUndefined(usage.prompt_tokens),
@@ -186,6 +250,20 @@ function mapResponse(
         }
       : {})
   };
+}
+
+function toolNameMap(tools: readonly AiToolDefinition[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const tool of tools) {
+    const safe = safeToolName(tool.name);
+    map.set(tool.name, safe);
+    map.set(safe, tool.name);
+  }
+  return map;
+}
+
+function safeToolName(name: string): string {
+  return name.replaceAll("_", "_u").replaceAll(".", "_d");
 }
 
 export interface HttpToolInput {
@@ -317,7 +395,6 @@ async function safeJson(response: Response): Promise<Record<string, unknown>> {
   }
 }
 function safeProviderError(error: unknown) {
-  return error instanceof Error && error.message === "AI_PROVIDER_TIMEOUT"
-    ? error
-    : new Error("AI_PROVIDER_UNAVAILABLE");
+  if (error instanceof AiProviderError) return error;
+  return new AiProviderError("AI_PROVIDER_UNAVAILABLE");
 }

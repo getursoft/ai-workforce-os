@@ -35,10 +35,14 @@ export class InvalidRefreshTokenFormatError extends Error {
 }
 
 export class InvalidSecurityConfigurationError extends Error {
-  readonly code = "INVALID_SECURITY_CONFIGURATION";
+  readonly code: "INVALID_SECURITY_CONFIGURATION" | "PLUGIN_SECRETS_KEY_INVALID";
 
   constructor(readonly variable: string) {
     super(`Security configuration is invalid: ${variable}`);
     this.name = "InvalidSecurityConfigurationError";
+    this.code =
+      variable === "PLUGIN_SECRETS_ENCRYPTION_KEY"
+        ? "PLUGIN_SECRETS_KEY_INVALID"
+        : "INVALID_SECURITY_CONFIGURATION";
   }
 }

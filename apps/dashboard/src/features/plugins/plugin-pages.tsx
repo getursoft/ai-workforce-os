@@ -15,6 +15,7 @@ import {
 } from "../../components/ui";
 import {
   createPluginApi,
+  saveAndTestAiConfiguration,
   type PluginAiConfiguration,
   type PluginRecord,
   type PluginStatus,
@@ -385,10 +386,8 @@ function ConfigurationDialog({
     onSuccess: () => void ai.refetch()
   });
   const aiTest = useMutation({
-    mutationFn: async (body: Record<string, unknown>) => {
-      await api.updateAiConfiguration(plugin.id, body);
-      return api.testAiConfiguration(plugin.id);
-    },
+    mutationFn: (body: Record<string, unknown>) =>
+      saveAndTestAiConfiguration(api, plugin.id, body, () => ai.refetch()),
     onSuccess: () => void ai.refetch()
   });
   const chat = useMutation({
@@ -466,12 +465,10 @@ function ConfigurationDialog({
             aiSave.reset();
             aiTest.reset();
           }}
-          saveError={aiSave.isError}
-          {...(aiTest.isSuccess
-            ? { testState: "success" as const }
-            : aiTest.isError
-              ? { testState: "error" as const }
-              : {})}
+          saveError={aiSave.error}
+          saveSucceeded={aiSave.isSuccess || aiTest.isSuccess}
+          {...(aiTest.isSuccess ? { testState: "success" as const } : {})}
+          testError={aiTest.error}
         />
         <TravelAiChat
           plugin={plugin}

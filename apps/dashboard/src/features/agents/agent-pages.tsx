@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccessGate } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
 import { Alert, Badge, Button, Card, EmptyState, Input, Skeleton } from "../../components/ui";
+import { ApiError } from "../../lib/api-error";
 import { createAgentApi, type AgentEmployee } from "./agent-api";
 
 function useApi() {
@@ -102,7 +103,7 @@ export function EmployeesPage() {
             </div>
             {run.isError ? (
               <Alert tone="danger" title="Agent execution failed">
-                The request could not be completed safely.
+                {agentRunErrorMessage(run.error)}
               </Alert>
             ) : null}
             <form onSubmit={submit} className="admin-form">
@@ -123,6 +124,20 @@ export function EmployeesPage() {
       </section>
     </AccessGate>
   );
+}
+
+export function agentRunErrorMessage(error: unknown): string {
+  if (!(error instanceof ApiError)) return "The request could not be completed safely.";
+  const messages: Record<string, string> = {
+    AI_PROVIDER_AUTHENTICATION_FAILED: "The configured AI provider credentials were rejected.",
+    AI_PROVIDER_MODEL_NOT_FOUND: "The configured AI model is unavailable.",
+    AI_PROVIDER_QUOTA_EXCEEDED: "The AI provider quota has been exceeded.",
+    AI_PROVIDER_UNAVAILABLE: "The AI provider is currently unavailable.",
+    AI_PROVIDER_TEST_FAILED: "The AI provider could not complete the request.",
+    AI_PROVIDER_RESPONSE_INVALID: "The AI provider returned an invalid response.",
+    AGENT_EXECUTION_FAILED: "The agent execution could not be completed safely."
+  };
+  return messages[error.code] ?? "The request could not be completed safely.";
 }
 export function ConversationsPage() {
   const api = useApi(),

@@ -1,6 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { AiProviderForm, buildAiConfigurationPayload } from "./ai-provider-form";
+import {
+  AiProviderForm,
+  buildAiConfigurationPayload,
+  providerConfigurationErrorMessage,
+  shouldClearApiKeyAfterSave
+} from "./ai-provider-form";
 import type { AiProviderType, PluginAiConfiguration } from "./plugin-api";
 
 function configuration(providerType: AiProviderType): PluginAiConfiguration {
@@ -20,7 +25,7 @@ function configuration(providerType: AiProviderType): PluginAiConfiguration {
     updatedAt: "2026-07-13T00:00:00.000Z"
   };
 }
-function markup(provider: AiProviderType, saveError = false) {
+function markup(provider: AiProviderType, saveError: unknown = null) {
   return renderToStaticMarkup(
     <AiProviderForm
       configuration={configuration(provider)}
@@ -31,6 +36,8 @@ function markup(provider: AiProviderType, saveError = false) {
       test={vi.fn()}
       clearStatus={vi.fn()}
       saveError={saveError}
+      saveSucceeded={false}
+      testError={null}
     />
   );
 }
@@ -140,11 +147,39 @@ describe("AI provider form", () => {
     ).toEqual({ providerType: "DETERMINISTIC", timeoutMs: 30000 });
   });
   it("keeps saved non-secret values visible in the failure state", () => {
-    const html = markup("OPENAI_COMPATIBLE", true);
+    const html = markup("OPENAI_COMPATIBLE", { code: "VALIDATION_ERROR" });
     expect(html).toContain('value="saved-model"');
     expect(html).toContain('value="https://api.example.test/v1"');
-    expect(html).toContain("Your saved values remain unchanged");
+    expect(html).toContain("Check the provider fields and try again");
     expect(html).not.toContain('value="2026-07-13');
+  });
+  it("maps stable backend errors without exposing internal details", () => {
+    expect(providerConfigurationErrorMessage({ code: "PLUGIN_SECRETS_KEY_INVALID" })).toBe(
+      "Secret encryption is not configured on the server."
+    );
+    expect(providerConfigurationErrorMessage({ code: "DATABASE_SCHEMA_OUT_OF_DATE" })).toContain(
+      "Apply the latest migrations"
+    );
+    expect(providerConfigurationErrorMessage({ code: "AUTHORIZATION_FAILED" })).toContain(
+      "Owners and Admins"
+    );
+    expect(providerConfigurationErrorMessage({ code: "PLUGIN_NOT_FOUND" })).toContain(
+      "no longer available"
+    );
+    expect(
+      providerConfigurationErrorMessage({ code: "AI_PROVIDER_AUTHENTICATION_FAILED" })
+    ).toContain("API key");
+    expect(providerConfigurationErrorMessage({ code: "AI_PROVIDER_QUOTA_EXCEEDED" })).toContain(
+      "quota"
+    );
+    expect(providerConfigurationErrorMessage({ code: "AI_PROVIDER_UNAVAILABLE" })).not.toContain(
+      "save this configuration"
+    );
+    expect(providerConfigurationErrorMessage({ code: "UNKNOWN" })).not.toContain("UNKNOWN");
+  });
+  it("preserves the API key after failure and clears it only after successful persistence", () => {
+    expect(shouldClearApiKeyAfterSave(false)).toBe(false);
+    expect(shouldClearApiKeyAfterSave(true)).toBe(true);
   });
   it("associates visible labels, help, errors, and password semantics", () => {
     const html = markup("OPENAI_COMPATIBLE");

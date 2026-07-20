@@ -159,3 +159,14 @@ export function createPluginApi(client: ApiClient) {
       })
   };
 }
+
+export async function saveAndTestAiConfiguration(
+  api: Pick<ReturnType<typeof createPluginApi>, "updateAiConfiguration" | "testAiConfiguration">,
+  pluginId: string,
+  body: Record<string, unknown>,
+  refresh: () => Promise<unknown>
+) {
+  await api.updateAiConfiguration(pluginId, body);
+  await refresh();
+  return api.testAiConfiguration(pluginId);
+}

@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
 import { IdentityModule } from "../identity/identity.module";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
+import { PluginModule } from "../plugins/plugin.module";
 import { AgentController } from "./agent.controller";
 import { AgentService, MemoryService } from "./agent.service";
 
 @Module({
-  imports: [PrismaModule, IdentityModule],
+  imports: [PrismaModule, IdentityModule, PluginModule],
   controllers: [AgentController],
   providers: [MemoryService, AgentService],
   exports: [AgentService, MemoryService]

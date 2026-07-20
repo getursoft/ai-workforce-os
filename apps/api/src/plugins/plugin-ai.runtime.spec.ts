@@ -1,11 +1,26 @@
 import { describe, expect, it, vi } from "vitest";
-import { AzureOpenAiProvider, OpenAiCompatibleProvider, SafeHttpTool } from "./plugin-ai.runtime";
+import {
+  AiProviderError,
+  AzureOpenAiProvider,
+  DeterministicTravelProvider,
+  OpenAiCompatibleProvider,
+  SafeHttpTool,
+  createAiProvider
+} from "./plugin-ai.runtime";
 const request = { messages: [{ role: "user" as const, content: "hello" }] };
 describe("AI provider adapters", () => {
   it("maps OpenAI-compatible requests and responses", async () => {
     const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({ Authorization: "Bearer private-key" });
-      expect(JSON.parse(String(init?.body))).toMatchObject({ model: "configured-model" });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: "configured-model",
+        tools: [
+          {
+            type: "function",
+            function: { name: "platform_dmemory_dsave" }
+          }
+        ]
+      });
       return new Response(
         JSON.stringify({
           model: "configured-model",
@@ -19,11 +34,31 @@ describe("AI provider adapters", () => {
       { providerType: "OPENAI_COMPATIBLE", model: "configured-model", timeoutMs: 1000 },
       "private-key",
       fetcher
-    ).complete(request);
+    ).complete({
+      ...request,
+      tools: [
+        {
+          name: "platform.memory.save",
+          description: "Save memory",
+          inputSchema: { type: "object" }
+        }
+      ]
+    });
     expect(result).toMatchObject({
       content: "ok",
       provider: "openai-compatible",
       usage: { totalTokens: 3 }
+    });
+  });
+  it("rejects a malformed successful upstream response", async () => {
+    const provider = new OpenAiCompatibleProvider(
+      { providerType: "OPENAI_COMPATIBLE", model: "m", timeoutMs: 1000 },
+      "secret",
+      async () => new Response(JSON.stringify({ choices: [] }), { status: 200 })
+    );
+    await expect(provider.complete(request)).rejects.toMatchObject({
+      code: "AI_PROVIDER_RESPONSE_INVALID",
+      stage: "response_parse"
     });
   });
   it("maps Azure deployment and credentials", async () => {
@@ -53,6 +88,42 @@ describe("AI provider adapters", () => {
       async () => new Response("do-not-leak", { status: 500 })
     );
     await expect(provider.complete(request)).rejects.toThrow("AI_PROVIDER_UNAVAILABLE");
+  });
+  it.each([
+    [401, "AI_PROVIDER_AUTHENTICATION_FAILED"],
+    [404, "AI_PROVIDER_MODEL_NOT_FOUND"],
+    [429, "AI_PROVIDER_QUOTA_EXCEEDED"]
+  ])("maps upstream status %s to %s", async (status, code) => {
+    const provider = new OpenAiCompatibleProvider(
+      { providerType: "OPENAI_COMPATIBLE", model: "m", timeoutMs: 1000 },
+      "secret",
+      async () => new Response(null, { status })
+    );
+    await expect(provider.complete(request)).rejects.toMatchObject({
+      code,
+      upstreamStatus: status
+    });
+  });
+  it("maps provider timeouts to unavailable", async () => {
+    const provider = new OpenAiCompatibleProvider(
+      { providerType: "OPENAI_COMPATIBLE", model: "m", timeoutMs: 5 },
+      "secret",
+      () => new Promise<Response>(() => undefined)
+    );
+    await expect(provider.complete(request)).rejects.toMatchObject({
+      code: "AI_PROVIDER_UNAVAILABLE"
+    });
+  });
+  it("selects the configured OpenAI adapter without deterministic fallback", () => {
+    expect(
+      createAiProvider({ providerType: "OPENAI_COMPATIBLE", model: "m", timeoutMs: 1000 }, "secret")
+    ).toBeInstanceOf(OpenAiCompatibleProvider);
+    expect(
+      createAiProvider({ providerType: "DETERMINISTIC", timeoutMs: 1000 }, undefined)
+    ).toBeInstanceOf(DeterministicTravelProvider);
+    expect(() =>
+      createAiProvider({ providerType: "UNKNOWN" as never, model: "m", timeoutMs: 1000 }, "secret")
+    ).toThrow(AiProviderError);
   });
 });
 describe("SafeHttpTool", () => {

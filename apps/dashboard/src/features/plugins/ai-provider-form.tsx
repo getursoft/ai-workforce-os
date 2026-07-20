@@ -1,7 +1,8 @@
 "use client";
-import { useState, type FormEvent, type InputHTMLAttributes } from "react";
+import { useEffect, useRef, useState, type ComponentPropsWithRef, type FormEvent } from "react";
 import { Alert, Button, Input } from "../../components/ui";
 import type { AiProviderType, PluginAiConfiguration } from "./plugin-api";
+import type { ApiError } from "../../lib/api-error";
 
 export interface AiProviderFormValues {
   model?: string;
@@ -16,6 +17,36 @@ export interface AiProviderFormValues {
 export interface AiConfigurationPayloadResult {
   payload?: Record<string, unknown>;
   errors: Record<string, string>;
+}
+
+export function providerConfigurationErrorMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as Pick<ApiError, "code">).code)
+      : "UNKNOWN_ERROR";
+  const messages: Record<string, string> = {
+    INVALID_SECURITY_CONFIGURATION: "Secret encryption is not configured on the server.",
+    PLUGIN_SECRETS_KEY_INVALID: "Secret encryption is not configured on the server.",
+    DATABASE_SCHEMA_OUT_OF_DATE:
+      "The server database is not ready for AI provider configuration. Apply the latest migrations.",
+    VALIDATION_ERROR: "Check the provider fields and try again.",
+    AI_PROVIDER_CONFIGURATION_INVALID: "Check the provider-specific settings and try again.",
+    AI_PROVIDER_AUTHENTICATION_FAILED:
+      "The provider rejected the configured API key. Replace it and try again.",
+    AI_PROVIDER_MODEL_NOT_FOUND: "The configured model or deployment was not found.",
+    AI_PROVIDER_QUOTA_EXCEEDED: "The provider quota has been exceeded.",
+    AI_PROVIDER_UNAVAILABLE: "The provider is unavailable or the request timed out.",
+    AI_PROVIDER_TEST_FAILED: "The provider connection test failed.",
+    AUTHORIZATION_FAILED: "Only organization Owners and Admins can change this configuration.",
+    PLUGIN_NOT_FOUND: "This plugin installation is no longer available.",
+    USER_NOT_FOUND: "This plugin installation is no longer available.",
+    INTERNAL_ERROR: "The server could not save this configuration."
+  };
+  return messages[code] ?? "Your saved values remain unchanged. Check the fields and try again.";
+}
+
+export function shouldClearApiKeyAfterSave(saveSucceeded: boolean): boolean {
+  return saveSucceeded;
 }
 
 export function buildAiConfigurationPayload(
@@ -73,7 +104,9 @@ export function AiProviderForm({
   test,
   clearStatus,
   saveError,
-  testState
+  saveSucceeded,
+  testState,
+  testError
 }: {
   configuration: PluginAiConfiguration | undefined;
   canManage: boolean;
@@ -82,13 +115,20 @@ export function AiProviderForm({
   save: (body: Record<string, unknown>) => void;
   test: (body: Record<string, unknown>) => void;
   clearStatus: () => void;
-  saveError: boolean;
-  testState?: "success" | "error";
+  saveError: unknown;
+  saveSucceeded: boolean;
+  testState?: "success";
+  testError: unknown;
 }) {
   const [provider, setProvider] = useState<AiProviderType>(
     configuration?.providerType ?? "DETERMINISTIC"
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const apiKeyRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (shouldClearApiKeyAfterSave(saveSucceeded) && apiKeyRef.current)
+      apiKeyRef.current.value = "";
+  }, [saveSucceeded]);
   const submit = (form: HTMLFormElement, action: "save" | "test") => {
     const data = new FormData(form);
     const result = buildAiConfigurationPayload(provider, {
@@ -103,8 +143,6 @@ export function AiProviderForm({
     });
     setErrors(result.errors);
     if (!result.payload) return;
-    const secretInput = form.elements.namedItem("apiKey");
-    if (secretInput instanceof HTMLInputElement) secretInput.value = "";
     if (action === "save") save(result.payload);
     else test(result.payload);
   };
@@ -112,7 +150,7 @@ export function AiProviderForm({
     name: string,
     label: string,
     help: string,
-    props: InputHTMLAttributes<HTMLInputElement> = {}
+    props: ComponentPropsWithRef<"input"> = {}
   ) => (
     <label className="plugin-ai-field" htmlFor={`plugin-ai-${name}`}>
       <span>{label}</span>
@@ -222,7 +260,7 @@ export function AiProviderForm({
               configuration?.secrets.apiKey.configured
                 ? "Configured. Leave blank to keep the stored key."
                 : "Not configured. Enter a key to configure the provider.",
-              { type: "password", autoComplete: "new-password" }
+              { type: "password", autoComplete: "new-password", ref: apiKeyRef }
             )}
             {canManage && configuration?.secrets.apiKey.configured ? (
               <label className="plugin-ai-remove">
@@ -237,15 +275,15 @@ export function AiProviderForm({
         ) : null}
         {saveError ? (
           <Alert tone="danger" title="Provider configuration was not saved">
-            Your saved values remain unchanged. Check the fields and try again.
+            {providerConfigurationErrorMessage(saveError)}
           </Alert>
         ) : null}
         {testState === "success" ? (
           <Alert tone="success" title="Provider connection succeeded" />
         ) : null}
-        {testState === "error" ? (
+        {testError ? (
           <Alert tone="danger" title="Provider connection failed">
-            Credentials and provider details could not be verified.
+            {providerConfigurationErrorMessage(testError)}
           </Alert>
         ) : null}
         {canManage ? (

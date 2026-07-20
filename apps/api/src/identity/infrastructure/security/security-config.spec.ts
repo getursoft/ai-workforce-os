@@ -112,4 +112,22 @@ describe("loadSecurityConfig", () => {
       expect((error as Error).message).not.toContain(secret);
     }
   });
+
+  it.each([undefined, "not-canonical-base64", Buffer.alloc(31).toString("base64")])(
+    "rejects a missing or invalid plugin encryption key with a stable safe code",
+    (value) => {
+      const environment = validEnvironment();
+      environment.PLUGIN_SECRETS_ENCRYPTION_KEY = value;
+      try {
+        loadSecurityConfig(environment);
+        throw new Error("Expected configuration validation to fail");
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(InvalidSecurityConfigurationError);
+        expect((error as InvalidSecurityConfigurationError).code).toBe(
+          "PLUGIN_SECRETS_KEY_INVALID"
+        );
+        expect((error as Error).message).not.toContain(String(value));
+      }
+    }
+  );
 });

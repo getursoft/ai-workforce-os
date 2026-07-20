@@ -15,6 +15,7 @@ import {
   type IdentityErrorCode
 } from "../../application/errors/identity.error";
 import { PersistenceConflictError } from "../../application/ports/persistence-error";
+import { InvalidSecurityConfigurationError } from "../../application/errors/security.error";
 import {
   InvalidDomainValueError,
   InvalidEntityStateError,
@@ -47,7 +48,18 @@ const STATUS: Record<IdentityErrorCode, number> = {
   CONFLICT: HttpStatus.CONFLICT,
   INTERNAL_ERROR: HttpStatus.INTERNAL_SERVER_ERROR,
   PLUGIN_MANIFEST_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
-  PLUGIN_CONFIGURATION_INVALID: HttpStatus.UNPROCESSABLE_ENTITY
+  PLUGIN_CONFIGURATION_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  PLUGIN_NOT_FOUND: HttpStatus.NOT_FOUND,
+  AI_PROVIDER_CONFIGURATION_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  PLUGIN_SECRETS_KEY_INVALID: HttpStatus.SERVICE_UNAVAILABLE,
+  DATABASE_SCHEMA_OUT_OF_DATE: HttpStatus.SERVICE_UNAVAILABLE,
+  AI_PROVIDER_AUTHENTICATION_FAILED: HttpStatus.UNPROCESSABLE_ENTITY,
+  AI_PROVIDER_MODEL_NOT_FOUND: HttpStatus.UNPROCESSABLE_ENTITY,
+  AI_PROVIDER_QUOTA_EXCEEDED: HttpStatus.TOO_MANY_REQUESTS,
+  AI_PROVIDER_UNAVAILABLE: HttpStatus.SERVICE_UNAVAILABLE,
+  AI_PROVIDER_TEST_FAILED: HttpStatus.BAD_GATEWAY,
+  AI_PROVIDER_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY,
+  AGENT_EXECUTION_FAILED: HttpStatus.INTERNAL_SERVER_ERROR
 };
 
 @Catch()
@@ -72,6 +84,15 @@ export class ApiExceptionFilter implements ExceptionFilter {
   private map(exception: unknown): IdentityApplicationError {
     if (exception instanceof IdentityApplicationError) {
       return exception;
+    }
+    if (
+      exception instanceof InvalidSecurityConfigurationError &&
+      exception.code === "PLUGIN_SECRETS_KEY_INVALID"
+    ) {
+      return new IdentityApplicationError(
+        "PLUGIN_SECRETS_KEY_INVALID",
+        "Plugin secret encryption is not configured."
+      );
     }
     if (exception instanceof BadRequestException) {
       return new IdentityApplicationError(
