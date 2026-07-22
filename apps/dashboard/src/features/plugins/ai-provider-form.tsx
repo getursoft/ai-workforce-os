@@ -6,9 +6,11 @@ import type { ApiError } from "../../lib/api-error";
 
 export interface AiProviderFormValues {
   model?: string;
+  embeddingModel?: string;
   baseUrl?: string;
   endpoint?: string;
   deploymentName?: string;
+  embeddingDeployment?: string;
   apiVersion?: string;
   timeoutMs: string;
   apiKey?: string;
@@ -17,6 +19,9 @@ export interface AiProviderFormValues {
 export interface AiConfigurationPayloadResult {
   payload?: Record<string, unknown>;
   errors: Record<string, string>;
+}
+export function developmentProvidersAvailable(environment = process.env.NEXT_PUBLIC_APP_ENV) {
+  return environment !== "production" && environment !== "staging";
 }
 
 export function providerConfigurationErrorMessage(error: unknown): string {
@@ -65,6 +70,8 @@ export function buildAiConfigurationPayload(
     if (baseUrl && !validUrl(baseUrl, false))
       errors.baseUrl = "Base URL must be a valid HTTP or HTTPS URL.";
     if (model) payload.model = model;
+    const embeddingModel = values.embeddingModel?.trim() ?? "";
+    if (embeddingModel) payload.embeddingModel = embeddingModel;
     if (baseUrl) payload.baseUrl = baseUrl;
   } else if (providerType === "AZURE_OPENAI") {
     const endpoint = values.endpoint?.trim() ?? "";
@@ -76,6 +83,8 @@ export function buildAiConfigurationPayload(
     if (!apiVersion) errors.apiVersion = "API version is required.";
     if (endpoint) payload.endpoint = endpoint;
     if (deploymentName) payload.deploymentName = deploymentName;
+    const embeddingDeployment = values.embeddingDeployment?.trim() ?? "";
+    if (embeddingDeployment) payload.embeddingDeployment = embeddingDeployment;
     if (apiVersion) payload.apiVersion = apiVersion;
   }
   if (providerType !== "DETERMINISTIC") {
@@ -120,8 +129,12 @@ export function AiProviderForm({
   testState?: "success";
   testError: unknown;
 }) {
+  const developmentProviders = developmentProvidersAvailable();
   const [provider, setProvider] = useState<AiProviderType>(
-    configuration?.providerType ?? "DETERMINISTIC"
+    configuration?.providerType === "DETERMINISTIC" && !developmentProviders
+      ? "OPENAI_COMPATIBLE"
+      : (configuration?.providerType ??
+          (developmentProviders ? "DETERMINISTIC" : "OPENAI_COMPATIBLE"))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const apiKeyRef = useRef<HTMLInputElement | null>(null);
@@ -133,9 +146,11 @@ export function AiProviderForm({
     const data = new FormData(form);
     const result = buildAiConfigurationPayload(provider, {
       model: String(data.get("model") ?? ""),
+      embeddingModel: String(data.get("embeddingModel") ?? ""),
       baseUrl: String(data.get("baseUrl") ?? ""),
       endpoint: String(data.get("endpoint") ?? ""),
       deploymentName: String(data.get("deploymentName") ?? ""),
+      embeddingDeployment: String(data.get("embeddingDeployment") ?? ""),
       apiVersion: String(data.get("apiVersion") ?? ""),
       timeoutMs: String(data.get("timeoutMs") ?? ""),
       apiKey: String(data.get("apiKey") ?? ""),
@@ -194,7 +209,9 @@ export function AiProviderForm({
               clearStatus();
             }}
           >
-            <option value="DETERMINISTIC">Deterministic (development)</option>
+            {developmentProviders ? (
+              <option value="DETERMINISTIC">Deterministic (development)</option>
+            ) : null}
             <option value="OPENAI_COMPATIBLE">OpenAI-compatible</option>
             <option value="AZURE_OPENAI">Azure OpenAI</option>
           </select>
@@ -206,6 +223,12 @@ export function AiProviderForm({
               defaultValue: configuration?.configuration.model ?? "",
               required: true
             })}
+            {field(
+              "embeddingModel",
+              "Embedding model",
+              "Model used to index and search enterprise knowledge.",
+              { defaultValue: configuration?.configuration.embeddingModel ?? "" }
+            )}
             {field(
               "baseUrl",
               "OpenAI-compatible base URL",
@@ -231,6 +254,14 @@ export function AiProviderForm({
               "Azure deployment name",
               "The configured Azure model deployment.",
               { defaultValue: configuration?.configuration.deploymentName ?? "", required: true }
+            )}
+            {field(
+              "embeddingDeployment",
+              "Embedding deployment",
+              "Azure deployment used to index and search enterprise knowledge.",
+              {
+                defaultValue: configuration?.configuration.embeddingDeployment ?? ""
+              }
             )}
             {field(
               "apiVersion",

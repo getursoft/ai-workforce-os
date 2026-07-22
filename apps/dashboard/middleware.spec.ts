@@ -23,9 +23,9 @@ describe("dashboard middleware", () => {
     expect(response.headers.get("location")).toContain("/login?returnUrl=%2Fdashboard");
   });
 
-  it("redirects authenticated users away from the login page", () => {
+  it("allows login to clear or recover a stale refresh-cookie session", () => {
     const response = middleware(createRequest("/login", true) as never);
-    expect(response.headers.get("location")).toContain("/dashboard");
+    expect(response.headers.get("location")).toBeNull();
   });
 
   it("allows public routes through", () => {

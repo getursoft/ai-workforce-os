@@ -184,7 +184,10 @@ export const genericHttpManifest: ConnectorManifest = {
 
 export class GenericHttpConnector implements Connector {
   readonly manifest = genericHttpManifest;
-  constructor(private readonly http: SafeHttpTool) {}
+  constructor(
+    private readonly http: SafeHttpTool,
+    private readonly requireHttps = false
+  ) {}
   async testConnection(context: ConnectorContext) {
     await this.call({ method: "GET", path: "/" }, context);
     return { status: "READY" as const, checkedAt: new Date().toISOString() };
@@ -195,6 +198,8 @@ export class GenericHttpConnector implements Connector {
   }
   private call(input: Record<string, unknown>, context: ConnectorContext) {
     const base = new URL(String(context.configuration.baseUrl));
+    if (this.requireHttps && base.protocol !== "https:")
+      throw new Error("HTTP_DESTINATION_BLOCKED");
     const path = String(input.path ?? "/");
     const allowedPaths = Array.isArray(context.configuration.allowedPaths)
       ? context.configuration.allowedPaths.map(String)
@@ -203,7 +208,12 @@ export class GenericHttpConnector implements Connector {
     const allowedMethods = Array.isArray(context.configuration.allowedMethods)
       ? context.configuration.allowedMethods.map(String)
       : ["GET"];
-    if (!allowedMethods.includes(method) || !allowedPaths.some((prefix) => path.startsWith(prefix)))
+    if (
+      !allowedMethods.includes(method) ||
+      !allowedPaths.some(
+        (prefix) => path === prefix || path.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`)
+      )
+    )
       throw new Error("CONNECTOR_CAPABILITY_NOT_GRANTED");
     const url = new URL(path, base);
     if (url.origin !== base.origin) throw new Error("HTTP_DESTINATION_BLOCKED");

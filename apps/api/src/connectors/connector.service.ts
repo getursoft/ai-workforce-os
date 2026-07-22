@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -20,6 +21,11 @@ import type {
 } from "@ai-workforce-os/connector-sdk";
 import type { ToolHandler } from "../agents/agent.runtime";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
+import {
+  SECURITY_CONFIG,
+  type SecurityConfig
+} from "../identity/infrastructure/security/security-config";
+import { IdentityApplicationError } from "../identity/application/errors/identity.error";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 import { SafeHttpTool } from "../plugins/plugin-ai.runtime";
@@ -32,6 +38,7 @@ import {
   connectorContext
 } from "./connector.runtime";
 import { DummyCrmConnector, GenericHttpConnector } from "./reference-connectors";
+import { HubSpotConnector } from "./hubspot.connector";
 import type {
   ConnectorEventDto,
   ConnectorEventQueryDto,
@@ -55,10 +62,15 @@ export class ConnectorService implements OnModuleInit {
     private readonly manifests: ConnectorManifestValidator,
     private readonly schemas: ConnectorSchemaValidator,
     private readonly registry: ConnectorRegistry,
-    private readonly auditLogger: AuditEventLogger
+    private readonly auditLogger: AuditEventLogger,
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
   ) {
-    this.registry.register(new DummyCrmConnector(this.prisma));
-    this.registry.register(new GenericHttpConnector(this.http));
+    if (this.security.allowDevelopmentImplementations)
+      this.registry.register(new DummyCrmConnector(this.prisma));
+    this.registry.register(new HubSpotConnector());
+    this.registry.register(
+      new GenericHttpConnector(this.http, !this.security.allowDevelopmentImplementations)
+    );
   }
 
   async onModuleInit() {
@@ -76,6 +88,7 @@ export class ConnectorService implements OnModuleInit {
   }
 
   async catalogue(organizationId: string) {
+    const availableKeys = this.registry.list().map((connector) => connector.manifest.id);
     const installed = new Set(
       (
         await this.prisma.connectorInstallation.findMany({
@@ -85,7 +98,7 @@ export class ConnectorService implements OnModuleInit {
       ).map((item) => item.connectorId)
     );
     const definitions = await this.prisma.connectorDefinition.findMany({
-      where: { status: "ACTIVE" },
+      where: { status: "ACTIVE", key: { in: availableKeys } },
       include: { tools: true },
       orderBy: { name: "asc" }
     });
@@ -101,7 +114,8 @@ export class ConnectorService implements OnModuleInit {
       where: { OR: [{ id }, { key: id }], status: "ACTIVE" },
       include: { tools: true }
     });
-    if (!definition) throw new NotFoundException("CONNECTOR_NOT_FOUND");
+    if (!definition || !this.registry.resolve(definition.key))
+      throw new NotFoundException("CONNECTOR_NOT_FOUND");
     return this.definition(definition);
   }
 
@@ -111,6 +125,11 @@ export class ConnectorService implements OnModuleInit {
     requestId: string,
     dto: InstallConnectorDto
   ) {
+    if (dto.connectorKey === "dummy-crm" && !this.security.allowDevelopmentImplementations)
+      throw new IdentityApplicationError(
+        "DEVELOPMENT_CONNECTOR_NOT_ALLOWED",
+        "Development connectors are not allowed in this environment."
+      );
     const definition = await this.prisma.connectorDefinition.findUnique({
       where: { key: dto.connectorKey },
       include: { tools: true }
@@ -119,8 +138,9 @@ export class ConnectorService implements OnModuleInit {
     const connector = this.requireConnector(definition.key);
     const configuration = dto.configuration ?? {};
     const credentials = dto.credentials ?? {};
-    this.validateConfiguration(connector.manifest, configuration);
-    this.validateCredentials(connector.manifest, credentials);
+    if (dto.configuration !== undefined)
+      this.validateConfiguration(connector.manifest, configuration);
+    if (dto.credentials !== undefined) this.validateCredentials(connector.manifest, credentials);
     const declared = new Set(connector.manifest.capabilities);
     const grants = [...new Set(dto.grantedCapabilities ?? [])];
     if (grants.some((grant) => !declared.has(grant)))
@@ -535,7 +555,7 @@ export class ConnectorService implements OnModuleInit {
     tool: ConnectorToolManifest,
     input: Record<string, unknown>,
     actorType: ConnectorActorType,
-    actorId: string,
+    actorId: string | null,
     requestId: string
   ) {
     this.schemas.validate(`tool:${connector.manifest.id}:${tool.name}`, tool.inputSchema, input);
@@ -589,13 +609,13 @@ export class ConnectorService implements OnModuleInit {
 
   private async context(
     installation: Awaited<ReturnType<ConnectorService["requireInstallation"]>>,
-    actorId: string,
+    actorId: string | null,
     requestId: string
   ) {
     return connectorContext({
       organizationId: installation.organizationId,
       installationId: installation.id,
-      actorId,
+      ...(actorId ? { actorId } : {}),
       requestId,
       configuration: installation.configuration as Record<string, unknown>,
       credentials: this.decrypt(installation.encryptedCredentials),

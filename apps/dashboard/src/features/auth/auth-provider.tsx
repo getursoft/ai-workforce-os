@@ -10,7 +10,12 @@ import {
   useState,
   type ReactNode
 } from "react";
-import { createApiClient, type ApiClient, type LoginRequest, type RegisterRequest } from "../../lib/api-client";
+import {
+  createApiClient,
+  type ApiClient,
+  type LoginRequest,
+  type RegisterRequest
+} from "../../lib/api-client";
 import type {
   AuthState,
   AuthenticationResult,
@@ -45,12 +50,29 @@ const initialState: AuthState = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function sessionStateFrom(result: AuthenticationResult | CurrentUserResult, accessToken: string): SessionPayload {
+export function finishInitialization(state: AuthState): AuthState {
+  return state.isInitializing ? { ...state, isInitializing: false } : state;
+}
+
+function sessionStateFrom(
+  result: AuthenticationResult | CurrentUserResult,
+  accessToken: string
+): SessionPayload {
   return {
     organization: result.organization,
     user: result.user,
     accessToken
   };
+}
+
+export async function bootstrapSession(
+  client: Pick<ApiClient, "me">,
+  getAccessToken: () => string | null
+) {
+  const current = await client.me();
+  const accessToken = getAccessToken();
+  if (!accessToken) throw new Error("Authenticated session did not provide an access token.");
+  return sessionStateFrom(current, accessToken);
 }
 
 export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
@@ -64,23 +86,27 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
   }, [state]);
 
   const applySession = useCallback((session: SessionPayload) => {
-    setState({
+    const next: AuthState = {
       user: session.user,
       organization: session.organization,
       accessToken: session.accessToken,
       isAuthenticated: true,
       isInitializing: false
-    });
+    };
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   const clearSession = useCallback(() => {
-    setState({
+    const next: AuthState = {
       user: null,
       organization: null,
       accessToken: null,
       isAuthenticated: false,
       isInitializing: false
-    });
+    };
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   const getAccessToken = useCallback(() => stateRef.current.accessToken, []);
@@ -107,17 +133,13 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
       return;
     }
     try {
-      if (stateRef.current.accessToken) {
-        const current = await client.me();
-        applySession(sessionStateFrom(current, stateRef.current.accessToken));
-        return;
-      }
-      const refreshed = await client.refresh();
-      applySession(sessionStateFrom(refreshed, refreshed.tokens.accessToken));
+      applySession(await bootstrapSession(client, getAccessToken));
     } catch {
       clearSession();
+    } finally {
+      setState(finishInitialization);
     }
-  }, [applySession, clearSession]);
+  }, [applySession, clearSession, getAccessToken]);
 
   useEffect(() => {
     void initialize();
@@ -155,13 +177,15 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
         return client.refresh();
       },
       initialize,
-      client: clientRef.current ?? createApiClient({
-        setSession: (session) => {
-          applySession(session);
-        },
-        clearSession,
-        getAccessToken
-      })
+      client:
+        clientRef.current ??
+        createApiClient({
+          setSession: (session) => {
+            applySession(session);
+          },
+          clearSession,
+          getAccessToken
+        })
     }),
     [initialize, state]
   );

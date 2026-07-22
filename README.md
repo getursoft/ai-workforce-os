@@ -1,5 +1,8 @@
 # AI Workforce OS
 
+Enterprise knowledge and grounded AI employee responses are documented in
+[`docs/enterprise-knowledge.md`](docs/enterprise-knowledge.md).
+
 AI Workforce OS is an enterprise platform foundation for operating AI-enabled workforces. Sprint 1.1 adds the real browser dashboard, login flow, protected routes, and secure browser-auth integration on top of the identity backend.
 
 ## Project Vision
@@ -148,4 +151,5 @@ pnpm typecheck
 ## Git Workflow
 
 Commits are checked with Commitlint using the conventional commit format. Husky runs the commit message hook locally after dependencies are installed.
+
 # ai-workforce-os

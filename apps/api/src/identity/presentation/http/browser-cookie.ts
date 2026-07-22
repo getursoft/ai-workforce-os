@@ -55,11 +55,20 @@ export function setRefreshTokenCookie(
   config: CookieConfig,
   maxAgeSeconds: number
 ): void {
-  response.setHeader("Set-Cookie", serializeCookie(REFRESH_TOKEN_COOKIE, refreshToken, config, maxAgeSeconds));
+  response.setHeader(
+    "Set-Cookie",
+    serializeCookie(REFRESH_TOKEN_COOKIE, refreshToken, config, maxAgeSeconds)
+  );
 }
 
 export function clearRefreshTokenCookie(response: IdentityResponse, config: CookieConfig): void {
-  const parts = [`${REFRESH_TOKEN_COOKIE}=`, "Path=/", "HttpOnly", "Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"];
+  const parts = [
+    `${REFRESH_TOKEN_COOKIE}=`,
+    "Path=/",
+    "HttpOnly",
+    "Max-Age=0",
+    "Expires=Thu, 01 Jan 1970 00:00:00 GMT"
+  ];
   if (config.cookieDomain) {
     parts.push(`Domain=${config.cookieDomain}`);
   }

@@ -97,9 +97,26 @@ export interface ToolDefinition {
 }
 export interface ToolExecutionContext {
   organizationId: string;
-  userId: string;
+  userId: string | null;
   pluginInstallationId: string;
   conversationId: string;
+}
+
+/** Identifies who triggered an agent execution: a dashboard user, or an external channel counterpart. */
+export type AgentActor =
+  | { type: "USER"; userId: string }
+  | { type: "CHANNEL"; channelConnectionId: string; externalUserId: string };
+
+/** Provider-neutral execution request shared by dashboard chat and channel adapters (e.g. Twilio WhatsApp). */
+export interface AgentExecutionInput {
+  organizationId: string;
+  agentId: string;
+  conversationId?: string;
+  actor: AgentActor;
+  text: string;
+  source: { type: "DASHBOARD" } | { type: "CHANNEL"; channelId: string; externalUserId: string };
+  requestId: string;
+  metadata?: Record<string, unknown>;
 }
 export interface ToolHandler {
   definition: ToolDefinition;
@@ -109,7 +126,7 @@ export interface ToolHandler {
 export class ToolRegistry {
   private readonly handlers = new Map<string, ToolHandler>();
   private readonly validators = new Map<string, ValidateFunction>();
-  private readonly ajv = new Ajv({ allErrors: true, strict: true });
+  private readonly ajv = createToolAjv();
   register(handler: ToolHandler): void {
     if (this.handlers.has(handler.definition.name)) throw new Error("TOOL_REGISTRATION_COLLISION");
     this.validators.set(handler.definition.name, this.ajv.compile(handler.definition.inputSchema));
@@ -125,10 +142,22 @@ export class ToolRegistry {
     if (!handler) throw new Error("TOOL_NOT_FOUND");
     return handler;
   }
+  has(name: string): boolean {
+    return this.handlers.has(name);
+  }
   validate(name: string, input: unknown): asserts input is Record<string, unknown> {
     const validator = this.validators.get(name);
     if (!validator || !validator(input)) throw new Error("INVALID_TOOL_INPUT");
   }
+}
+
+function createToolAjv(): Ajv {
+  const ajv = new Ajv({ allErrors: true, strict: true });
+  ajv.addFormat("email", {
+    type: "string",
+    validate: (value: string) => value.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+  });
+  return ajv;
 }
 
 export class ToolPermissionPolicy {
@@ -173,6 +202,7 @@ export class PromptBuilder {
     organizationPrompt?: string;
     pluginPrompt: string;
     memories: string[];
+    enterpriseKnowledge?: string;
     history: ModelMessage[];
     message: string;
     tools: ToolDefinition[];
@@ -192,6 +222,14 @@ export class PromptBuilder {
             {
               role: "system" as const,
               content: `Relevant memories:\n${input.memories.map(limit).join("\n")}`
+            }
+          ]
+        : []),
+      ...(input.enterpriseKnowledge
+        ? [
+            {
+              role: "system" as const,
+              content: limit(input.enterpriseKnowledge)
             }
           ]
         : []),

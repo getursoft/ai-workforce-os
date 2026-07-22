@@ -2,7 +2,10 @@ import type { ApiErrorKind } from "../../lib/api-error";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function validateLoginForm(email: string, password: string): {
+export function validateLoginForm(
+  email: string,
+  password: string
+): {
   email?: string;
   password?: string;
 } {

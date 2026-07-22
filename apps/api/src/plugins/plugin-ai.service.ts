@@ -1,8 +1,12 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
 import { PluginAiProviderType, PluginStatus, Prisma } from "@prisma/client";
 import type { AiMessage, AiToolDefinition } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
+import {
+  SECURITY_CONFIG,
+  type SecurityConfig
+} from "../identity/infrastructure/security/security-config";
 import type { PluginChatDto, UpdatePluginAiConfigurationDto } from "./plugin.dto";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "./plugin.runtime";
 import {
@@ -20,7 +24,8 @@ export class PluginAiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: PluginSecretsEncryptionService,
-    private readonly http: SafeHttpTool
+    private readonly http: SafeHttpTool,
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
   ) {}
 
   async get(organizationId: string, pluginId: string) {
@@ -86,11 +91,20 @@ export class PluginAiService {
     const oldSettings = (existing?.configuration ?? {}) as StoredSettings;
     const providerType =
       dto.providerType ?? existing?.providerType ?? PluginAiProviderType.DETERMINISTIC;
+    this.assertProviderAllowed(providerType);
     const settings: StoredSettings = {
       ...oldSettings,
       timeoutMs: dto.timeoutMs ?? oldSettings.timeoutMs ?? 30000
     };
-    for (const key of ["model", "baseUrl", "endpoint", "deploymentName", "apiVersion"] as const)
+    for (const key of [
+      "model",
+      "embeddingModel",
+      "baseUrl",
+      "endpoint",
+      "deploymentName",
+      "embeddingDeployment",
+      "apiVersion"
+    ] as const)
       if (dto[key] !== undefined) settings[key] = dto[key];
     this.validate(providerType, settings);
     const secrets = existing
@@ -241,6 +255,7 @@ export class PluginAiService {
       providerType: stored.providerType,
       ...((stored.configuration ?? {}) as StoredSettings)
     } as ProviderSettings;
+    this.assertProviderAllowed(settings.providerType);
     const secrets = this.encryption.decrypt(stored.encryptedSecrets as unknown as EncryptedPayload);
     return { provider: createAiProvider(settings, secrets.apiKey), settings };
   }
@@ -267,6 +282,13 @@ export class PluginAiService {
       throw new IdentityApplicationError(
         "AI_PROVIDER_CONFIGURATION_INVALID",
         "The AI provider configuration is invalid."
+      );
+  }
+  private assertProviderAllowed(type: PluginAiProviderType | ProviderSettings["providerType"]) {
+    if (type === "DETERMINISTIC" && !this.security.allowDevelopmentImplementations)
+      throw new IdentityApplicationError(
+        "DEVELOPMENT_PROVIDER_NOT_ALLOWED",
+        "Development AI providers are not allowed in this environment."
       );
   }
   private secretKeys(value: unknown) {

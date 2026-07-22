@@ -18,6 +18,8 @@
     "test": "tsc --noEmit -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
-  "sideEffects": false
-  ,"dependencies": { "@ai-workforce-os/plugin-sdk": "workspace:*" }
+  "sideEffects": false,
+  "dependencies": {
+    "@ai-workforce-os/plugin-sdk": "workspace:*"
+  }
 }

@@ -1503,3 +1503,126 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+.chat-thread {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.chat-bubble {
+  display: grid;
+  gap: 6px;
+  max-width: min(640px, 92%);
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+}
+
+.chat-bubble--assistant {
+  justify-self: start;
+  background: var(--surface-strong);
+  border-bottom-left-radius: 6px;
+}
+
+.chat-bubble--user {
+  justify-self: end;
+  background: var(--primary-soft);
+  border-color: transparent;
+  border-bottom-right-radius: 6px;
+}
+
+.chat-bubble__author {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.chat-bubble__text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-bubble aside {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.chat-debug {
+  margin-top: 4px;
+}
+
+.chat-debug summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  list-style: none;
+}
+
+.chat-debug summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-debug summary::before {
+  content: "▸ ";
+}
+
+.chat-debug[open] summary::before {
+  content: "▾ ";
+}
+
+.chat-debug > div {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.itinerary {
+  display: grid;
+  gap: 12px;
+}
+
+.itinerary__intro {
+  margin: 0;
+}
+
+.itinerary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.itinerary-card {
+  padding: 14px 16px;
+}
+
+.itinerary-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.itinerary-card ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.itinerary-card--days ul {
+  padding-left: 0;
+  list-style: none;
+}
+
+.itinerary-footer {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

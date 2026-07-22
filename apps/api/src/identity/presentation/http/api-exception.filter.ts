@@ -8,6 +8,7 @@ import {
   HttpException,
   HttpStatus,
   NotFoundException,
+  PayloadTooLargeException,
   UnauthorizedException,
   UnprocessableEntityException
 } from "@nestjs/common";
@@ -61,6 +62,10 @@ const STATUS: Record<IdentityErrorCode, number> = {
   AI_PROVIDER_TEST_FAILED: HttpStatus.BAD_GATEWAY,
   AI_PROVIDER_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY,
   AGENT_EXECUTION_FAILED: HttpStatus.INTERNAL_SERVER_ERROR,
+  DEVELOPMENT_PROVIDER_NOT_ALLOWED: HttpStatus.CONFLICT,
+  DEVELOPMENT_PLUGIN_NOT_ALLOWED: HttpStatus.CONFLICT,
+  DEVELOPMENT_CONNECTOR_NOT_ALLOWED: HttpStatus.CONFLICT,
+  PRODUCTION_CONFIGURATION_INVALID: HttpStatus.SERVICE_UNAVAILABLE,
   CONNECTOR_NOT_FOUND: HttpStatus.NOT_FOUND,
   CONNECTOR_INSTALLATION_NOT_FOUND: HttpStatus.NOT_FOUND,
   CONNECTOR_ALREADY_INSTALLED: HttpStatus.CONFLICT,
@@ -77,7 +82,19 @@ const STATUS: Record<IdentityErrorCode, number> = {
   CONNECTOR_TOOL_TIMEOUT: HttpStatus.GATEWAY_TIMEOUT,
   CONNECTOR_RATE_LIMITED: HttpStatus.TOO_MANY_REQUESTS,
   CONNECTOR_HEALTH_CHECK_FAILED: HttpStatus.BAD_GATEWAY,
-  CONNECTOR_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY
+  CONNECTOR_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY,
+  KNOWLEDGE_DOCUMENT_NOT_FOUND: HttpStatus.NOT_FOUND,
+  KNOWLEDGE_FILE_REQUIRED: HttpStatus.BAD_REQUEST,
+  KNOWLEDGE_FILE_TOO_LARGE: HttpStatus.PAYLOAD_TOO_LARGE,
+  KNOWLEDGE_FILE_TYPE_UNSUPPORTED: HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+  KNOWLEDGE_FILE_INVALID: HttpStatus.BAD_REQUEST,
+  KNOWLEDGE_TEXT_NOT_EXTRACTABLE: HttpStatus.UNPROCESSABLE_ENTITY,
+  KNOWLEDGE_INDEXING_FAILED: HttpStatus.UNPROCESSABLE_ENTITY,
+  KNOWLEDGE_DOCUMENT_NOT_INDEXED: HttpStatus.CONFLICT,
+  KNOWLEDGE_SEARCH_QUERY_REQUIRED: HttpStatus.BAD_REQUEST,
+  EMBEDDING_PROVIDER_NOT_CONFIGURED: HttpStatus.UNPROCESSABLE_ENTITY,
+  EMBEDDING_PROVIDER_REQUEST_FAILED: HttpStatus.BAD_GATEWAY,
+  EMBEDDING_PROVIDER_RESPONSE_INVALID: HttpStatus.BAD_GATEWAY
 };
 
 @Catch()
@@ -113,8 +130,14 @@ export class ApiExceptionFilter implements ExceptionFilter {
       );
     }
     if (exception instanceof HttpException) {
-      const code = connectorErrorCode(exception);
-      if (code) return new IdentityApplicationError(code, connectorErrorMessage(code));
+      const code = stableHttpErrorCode(exception);
+      if (code) return new IdentityApplicationError(code, stableHttpErrorMessage(code));
+    }
+    if (exception instanceof PayloadTooLargeException) {
+      return new IdentityApplicationError(
+        "KNOWLEDGE_FILE_TOO_LARGE",
+        "The document exceeds the configured file-size limit."
+      );
     }
     if (exception instanceof BadRequestException) {
       return new IdentityApplicationError(
@@ -180,7 +203,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
   }
 }
 
-function connectorErrorCode(exception: HttpException): IdentityErrorCode | undefined {
+function stableHttpErrorCode(exception: HttpException): IdentityErrorCode | undefined {
   const response = exception.getResponse();
   const message =
     typeof response === "string"
@@ -191,10 +214,14 @@ function connectorErrorCode(exception: HttpException): IdentityErrorCode | undef
           typeof (response as { message?: unknown }).message === "string"
         ? (response as { message: string }).message
         : undefined;
-  return message?.startsWith("CONNECTOR_") ? (message as IdentityErrorCode) : undefined;
+  return message?.startsWith("CONNECTOR_") ||
+    message?.startsWith("KNOWLEDGE_") ||
+    message?.startsWith("EMBEDDING_")
+    ? (message as IdentityErrorCode)
+    : undefined;
 }
 
-function connectorErrorMessage(code: IdentityErrorCode): string {
+function stableHttpErrorMessage(code: IdentityErrorCode): string {
   const messages: Partial<Record<IdentityErrorCode, string>> = {
     CONNECTOR_NOT_FOUND: "The connector was not found.",
     CONNECTOR_INSTALLATION_NOT_FOUND: "The connector installation was not found.",
@@ -205,7 +232,18 @@ function connectorErrorMessage(code: IdentityErrorCode): string {
     CONNECTOR_CAPABILITY_NOT_GRANTED: "The connector capability is not granted.",
     CONNECTOR_DISABLED: "The connector is disabled.",
     CONNECTOR_DISCONNECTED: "The connector is disconnected.",
-    CONNECTOR_TOOL_TIMEOUT: "The connector tool timed out."
+    CONNECTOR_TOOL_TIMEOUT: "The connector tool timed out.",
+    KNOWLEDGE_DOCUMENT_NOT_FOUND: "The knowledge document was not found.",
+    KNOWLEDGE_FILE_REQUIRED: "A document file is required.",
+    KNOWLEDGE_FILE_TOO_LARGE: "The document exceeds the configured file-size limit.",
+    KNOWLEDGE_FILE_TYPE_UNSUPPORTED: "The document type is not supported.",
+    KNOWLEDGE_FILE_INVALID: "The document file is invalid.",
+    KNOWLEDGE_TEXT_NOT_EXTRACTABLE: "No extractable text was found in the document.",
+    KNOWLEDGE_INDEXING_FAILED: "The document could not be indexed safely.",
+    KNOWLEDGE_SEARCH_QUERY_REQUIRED: "A knowledge search query is required.",
+    EMBEDDING_PROVIDER_NOT_CONFIGURED: "An embedding provider is not configured.",
+    EMBEDDING_PROVIDER_REQUEST_FAILED: "The embedding provider request failed.",
+    EMBEDDING_PROVIDER_RESPONSE_INVALID: "The embedding provider returned an invalid response."
   };
   return messages[code] ?? "The connector operation could not be completed safely.";
 }

@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { PlaceholderPage } from "../../../components/dashboard/placeholder-page";
+import { KnowledgePage as KnowledgeBasePage } from "../../../features/knowledge/knowledge-pages";
 
 export const metadata: Metadata = {
   title: "Knowledge | AI Workforce OS"
 };
 
 export default function KnowledgePage() {
-  return <PlaceholderPage title="Knowledge" description="Knowledge sources will appear here later." />;
+  return <KnowledgeBasePage />;
 }

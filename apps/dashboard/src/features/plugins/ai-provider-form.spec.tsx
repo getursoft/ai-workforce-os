@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AiProviderForm,
   buildAiConfigurationPayload,
+  developmentProvidersAvailable,
   providerConfigurationErrorMessage,
   shouldClearApiKeyAfterSave
 } from "./ai-provider-form";
@@ -42,6 +43,12 @@ function markup(provider: AiProviderType, saveError: unknown = null) {
   );
 }
 describe("AI provider form", () => {
+  it("does not expose development providers in staging or production", () => {
+    expect(developmentProvidersAvailable("production")).toBe(false);
+    expect(developmentProvidersAvailable("staging")).toBe(false);
+    expect(developmentProvidersAvailable("development")).toBe(true);
+    expect(developmentProvidersAvailable("test")).toBe(true);
+  });
   it("renders OpenAI-compatible fields only", () => {
     const html = markup("OPENAI_COMPATIBLE");
     expect(html).toContain("Model");

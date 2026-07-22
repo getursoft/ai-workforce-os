@@ -2,11 +2,16 @@ import { InvalidSecurityConfigurationError } from "../../application/errors/secu
 
 export const SECURITY_CONFIG = Symbol("SecurityConfig");
 
-export type NodeEnvironment = "development" | "test" | "production";
+export type NodeEnvironment = "development" | "test" | "staging" | "production";
 
 export interface SecurityConfig {
   nodeEnvironment: NodeEnvironment;
+  databaseUrl: string;
   webAppUrl: string;
+  apiPublicUrl: string;
+  serverPort: number;
+  allowDevelopmentImplementations: boolean;
+  pluginDirectory?: string;
   passwordHash: {
     memoryCost: number;
     timeCost: number;
@@ -24,6 +29,13 @@ export interface SecurityConfig {
   };
   apiKey: { pepper: string };
   pluginSecrets: { encryptionKey: Buffer };
+  knowledge: {
+    storagePath: string;
+    maxFileSizeBytes: number;
+    chunkTargetTokens: number;
+    chunkOverlapTokens: number;
+    searchCandidateLimit: number;
+  };
   browserAuth: {
     cookieDomain?: string;
     cookieSecure: boolean;
@@ -86,6 +98,16 @@ function url(environment: Environment, variable: string): string {
   }
 }
 
+function optionalUrl(environment: Environment, variable: string): string | undefined {
+  const value = environment[variable]?.trim();
+  if (!value) return undefined;
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new InvalidSecurityConfigurationError(variable);
+  }
+}
+
 function optionalString(environment: Environment, variable: string): string | undefined {
   const value = environment[variable]?.trim();
   return value ? value : undefined;
@@ -106,15 +128,34 @@ function boolean(environment: Environment, variable: string, fallback: boolean):
 }
 
 function nodeEnvironment(environment: Environment): NodeEnvironment {
-  const value = required(environment, "NODE_ENV");
-  if (value !== "development" && value !== "test" && value !== "production") {
-    throw new InvalidSecurityConfigurationError("NODE_ENV");
+  const value = (environment.APP_ENV ?? environment.NODE_ENV)?.trim();
+  if (!value || !["development", "test", "staging", "production"].includes(value)) {
+    throw new InvalidSecurityConfigurationError("APP_ENV");
   }
-  return value;
+  return value as NodeEnvironment;
 }
 
 export function loadSecurityConfig(environment: Environment): SecurityConfig {
   const node = nodeEnvironment(environment);
+  const productionLike = node === "production" || node === "staging";
+  const databaseUrl = required(environment, "DATABASE_URL");
+  let database: URL;
+  try {
+    database = new URL(databaseUrl);
+  } catch {
+    throw new InvalidSecurityConfigurationError("DATABASE_URL");
+  }
+  if (!["postgres:", "postgresql:"].includes(database.protocol))
+    throw new InvalidSecurityConfigurationError("DATABASE_URL");
+  const allowLocalProduction = boolean(environment, "ALLOW_LOCALHOST_PRODUCTION", false);
+  if (
+    productionLike &&
+    !allowLocalProduction &&
+    ["localhost", "127.0.0.1", "::1"].includes(database.hostname.toLowerCase())
+  )
+    throw new InvalidSecurityConfigurationError("DATABASE_URL");
+  if (productionLike && /(?:^|_)test(?:$|_)/i.test(database.pathname.slice(1)))
+    throw new InvalidSecurityConfigurationError("DATABASE_URL");
   const cookieSecure = boolean(environment, "COOKIE_SECURE", node === "production");
   const cookieSameSite = optionalString(environment, "COOKIE_SAME_SITE") ?? "lax";
   if (cookieSameSite !== "lax" && cookieSameSite !== "strict" && cookieSameSite !== "none") {
@@ -122,6 +163,35 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
   }
   if (cookieSameSite === "none" && !cookieSecure) {
     throw new InvalidSecurityConfigurationError("COOKIE_SAME_SITE");
+  }
+  if (productionLike && !cookieSecure) throw new InvalidSecurityConfigurationError("COOKIE_SECURE");
+  const webAppUrl = url(environment, "WEB_APP_URL");
+  if (productionLike && !webAppUrl.startsWith("https://"))
+    throw new InvalidSecurityConfigurationError("WEB_APP_URL");
+  const serverPort = integer(
+    { ...environment, PORT: environment.PORT ?? "4000" },
+    "PORT",
+    1,
+    65_535
+  );
+  const configuredApiPublicUrl = optionalUrl(environment, "API_PUBLIC_URL");
+  if (productionLike && !configuredApiPublicUrl)
+    throw new InvalidSecurityConfigurationError("API_PUBLIC_URL");
+  if (configuredApiPublicUrl && !configuredApiPublicUrl.startsWith("https://") && productionLike)
+    throw new InvalidSecurityConfigurationError("API_PUBLIC_URL");
+  const apiPublicUrl = configuredApiPublicUrl ?? `http://localhost:${serverPort}`;
+  const allowDevelopmentImplementations = boolean(
+    environment,
+    "ALLOW_DEVELOPMENT_IMPLEMENTATIONS",
+    !productionLike
+  );
+  const pluginDirectory = optionalString(environment, "PLUGIN_DIRECTORY");
+  if (productionLike && allowDevelopmentImplementations)
+    throw new InvalidSecurityConfigurationError("ALLOW_DEVELOPMENT_IMPLEMENTATIONS");
+  for (const variable of ["JWT_ACCESS_SECRET", "REFRESH_TOKEN_PEPPER", "API_KEY_PEPPER"] as const) {
+    const value = required(environment, variable);
+    if (productionLike && /replace|development|test[-_ ]secret|changeme/i.test(value))
+      throw new InvalidSecurityConfigurationError(variable);
   }
   const browserAuth: SecurityConfig["browserAuth"] = {
     cookieSecure,
@@ -133,7 +203,12 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
   }
   return {
     nodeEnvironment: node,
-    webAppUrl: url(environment, "WEB_APP_URL"),
+    databaseUrl,
+    webAppUrl,
+    apiPublicUrl,
+    serverPort,
+    allowDevelopmentImplementations,
+    ...(pluginDirectory ? { pluginDirectory } : {}),
     passwordHash: {
       memoryCost: integer(environment, "PASSWORD_HASH_MEMORY_COST", 8192, 1_048_576),
       timeCost: integer(environment, "PASSWORD_HASH_TIME_COST", 1, 10),
@@ -151,6 +226,48 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
     },
     apiKey: { pepper: secret(environment, "API_KEY_PEPPER") },
     pluginSecrets: { encryptionKey: base64Key(environment, "PLUGIN_SECRETS_ENCRYPTION_KEY") },
+    knowledge: {
+      storagePath: optionalString(environment, "KNOWLEDGE_STORAGE_PATH") ?? "./storage/knowledge",
+      maxFileSizeBytes:
+        integer(
+          {
+            ...environment,
+            KNOWLEDGE_MAX_FILE_SIZE_MB: environment.KNOWLEDGE_MAX_FILE_SIZE_MB ?? "10"
+          },
+          "KNOWLEDGE_MAX_FILE_SIZE_MB",
+          1,
+          50
+        ) *
+        1024 *
+        1024,
+      chunkTargetTokens: integer(
+        {
+          ...environment,
+          KNOWLEDGE_CHUNK_TARGET_TOKENS: environment.KNOWLEDGE_CHUNK_TARGET_TOKENS ?? "800"
+        },
+        "KNOWLEDGE_CHUNK_TARGET_TOKENS",
+        100,
+        4000
+      ),
+      chunkOverlapTokens: integer(
+        {
+          ...environment,
+          KNOWLEDGE_CHUNK_OVERLAP_TOKENS: environment.KNOWLEDGE_CHUNK_OVERLAP_TOKENS ?? "100"
+        },
+        "KNOWLEDGE_CHUNK_OVERLAP_TOKENS",
+        0,
+        1000
+      ),
+      searchCandidateLimit: integer(
+        {
+          ...environment,
+          KNOWLEDGE_SEARCH_CANDIDATE_LIMIT: environment.KNOWLEDGE_SEARCH_CANDIDATE_LIMIT ?? "1000"
+        },
+        "KNOWLEDGE_SEARCH_CANDIDATE_LIMIT",
+        10,
+        5000
+      )
+    },
     browserAuth
   };
 }

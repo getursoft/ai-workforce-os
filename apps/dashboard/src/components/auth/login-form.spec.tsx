@@ -41,7 +41,7 @@ describe("LoginForm", () => {
     expect(html).toContain("Sign in");
     expect(html).toContain("Show");
     expect(html).toContain("Create account");
-    expect(html).toContain('/signup');
+    expect(html).toContain("/signup");
   });
 
   it("rejects invalid email and missing password", () => {

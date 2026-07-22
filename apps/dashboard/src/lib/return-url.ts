@@ -11,7 +11,10 @@ export function isSafeInternalPath(value: string | null | undefined): value is s
   return !value.includes("\\");
 }
 
-export function resolveReturnUrl(value: string | null | undefined, fallback = "/dashboard"): string {
+export function resolveReturnUrl(
+  value: string | null | undefined,
+  fallback = "/dashboard"
+): string {
   return isSafeInternalPath(value) ? value : fallback;
 }
 

@@ -79,10 +79,7 @@ export function normalizeApiError(error: unknown): ApiError {
   });
 }
 
-export function normalizeServerError(
-  response: Response,
-  body: unknown
-): ApiError {
+export function normalizeServerError(response: Response, body: unknown): ApiError {
   const fallbackMessage = response.status >= 500 ? "Server error." : "Request failed.";
   const envelope = body as Partial<StandardErrorEnvelope> | null;
   const error = envelope?.error;

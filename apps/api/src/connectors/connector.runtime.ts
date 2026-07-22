@@ -18,6 +18,10 @@ function createAjv() {
       }
     }
   });
+  ajv.addFormat("email", {
+    type: "string",
+    validate: (value: string) => value.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+  });
   return ajv;
 }
 

@@ -1,14 +1,8 @@
+import { Body, Controller, Get, HttpCode, Inject, Patch, Req, UseGuards } from "@nestjs/common";
 import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Inject,
-  Patch,
-  Req,
-  UseGuards
-} from "@nestjs/common";
-import { GET_ORGANIZATION, type GetOrganizationHandler } from "../../application/handlers/get-organization";
+  GET_ORGANIZATION,
+  type GetOrganizationHandler
+} from "../../application/handlers/get-organization";
 import {
   GET_ORGANIZATION_SETTINGS,
   type GetOrganizationSettingsHandler

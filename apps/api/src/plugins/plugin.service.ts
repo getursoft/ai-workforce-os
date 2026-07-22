@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -14,6 +15,11 @@ import {
   type PluginManifest
 } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import {
+  SECURITY_CONFIG,
+  type SecurityConfig
+} from "../identity/infrastructure/security/security-config";
+import { IdentityApplicationError } from "../identity/application/errors/identity.error";
 import {
   ConfigurationSchemaValidator,
   ManifestValidator,
@@ -46,12 +52,20 @@ export class PluginService implements OnModuleInit {
     private readonly secrets: PluginSecretsEncryptionService,
     private readonly registry: PluginRegistry,
     private readonly discovery: PluginDiscovery,
-    private readonly lifecycle: PluginLifecycleEngine
+    private readonly lifecycle: PluginLifecycleEngine,
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
   ) {}
 
   async onModuleInit(): Promise<void> {
     const discovered = await this.discovery.discover();
-    this.catalog = new Map(discovered.plugins.map((plugin) => [plugin.manifest.id, plugin]));
+    this.catalog = new Map(
+      discovered.plugins
+        .filter(
+          (plugin) =>
+            this.security.allowDevelopmentImplementations || plugin.manifest.id !== "dummy-echo"
+        )
+        .map((plugin) => [plugin.manifest.id, plugin])
+    );
     this.discoveryErrors = discovered.errors;
     await this.synchronizeRegistry();
   }
@@ -75,6 +89,11 @@ export class PluginService implements OnModuleInit {
   }
 
   async install(organizationId: string, userId: string, dto: InstallPluginDto) {
+    if (dto.pluginId === "dummy-echo" && !this.security.allowDevelopmentImplementations)
+      throw new IdentityApplicationError(
+        "DEVELOPMENT_PLUGIN_NOT_ALLOWED",
+        "Development plugins are not allowed in this environment."
+      );
     const discovered = dto.pluginId ? this.catalog.get(dto.pluginId) : undefined;
     if (dto.pluginId && !discovered) throw new NotFoundException("PLUGIN_NOT_FOUND");
     if (!dto.manifest && !discovered)
@@ -419,7 +438,8 @@ export class PluginService implements OnModuleInit {
     }
   }
   private adapter(entryPoint: string) {
-    if (entryPoint === "dummy-echo") return new DummyEchoPlugin();
+    if (entryPoint === "dummy-echo" && this.security.allowDevelopmentImplementations)
+      return new DummyEchoPlugin();
     throw new ConflictException("PLUGIN_REGISTRATION_FAILED");
   }
   private async require(organizationId: string, id: string) {

@@ -128,6 +128,43 @@ describe("ApiClient", () => {
     expect(callbacks.setSession).toHaveBeenCalledTimes(1);
   });
 
+  it("bootstraps with me, one refresh, and one authenticated retry", async () => {
+    const calls: Array<{ url: string; credentials?: RequestCredentials }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, ...(init?.credentials ? { credentials: init.credentials } : {}) });
+      if (url.endsWith("/auth/refresh"))
+        return new Response(JSON.stringify({ data: authResponse }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      if (
+        url.endsWith("/auth/me") &&
+        calls.filter((call) => call.url.endsWith("/auth/me")).length > 1
+      )
+        return new Response(
+          JSON.stringify({
+            data: { user: authResponse.user, organization: authResponse.organization }
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      return new Response(JSON.stringify({ error: { code: "AUTHENTICATION_FAILED" } }), {
+        status: 401,
+        headers: { "content-type": "application/json" }
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new ApiClient(callbacks, "http://localhost:4000/api/v1", 1_000);
+    await expect(client.me()).resolves.toMatchObject({ user: { id: "user-1" } });
+    expect(calls.map(({ url }) => url.replace("http://localhost:4000/api/v1", ""))).toEqual([
+      "/auth/me",
+      "/auth/refresh",
+      "/auth/me"
+    ]);
+    expect(calls.every(({ credentials }) => credentials === "include")).toBe(true);
+  });
+
   it("clears auth state when refresh fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
@@ -192,5 +229,21 @@ describe("ApiClient", () => {
     await expect(client.request("/protected")).rejects.toMatchObject({
       kind: "timeout"
     });
+  });
+
+  it("rejects malformed authentication responses without creating a session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ data: { user: null, tokens: {} } }), {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          })
+      )
+    );
+    const client = new ApiClient(callbacks, "http://localhost:4000/api/v1", 1_000);
+    await expect(client.refresh()).rejects.toMatchObject({ code: "INVALID_API_RESPONSE" });
+    expect(callbacks.setSession).not.toHaveBeenCalled();
   });
 });

@@ -7,8 +7,52 @@ on:
       - main
 
 jobs:
+  secret-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ai_workforce_os_test
+          POSTGRES_USER: ai_workforce_os
+          POSTGRES_PASSWORD: ai_workforce_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ai_workforce_os -d ai_workforce_os_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: test
+      NODE_ENV: test
+      DATABASE_URL: postgresql://ai_workforce_os:ai_workforce_os@127.0.0.1:5432/ai_workforce_os_test?schema=public
+      TEST_DATABASE_URL: postgresql://ai_workforce_os:ai_workforce_os@127.0.0.1:5432/ai_workforce_os_test?schema=public
+      WEB_APP_URL: http://localhost:3000
+      ALLOW_DEVELOPMENT_IMPLEMENTATIONS: "true"
+      JWT_ACCESS_SECRET: ci-only-jwt-secret-with-more-than-thirty-two-bytes
+      JWT_ACCESS_EXPIRES_IN_SECONDS: "900"
+      JWT_ACCESS_ISSUER: ci
+      JWT_ACCESS_AUDIENCE: ai-workforce-os
+      REFRESH_TOKEN_EXPIRES_IN_SECONDS: "2592000"
+      REFRESH_TOKEN_PEPPER: ci-only-refresh-pepper-with-more-than-thirty-two-bytes
+      API_KEY_PEPPER: ci-only-api-key-pepper-with-more-than-thirty-two-bytes
+      PLUGIN_SECRETS_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      PASSWORD_HASH_MEMORY_COST: "8192"
+      PASSWORD_HASH_TIME_COST: "1"
+      PASSWORD_HASH_PARALLELISM: "1"
+      COOKIE_SECURE: "false"
+      COOKIE_SAME_SITE: lax
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,11 +77,44 @@ jobs:
       - name: Check formatting
         run: pnpm format:check
 
+      - name: Validate Prisma schema and migrations
+        run: |
+          touch .env.test
+          pnpm exec prisma validate --schema=database/prisma/schema.prisma
+          pnpm exec prisma migrate deploy --schema=database/prisma/schema.prisma
+          pnpm exec prisma migrate status --schema=database/prisma/schema.prisma
+
+      - name: Validate production configuration contract
+        env:
+          APP_ENV: production
+          NODE_ENV: production
+          DATABASE_URL: postgresql://app:placeholder@db.internal:5432/ai_workforce_os
+          WEB_APP_URL: https://app.example.invalid
+          ALLOW_DEVELOPMENT_IMPLEMENTATIONS: "false"
+          JWT_ACCESS_SECRET: ci-production-validation-jwt-secret-value
+          JWT_ACCESS_ISSUER: https://identity.example.invalid
+          REFRESH_TOKEN_PEPPER: ci-production-validation-refresh-pepper
+          API_KEY_PEPPER: ci-production-validation-api-key-pepper
+          COOKIE_SECURE: "true"
+          COOKIE_SAME_SITE: lax
+        run: pnpm validate:production-config
+
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Test
+        run: pnpm test
+
       - name: Build
         run: pnpm build
+
+      - name: Dependency audit
+        run: pnpm audit --audit-level high
+
+      - name: Build production containers
+        run: |
+          docker build -f Dockerfile.api -t ai-workforce-os-api:ci .
+          docker build --build-arg NEXT_PUBLIC_API_BASE_URL=https://api.example.invalid/api/v1 -f Dockerfile.dashboard -t ai-workforce-os-dashboard:ci .

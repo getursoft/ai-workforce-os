@@ -1,6 +1,5 @@
 import { API_BASE_URL } from "./auth-constants";
-import { normalizeApiError, normalizeServerError } from "./api-error";
-import type { ApiError } from "./api-error";
+import { ApiError, normalizeApiError, normalizeServerError } from "./api-error";
 import type {
   AuthenticationResult,
   CurrentUserResult,
@@ -51,11 +50,17 @@ export class ApiClient {
   ) {}
 
   async register(command: RegisterRequest): Promise<AuthenticationResult> {
-    const result = await this.request<AuthenticationResult>("/auth/register", {
-      method: "POST",
-      body: JSON.stringify(command),
-      headers: { "content-type": "application/json" }
-    }, { authorize: false, retryOnUnauthorized: false, credentials: "include" });
+    const result = authenticationResult(
+      await this.request<unknown>(
+        "/auth/register",
+        {
+          method: "POST",
+          body: JSON.stringify(command),
+          headers: { "content-type": "application/json" }
+        },
+        { authorize: false, retryOnUnauthorized: false, credentials: "include" }
+      )
+    );
     this.callbacks.setSession({
       user: result.user,
       organization: result.organization,
@@ -65,11 +70,17 @@ export class ApiClient {
   }
 
   async login(command: LoginRequest): Promise<AuthenticationResult> {
-    const result = await this.request<AuthenticationResult>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(command),
-      headers: { "content-type": "application/json" }
-    }, { authorize: false, retryOnUnauthorized: false, credentials: "include" });
+    const result = authenticationResult(
+      await this.request<unknown>(
+        "/auth/login",
+        {
+          method: "POST",
+          body: JSON.stringify(command),
+          headers: { "content-type": "application/json" }
+        },
+        { authorize: false, retryOnUnauthorized: false, credentials: "include" }
+      )
+    );
     this.callbacks.setSession({
       user: result.user,
       organization: result.organization,
@@ -79,13 +90,15 @@ export class ApiClient {
   }
 
   async refresh(): Promise<AuthenticationResult> {
-    const result = await this.request<AuthenticationResult>(
-      "/auth/refresh",
-      {
-        method: "POST",
-        body: JSON.stringify({})
-      },
-      { authorize: false, retryOnUnauthorized: false, credentials: "include" }
+    const result = authenticationResult(
+      await this.request<unknown>(
+        "/auth/refresh",
+        {
+          method: "POST",
+          body: JSON.stringify({})
+        },
+        { authorize: false, retryOnUnauthorized: false, credentials: "include" }
+      )
     );
     this.callbacks.setSession({
       user: result.user,
@@ -96,7 +109,7 @@ export class ApiClient {
   }
 
   async me(): Promise<CurrentUserResult> {
-    return this.request<CurrentUserResult>("/auth/me", { method: "GET" });
+    return currentUserResult(await this.request<unknown>("/auth/me", { method: "GET" }));
   }
 
   async logout(): Promise<LogoutResult> {
@@ -114,15 +127,15 @@ export class ApiClient {
     }
   }
 
-  async request<T>(
-    path: string,
-    init: RequestInit = {},
-    options: RequestOptions = {}
-  ): Promise<T> {
+  async request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
     const authorize = options.authorize ?? true;
     const retryOnUnauthorized = options.retryOnUnauthorized ?? true;
     const headers = new Headers(init.headers);
-    if (!headers.has("content-type") && init.body) {
+    if (
+      !headers.has("content-type") &&
+      init.body &&
+      !(typeof FormData !== "undefined" && init.body instanceof FormData)
+    ) {
       headers.set("content-type", "application/json");
     }
     if (authorize) {
@@ -202,4 +215,39 @@ export class ApiClient {
 
 export function createApiClient(callbacks: SessionCallbacks): ApiClient {
   return new ApiClient(callbacks);
+}
+
+function authenticationResult(value: unknown): AuthenticationResult {
+  const result = currentUserResult(value) as AuthenticationResult;
+  if (
+    !isRecord(result.tokens) ||
+    typeof result.tokens.accessToken !== "string" ||
+    !result.tokens.accessToken
+  )
+    throw malformedResponse();
+  return result;
+}
+
+function currentUserResult(value: unknown): CurrentUserResult {
+  if (!isRecord(value) || !isRecord(value.user) || !isRecord(value.organization))
+    throw malformedResponse();
+  if (
+    typeof value.user.id !== "string" ||
+    typeof value.user.email !== "string" ||
+    typeof value.organization.id !== "string"
+  )
+    throw malformedResponse();
+  return value as unknown as CurrentUserResult;
+}
+
+function malformedResponse(): ApiError {
+  return new ApiError({
+    kind: "server",
+    code: "INVALID_API_RESPONSE",
+    message: "The server returned an invalid response."
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

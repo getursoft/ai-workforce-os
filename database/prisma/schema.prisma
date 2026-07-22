@@ -227,6 +227,51 @@ enum ConnectorEventStatus {
   @@map("connector_event_status")
 }
 
+enum KnowledgeDocumentStatus {
+  UPLOADED
+  PROCESSING
+  INDEXED
+  FAILED
+
+  @@map("knowledge_document_status")
+}
+
+enum ChannelProvider {
+  TWILIO
+
+  @@map("channel_provider")
+}
+
+enum ChannelType {
+  WHATSAPP
+
+  @@map("channel_type")
+}
+
+enum ChannelConnectionStatus {
+  DRAFT
+  ACTIVE
+  DISABLED
+
+  @@map("channel_connection_status")
+}
+
+enum ChannelMessageDirection {
+  INBOUND
+  OUTBOUND
+
+  @@map("channel_message_direction")
+}
+
+enum ChannelMessageStatus {
+  RECEIVED
+  PROCESSING
+  SENT
+  FAILED
+
+  @@map("channel_message_status")
+}
+
 model Organization {
   id                     String                  @id @default(uuid()) @db.Uuid
   name                   String                  @db.VarChar(120)
@@ -252,6 +297,11 @@ model Organization {
   connectorEvents        ConnectorEvent[]
   connectorAuditEvents   ConnectorAuditEvent[]
   dummyCrmLeads          DummyCrmLead[]
+  knowledgeDocuments     KnowledgeDocument[]
+  knowledgeChunks        KnowledgeChunk[]
+  channelConnections     ChannelConnection[]
+  channelMessages        ChannelMessage[]
+  travelEmployeeConfigurations TravelEmployeeConfiguration[]
 
   @@map("organizations")
 }
@@ -298,11 +348,63 @@ model User {
   pluginAiConfigurationsUpdated PluginAiConfiguration[] @relation("PluginAiConfigurationUpdater")
   connectorInstallationsCreated ConnectorInstallation[] @relation("ConnectorInstallationCreator")
   connectorAuditEvents          ConnectorAuditEvent[]
+  knowledgeDocumentsUploaded    KnowledgeDocument[]     @relation("KnowledgeDocumentUploader")
+  channelConnectionsCreated     ChannelConnection[]     @relation("ChannelConnectionCreator")
+  travelEmployeeConfigurationsCreated TravelEmployeeConfiguration[] @relation("TravelEmployeeConfigurationCreator")
   deletedAt                     DateTime?               @map("deleted_at")
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@map("users")
+}
+
+model KnowledgeDocument {
+  id               String                  @id @default(uuid()) @db.Uuid
+  organizationId   String                  @map("organization_id") @db.Uuid
+  title            String                  @db.VarChar(200)
+  originalFilename String                  @map("original_filename") @db.VarChar(255)
+  mimeType         String                  @map("mime_type") @db.VarChar(160)
+  fileSizeBytes    Int                     @map("file_size_bytes")
+  storageKey       String?                 @map("storage_key") @db.VarChar(500)
+  extractedText    String?                 @map("extracted_text") @db.Text
+  status           KnowledgeDocumentStatus @default(UPLOADED)
+  processingError  String?                 @map("processing_error") @db.VarChar(500)
+  chunkCount       Int                     @default(0) @map("chunk_count")
+  uploadedByUserId String                  @map("uploaded_by_user_id") @db.Uuid
+  indexedAt        DateTime?               @map("indexed_at")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  deletedAt        DateTime?               @map("deleted_at")
+  organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy       User                    @relation("KnowledgeDocumentUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  chunks           KnowledgeChunk[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, deletedAt])
+  @@map("knowledge_documents")
+}
+
+model KnowledgeChunk {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  documentId     String            @map("document_id") @db.Uuid
+  chunkIndex     Int               @map("chunk_index")
+  content        String            @db.Text
+  tokenCount     Int               @map("token_count")
+  pageNumber     Int?              @map("page_number")
+  sectionTitle   String?           @map("section_title") @db.VarChar(255)
+  embeddingJson  Json?             @map("embedding_json")
+  embeddingModel String?           @map("embedding_model") @db.VarChar(160)
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document       KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([organizationId, documentId])
+  @@index([organizationId, createdAt])
+  @@map("knowledge_chunks")
 }
 
 model Plugin {
@@ -337,6 +439,8 @@ model Plugin {
   agentExecutions     AgentExecution[]
   agentMemories       AgentMemory[]
   aiConfiguration     PluginAiConfiguration?
+  channelConnections  ChannelConnection[]
+  travelEmployeeConfiguration TravelEmployeeConfiguration?
 
   @@index([organizationId, slug])
   @@index([organizationId])
@@ -346,25 +450,30 @@ model Plugin {
 }
 
 model Conversation {
-  id                   String                @id @default(uuid()) @db.Uuid
-  organizationId       String                @map("organization_id") @db.Uuid
-  pluginInstallationId String                @map("plugin_installation_id") @db.Uuid
-  createdByUserId      String                @map("created_by_user_id") @db.Uuid
-  title                String                @db.VarChar(160)
-  status               ConversationStatus    @default(ACTIVE)
-  metadata             Json                  @default("{}")
-  createdAt            DateTime              @default(now()) @map("created_at")
-  updatedAt            DateTime              @updatedAt @map("updated_at")
-  deletedAt            DateTime?             @map("deleted_at")
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pluginInstallation   Plugin                @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
-  createdBy            User                  @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
-  messages             ConversationMessage[]
-  executions           AgentExecution[]
-  memories             AgentMemory[]
+  id                  String                @id @default(uuid()) @db.Uuid
+  organizationId      String                @map("organization_id") @db.Uuid
+  pluginInstallationId String               @map("plugin_installation_id") @db.Uuid
+  createdByUserId     String?               @map("created_by_user_id") @db.Uuid
+  channelConnectionId String?               @map("channel_connection_id") @db.Uuid
+  externalUserId      String?               @map("external_user_id") @db.VarChar(64)
+  title               String                @db.VarChar(160)
+  status              ConversationStatus    @default(ACTIVE)
+  metadata            Json                  @default("{}")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  deletedAt           DateTime?             @map("deleted_at")
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation  Plugin                @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  createdBy           User?                 @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  channelConnection   ChannelConnection?    @relation(fields: [channelConnectionId], references: [id], onDelete: Cascade)
+  messages            ConversationMessage[]
+  executions          AgentExecution[]
+  memories            AgentMemory[]
+  channelMessages     ChannelMessage[]
 
   @@index([organizationId, status, updatedAt])
   @@index([organizationId, pluginInstallationId])
+  @@index([organizationId, channelConnectionId, externalUserId, status])
   @@map("conversations")
 }
 
@@ -393,7 +502,7 @@ model AgentExecution {
   organizationId       String               @map("organization_id") @db.Uuid
   conversationId       String               @map("conversation_id") @db.Uuid
   pluginInstallationId String               @map("plugin_installation_id") @db.Uuid
-  userId               String               @map("user_id") @db.Uuid
+  userId               String?              @map("user_id") @db.Uuid
   status               AgentExecutionStatus @default(QUEUED)
   modelProvider        String?              @map("model_provider") @db.VarChar(80)
   model                String?              @db.VarChar(120)
@@ -413,7 +522,7 @@ model AgentExecution {
   organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   pluginInstallation   Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
-  user                 User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user                 User?                @relation(fields: [userId], references: [id], onDelete: Restrict)
   toolExecutions       AgentToolExecution[]
 
   @@index([organizationId, createdAt])
@@ -865,4 +974,92 @@ model DummyCrmLead {
   @@index([organizationId, createdAt])
   @@index([connectorInstallationId])
   @@map("dummy_crm_leads")
+}
+
+model ChannelConnection {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  organizationId       String                  @map("organization_id") @db.Uuid
+  pluginInstallationId String                  @map("plugin_installation_id") @db.Uuid
+  name                 String                  @db.VarChar(160)
+  provider             ChannelProvider
+  channelType          ChannelType             @map("channel_type")
+  status               ChannelConnectionStatus @default(DRAFT)
+  configuration        Json                    @default("{}")
+  encryptedSecrets     Json                    @map("encrypted_secrets")
+  secretMetadata       Json                    @default("{}") @map("secret_metadata")
+  lastTestedAt         DateTime?               @map("last_tested_at")
+  lastTestStatus       String?                 @map("last_test_status") @db.VarChar(32)
+  lastErrorCode        String?                 @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage     String?                 @map("last_error_message") @db.VarChar(500)
+  createdByUserId      String                  @map("created_by_user_id") @db.Uuid
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+  deletedAt            DateTime?               @map("deleted_at")
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin                  @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  createdBy            User                    @relation("ChannelConnectionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  conversations        Conversation[]
+  messages             ChannelMessage[]
+
+  @@index([organizationId, status, deletedAt])
+  @@index([organizationId, provider, channelType])
+  @@map("channel_connections")
+}
+
+model ChannelMessage {
+  id                  String                  @id @default(uuid()) @db.Uuid
+  organizationId      String                  @map("organization_id") @db.Uuid
+  channelConnectionId String                  @map("channel_connection_id") @db.Uuid
+  conversationId      String?                 @map("conversation_id") @db.Uuid
+  agentExecutionId    String?                 @map("agent_execution_id") @db.Uuid
+  provider            ChannelProvider
+  direction           ChannelMessageDirection
+  status              ChannelMessageStatus    @default(RECEIVED)
+  providerMessageSid  String?                 @map("provider_message_sid") @db.VarChar(100)
+  fromAddress         String                  @map("from_address") @db.VarChar(64)
+  toAddress           String                  @map("to_address") @db.VarChar(64)
+  body                String?                 @db.Text
+  mediaMetadata       Json                    @default("[]") @map("media_metadata")
+  errorCode           String?                 @map("error_code") @db.VarChar(100)
+  errorMessage        String?                 @map("error_message") @db.VarChar(500)
+  processingAttempts  Int                     @default(0) @map("processing_attempts")
+  nextAttemptAt       DateTime?               @map("next_attempt_at")
+  receivedAt          DateTime?               @map("received_at")
+  sentAt              DateTime?               @map("sent_at")
+  createdAt           DateTime                @default(now()) @map("created_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelConnection   ChannelConnection       @relation(fields: [channelConnectionId], references: [id], onDelete: Cascade)
+  conversation        Conversation?           @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@unique([channelConnectionId, providerMessageSid])
+  @@index([organizationId, channelConnectionId, createdAt])
+  @@index([organizationId, status])
+  @@index([conversationId])
+  @@index([status, nextAttemptAt])
+  @@map("channel_messages")
+}
+
+model TravelEmployeeConfiguration {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  pluginInstallationId   String    @unique @map("plugin_installation_id") @db.Uuid
+  persona                String    @default("") @db.VarChar(2000)
+  welcomeMessage         String    @default("Hi! I'm your AI travel assistant. Where would you like to travel to?") @map("welcome_message") @db.VarChar(1000)
+  businessHoursTimezone  String?   @map("business_hours_timezone") @db.VarChar(64)
+  businessHoursStart     String?   @map("business_hours_start") @db.VarChar(5)
+  businessHoursEnd       String?   @map("business_hours_end") @db.VarChar(5)
+  escalationContact      String    @default("") @map("escalation_contact") @db.VarChar(255)
+  brandTone              String    @default("FRIENDLY") @map("brand_tone") @db.VarChar(40)
+  defaultCurrency        String    @default("USD") @map("default_currency") @db.VarChar(3)
+  defaultLanguage        String    @default("en") @map("default_language") @db.VarChar(10)
+  createdByUserId        String?   @map("created_by_user_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation     Plugin       @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  createdBy               User?       @relation("TravelEmployeeConfigurationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@map("travel_employee_configurations")
 }

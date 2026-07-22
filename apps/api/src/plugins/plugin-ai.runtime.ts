@@ -12,9 +12,11 @@ import { withTimeout } from "../agents/agent.runtime";
 export interface ProviderSettings {
   providerType: "DETERMINISTIC" | "OPENAI_COMPATIBLE" | "AZURE_OPENAI";
   model?: string;
+  embeddingModel?: string;
   baseUrl?: string;
   endpoint?: string;
   deploymentName?: string;
+  embeddingDeployment?: string;
   apiVersion?: string;
   timeoutMs: number;
 }
@@ -346,10 +348,20 @@ export class SafeHttpTool {
         current = new URL(location, current);
         continue;
       }
+      const contentType = (response.headers.get("content-type") ?? "text/plain")
+        .split(";")[0]
+        ?.trim()
+        .toLowerCase();
+      if (
+        !contentType ||
+        (!contentType.endsWith("+json") &&
+          contentType !== "application/json" &&
+          !contentType.startsWith("text/"))
+      )
+        throw new Error("HTTP_CONTENT_TYPE_BLOCKED");
       const buffer = new Uint8Array(await response.arrayBuffer());
       if (buffer.byteLength > 256_000) throw new Error("HTTP_RESPONSE_TOO_LARGE");
-      const text = new TextDecoder().decode(buffer),
-        contentType = response.headers.get("content-type") ?? "text/plain";
+      const text = new TextDecoder().decode(buffer);
       let body: unknown = text;
       if (contentType.includes("json"))
         try {

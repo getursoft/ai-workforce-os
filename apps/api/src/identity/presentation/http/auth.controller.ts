@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Inject,
-  Post,
-  Req,
-  Res,
-  UseGuards
-} from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
 import {
   GET_CURRENT_USER,
   type GetCurrentUserHandler
@@ -25,7 +15,10 @@ import {
 } from "../../application/handlers/register-organization";
 import { IdentityApplicationError } from "../../application/errors/identity.error";
 import type { AuthenticatedPrincipal } from "../../application/ports/authenticated-principal";
-import { SECURITY_CONFIG, type SecurityConfig } from "../../infrastructure/security/security-config";
+import {
+  SECURITY_CONFIG,
+  type SecurityConfig
+} from "../../infrastructure/security/security-config";
 import { LoginDto, RefreshTokenDto, RegisterOrganizationDto } from "./auth.dto";
 import {
   clearRefreshTokenCookie,

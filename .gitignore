@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
+!.env.test.example
+!apps/dashboard/.env.production.example
 .next
 .prisma
 .pnpm-store
@@ -12,3 +15,4 @@ dist
 node_modules
 tsconfig*.tsbuildinfo
 .aider*
+storage/

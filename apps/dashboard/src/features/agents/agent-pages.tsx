@@ -3,25 +3,59 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccessGate } from "../admin/authorization";
+import { AccessGate, Can } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
 import { Alert, Badge, Button, Card, EmptyState, Input, Skeleton } from "../../components/ui";
 import { ApiError } from "../../lib/api-error";
 import { createAgentApi, type AgentEmployee } from "./agent-api";
+import { createPluginApi } from "../plugins/plugin-api";
+import { parseTravelRecommendation, type ParsedItinerary } from "./itinerary";
 
 function useApi() {
   const { client } = useAuth();
   return useMemo(() => createAgentApi(client), [client]);
 }
+function usePluginApi() {
+  const { client } = useAuth();
+  return useMemo(() => createPluginApi(client), [client]);
+}
 export function EmployeesPage() {
   const api = useApi(),
+    plugins = usePluginApi(),
     search = useSearchParams(),
     qc = useQueryClient();
   const q = useQuery({ queryKey: ["agents"], queryFn: api.employees });
+  const available = useQuery({ queryKey: ["agents", "available"], queryFn: plugins.available });
+  const uninstalled = available.data?.items.filter((item) => !item.installed) ?? [];
+  const install = useMutation({
+    mutationFn: (pluginId: string) => {
+      const manifest = available.data?.items.find((item) => item.id === pluginId);
+      return plugins.install({
+        pluginId,
+        grantedPermissions: manifest?.permissions ?? [],
+        enable: true,
+        configuration: { config: {}, secrets: {} }
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["agents"] });
+    }
+  });
   const [selected, setSelected] = useState<AgentEmployee | null>(null),
     [conversationId, setConversationId] = useState<string | undefined>(),
     [messages, setMessages] = useState<
-      Array<{ role: "USER" | "ASSISTANT"; content: string; executionId?: string }>
+      Array<{
+        role: "USER" | "ASSISTANT";
+        content: string;
+        executionId?: string;
+        sources?: Array<{
+          documentId: string;
+          title: string;
+          pageNumber: number | null;
+          chunkIndex: number;
+          score: number;
+        }>;
+      }>
     >([]);
   const requested = search.get("plugin");
   const employee = selected ?? q.data?.find((item) => item.id === requested) ?? null;
@@ -31,7 +65,12 @@ export function EmployeesPage() {
       setConversationId(result.conversationId);
       setMessages((current) => [
         ...current,
-        { role: "ASSISTANT", content: result.response, executionId: result.executionId }
+        {
+          role: "ASSISTANT",
+          content: result.response,
+          executionId: result.executionId,
+          sources: result.sources
+        }
       ]);
       void qc.invalidateQueries({ queryKey: ["conversations"] });
       void qc.invalidateQueries({ queryKey: ["executions"] });
@@ -78,28 +117,91 @@ export function EmployeesPage() {
                 <Button onClick={() => setSelected(item)} aria-label={`Run ${item.displayName}`}>
                   Run
                 </Button>
+                {item.slug === "travel-employee" ? (
+                  <Link href={`/travel-employee`} aria-label={`Configure ${item.displayName}`}>
+                    Configure
+                  </Link>
+                ) : null}
               </Card>
             ))}
           </div>
-        ) : (
+        ) : !uninstalled.length ? (
           <EmptyState
             title="No enabled AI employees"
-            description="Enable an installed plugin before running it."
+            description="Create your first AI Employee by installing one below, then enable it."
           />
-        )}
+        ) : null}
+        {uninstalled.length ? (
+          <Card>
+            <h2>Available AI Employees</h2>
+            <p>Install a built-in AI employee to get started.</p>
+            <div className="admin-grid">
+              {uninstalled.map((manifest) => (
+                <Card key={manifest.id}>
+                  <h3>{manifest.displayName}</h3>
+                  <p>{manifest.description}</p>
+                  <Badge>{manifest.version}</Badge>
+                  <Can permission="plugin.install">
+                    <Button
+                      loading={install.isPending && install.variables === manifest.id}
+                      disabled={install.isPending}
+                      onClick={() => install.mutate(manifest.id)}
+                      aria-label={`Install ${manifest.displayName}`}
+                    >
+                      Install
+                    </Button>
+                  </Can>
+                </Card>
+              ))}
+            </div>
+            {install.isError ? (
+              <Alert tone="danger" title="Installation failed">
+                {agentRunErrorMessage(install.error)}
+              </Alert>
+            ) : null}
+          </Card>
+        ) : null}
         {employee ? (
           <Card>
             <h2>Chat with {employee.displayName}</h2>
-            <div aria-live="polite">
-              {messages.map((message, index) => (
-                <article key={`${message.role}-${index}`}>
-                  <strong>{message.role === "USER" ? "You" : employee.displayName}</strong>
-                  <p>{message.content}</p>
-                  {message.executionId ? (
-                    <Link href={`/execution-history/${message.executionId}`}>View execution</Link>
-                  ) : null}
-                </article>
-              ))}
+            <div className="chat-thread" aria-live="polite">
+              {messages.map((message, index) => {
+                const isUser = message.role === "USER";
+                const itinerary = isUser ? null : parseTravelRecommendation(message.content);
+                return (
+                  <article
+                    key={`${message.role}-${index}`}
+                    className={`chat-bubble chat-bubble--${isUser ? "user" : "assistant"}`}
+                  >
+                    <span className="chat-bubble__author">{isUser ? "You" : employee.displayName}</span>
+                    {itinerary ? (
+                      <TravelItineraryCards itinerary={itinerary} />
+                    ) : (
+                      <p className="chat-bubble__text">{message.content}</p>
+                    )}
+                    {message.sources?.length ? (
+                      <aside aria-label="Sources">
+                        <strong>Sources</strong>
+                        <ul>
+                          {message.sources.map((source) => (
+                            <li key={`${source.documentId}-${source.chunkIndex}`}>
+                              {knowledgeSourceLabel(source)}
+                            </li>
+                          ))}
+                        </ul>
+                      </aside>
+                    ) : null}
+                    {message.executionId ? (
+                      <details className="chat-debug">
+                        <summary>Debug</summary>
+                        <div>
+                          <Link href={`/execution-history/${message.executionId}`}>View execution</Link>
+                        </div>
+                      </details>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
             {run.isError ? (
               <Alert tone="danger" title="Agent execution failed">
@@ -126,6 +228,51 @@ export function EmployeesPage() {
   );
 }
 
+function TravelItineraryCards({ itinerary }: { itinerary: ParsedItinerary }) {
+  return (
+    <div className="itinerary">
+      {itinerary.intro ? <p className="itinerary__intro">{itinerary.intro}</p> : null}
+      <div className="itinerary-grid">
+        {itinerary.flights.length ? (
+          <Card className="itinerary-card">
+            <h4>Flights</h4>
+            <ul>
+              {itinerary.flights.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
+        {itinerary.hotels.length ? (
+          <Card className="itinerary-card">
+            <h4>Hotels</h4>
+            <ul>
+              {itinerary.hotels.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
+      </div>
+      {itinerary.itineraryDays.length ? (
+        <Card className="itinerary-card itinerary-card--days">
+          <h4>Day-by-day</h4>
+          <ul>
+            {itinerary.itineraryDays.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+      {itinerary.footer.map((line) => (
+        <p key={line} className="itinerary-footer">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function agentRunErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "The request could not be completed safely.";
   const messages: Record<string, string> = {
@@ -138,6 +285,16 @@ export function agentRunErrorMessage(error: unknown): string {
     AGENT_EXECUTION_FAILED: "The agent execution could not be completed safely."
   };
   return messages[error.code] ?? "The request could not be completed safely.";
+}
+export function knowledgeSourceLabel(source: {
+  title: string;
+  pageNumber: number | null;
+  chunkIndex: number;
+  score: number;
+}): string {
+  return `${source.title} — ${
+    source.pageNumber ? `page ${source.pageNumber}` : `chunk ${source.chunkIndex + 1}`
+  } (${Math.round(source.score * 100)}% relevance)`;
 }
 export function ConversationsPage() {
   const api = useApi(),

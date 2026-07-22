@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
+import type { SecurityConfig } from "../identity/infrastructure/security/security-config";
 import { PluginAiService } from "./plugin-ai.service";
 import {
   DeterministicTravelProvider,
@@ -8,6 +9,8 @@ import {
   SafeHttpTool
 } from "./plugin-ai.runtime";
 import { PluginSecretsEncryptionService } from "./plugin.runtime";
+
+const developmentSecurity = { allowDevelopmentImplementations: true } as SecurityConfig;
 
 describe("PluginAiService persistence failures", () => {
   it("translates a missing Sprint 3.4 table into a stable safe error", async () => {
@@ -31,7 +34,8 @@ describe("PluginAiService persistence failures", () => {
     const service = new PluginAiService(
       prisma,
       new PluginSecretsEncryptionService(Buffer.alloc(32, 7)),
-      new SafeHttpTool()
+      new SafeHttpTool(),
+      developmentSecurity
     );
 
     await expect(
@@ -76,7 +80,12 @@ describe("PluginAiService persistence failures", () => {
       },
       pluginAiConfiguration: { findUnique }
     } as unknown as PrismaService;
-    const service = new PluginAiService(prisma, encryption, new SafeHttpTool());
+    const service = new PluginAiService(
+      prisma,
+      encryption,
+      new SafeHttpTool(),
+      developmentSecurity
+    );
 
     const openAi = await service.resolveProvider("organization-1", "plugin-installation-1");
     expect(openAi.provider).toBeInstanceOf(OpenAiCompatibleProvider);
@@ -89,11 +98,34 @@ describe("PluginAiService persistence failures", () => {
       providerType: "DETERMINISTIC",
       configuration: { timeoutMs: 30000 }
     };
-    const deterministic = await service.resolveProvider(
-      "organization-1",
-      "plugin-installation-1"
-    );
+    const deterministic = await service.resolveProvider("organization-1", "plugin-installation-1");
     expect(deterministic.provider).toBeInstanceOf(DeterministicTravelProvider);
     expect(findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects deterministic providers outside development and test", async () => {
+    const encryption = new PluginSecretsEncryptionService(Buffer.alloc(32, 7));
+    const prisma = {
+      plugin: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "plugin-installation-1",
+          organizationId: "organization-1",
+          deletedAt: null
+        })
+      },
+      pluginAiConfiguration: {
+        findUnique: vi.fn().mockResolvedValue({
+          providerType: "DETERMINISTIC",
+          configuration: { timeoutMs: 1000 },
+          encryptedSecrets: encryption.encrypt({})
+        })
+      }
+    } as unknown as PrismaService;
+    const service = new PluginAiService(prisma, encryption, new SafeHttpTool(), {
+      allowDevelopmentImplementations: false
+    } as SecurityConfig);
+    await expect(
+      service.resolveProvider("organization-1", "plugin-installation-1")
+    ).rejects.toMatchObject({ code: "DEVELOPMENT_PROVIDER_NOT_ALLOWED" });
   });
 });

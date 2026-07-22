@@ -9,10 +9,7 @@ export const GET_ORGANIZATION = Symbol("GetOrganization");
 export class GetOrganizationHandler {
   private readonly organizationAccess: OrganizationAccessService;
 
-  constructor(
-    users: UserRepository,
-    organizations: OrganizationRepository
-  ) {
+  constructor(users: UserRepository, organizations: OrganizationRepository) {
     this.organizationAccess = new OrganizationAccessService(users, organizations);
   }
 

@@ -13,9 +13,7 @@ import { OrganizationSetting } from "../../domain/organization/organization-sett
 import { OrganizationSettingId } from "../../domain/organization/organization-setting-id";
 import { InvalidDomainValueError } from "../../domain/shared/domain.error";
 import { OrganizationAccessService } from "../services/organization-access";
-import {
-  assertOrganizationSettingsUpdate
-} from "../services/organization-update-policy";
+import { assertOrganizationSettingsUpdate } from "../services/organization-update-policy";
 
 export interface UpdateOrganizationSettingsCommand {
   timezone?: string;

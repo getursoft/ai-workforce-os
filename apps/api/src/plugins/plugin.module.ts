@@ -31,10 +31,10 @@ import {
     PluginEventBus,
     {
       provide: PluginDiscovery,
-      inject: [ManifestValidator],
-      useFactory: (validator: ManifestValidator) =>
+      inject: [ManifestValidator, SECURITY_CONFIG],
+      useFactory: (validator: ManifestValidator, config: SecurityConfig) =>
         new PluginDiscovery(
-          process.env.PLUGIN_DIRECTORY?.trim() || resolve(__dirname, "../../../../plugins"),
+          config.pluginDirectory || resolve(__dirname, "../../../../plugins"),
           validator
         )
     },

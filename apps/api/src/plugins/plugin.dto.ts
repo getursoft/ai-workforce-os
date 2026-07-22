@@ -57,12 +57,14 @@ export class PluginAiSecretsDto {
 export class UpdatePluginAiConfigurationDto {
   @IsOptional() @IsEnum(PluginAiProviderType) providerType?: PluginAiProviderType;
   @IsOptional() @IsString() @MaxLength(200) model?: string;
+  @IsOptional() @IsString() @MaxLength(200) embeddingModel?: string;
   @IsOptional() @IsUrl({ require_protocol: true }) @MaxLength(1000) baseUrl?: string;
   @IsOptional()
   @IsUrl({ protocols: ["https"], require_protocol: true })
   @MaxLength(1000)
   endpoint?: string;
   @IsOptional() @IsString() @MaxLength(200) deploymentName?: string;
+  @IsOptional() @IsString() @MaxLength(200) embeddingDeployment?: string;
   @IsOptional() @IsString() @MaxLength(100) apiVersion?: string;
   @IsOptional() @IsInt() @Min(1000) @Max(120000) timeoutMs?: number;
   @IsOptional()

@@ -70,7 +70,12 @@ export class OrganizationSetting {
   static reconstruct(properties: ReconstructedOrganizationSetting): OrganizationSetting {
     const createdAt = requireValidDate(properties.createdAt, "createdAt");
     const updatedAt = requireValidDate(properties.updatedAt, "updatedAt");
-    assertChronology("OrganizationSetting", createdAt, updatedAt, "updatedAt cannot precede createdAt");
+    assertChronology(
+      "OrganizationSetting",
+      createdAt,
+      updatedAt,
+      "updatedAt cannot precede createdAt"
+    );
     return new OrganizationSetting(
       properties.id,
       properties.organizationId,

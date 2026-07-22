@@ -41,8 +41,6 @@ export function ConnectorsPage() {
       api.install({
         connectorKey: definition.key,
         displayName: definition.name,
-        configuration: definition.key === "generic-http" ? { baseUrl: "https://example.com" } : {},
-        credentials: {},
         grantedCapabilities: definition.capabilities
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key })
@@ -339,6 +337,7 @@ function CredentialsCard({
   save(value: Record<string, string>): void;
 }) {
   const [token, setToken] = useState("");
+  const credentialKey = item.connector.key === "hubspot-crm" ? "privateAppToken" : "token";
   return (
     <Card>
       <h2>Credentials</h2>
@@ -347,7 +346,9 @@ function CredentialsCard({
           ? "Credentials configured"
           : "No credentials configured"}
       </p>
-      <Label htmlFor="connector-token">New token</Label>
+      <Label htmlFor="connector-token">
+        {item.connector.key === "hubspot-crm" ? "New HubSpot private-app token" : "New token"}
+      </Label>
       <Input
         id="connector-token"
         type="password"
@@ -357,7 +358,7 @@ function CredentialsCard({
       <Button
         disabled={!token.trim()}
         onClick={() => {
-          save({ token });
+          save({ [credentialKey]: token });
           setToken("");
         }}
       >

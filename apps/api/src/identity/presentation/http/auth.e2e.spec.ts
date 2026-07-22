@@ -7,7 +7,10 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../../../app.module";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
-import { SECURITY_CONFIG, type SecurityConfig } from "../../infrastructure/security/security-config";
+import {
+  SECURITY_CONFIG,
+  type SecurityConfig
+} from "../../infrastructure/security/security-config";
 import { ApiExceptionFilter } from "./api-exception.filter";
 
 for (const candidate of [
@@ -178,7 +181,10 @@ suite("Identity HTTP API", () => {
       .send({ email: registration.email, password: registration.password })
       .expect(200);
     const logoutTokens = (logoutLogin.body as AuthenticationEnvelope).data.tokens;
-    await agent.post("/api/v1/auth/logout").send({}).expect(200, { data: { success: true } });
+    await agent
+      .post("/api/v1/auth/logout")
+      .send({})
+      .expect(200, { data: { success: true } });
     await request(app.getHttpServer())
       .post("/api/v1/auth/logout")
       .send({ refreshToken: logoutTokens.refreshToken })
@@ -270,14 +276,14 @@ suite("Identity HTTP API", () => {
       .set("authorization", `Bearer ${accessToken}`)
       .expect(200);
     expect(currentOrganization.body).toMatchObject({
-        data: {
-          organization: {
-            name: "Widget Systems",
-            slug: organizationSlug,
-            status: "ACTIVE"
-          }
+      data: {
+        organization: {
+          name: "Widget Systems",
+          slug: organizationSlug,
+          status: "ACTIVE"
         }
-      });
+      }
+    });
 
     const defaultSettings = await agent
       .get("/api/v1/organizations/me/settings")
@@ -306,7 +312,7 @@ suite("Identity HTTP API", () => {
           status: "ACTIVE"
         }
       }
-      });
+    });
 
     const updatedSettings = await agent
       .patch("/api/v1/organizations/me/settings")

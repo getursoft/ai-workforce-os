@@ -45,8 +45,16 @@ suite("Service accounts and API keys", () => {
       .expect(201);
     token = r.body.data.tokens.accessToken;
     org = r.body.data.organization.id;
-    const teamRead=await prisma.permission.findUniqueOrThrow({where:{key:"TEAM_READ"}});
-    memberRole=(await prisma.role.create({data:{organizationId:org,name:"Machine Team Reader",permissions:{create:{permissionId:teamRead.id}}}})).id;
+    const teamRead = await prisma.permission.findUniqueOrThrow({ where: { key: "TEAM_READ" } });
+    memberRole = (
+      await prisma.role.create({
+        data: {
+          organizationId: org,
+          name: "Machine Team Reader",
+          permissions: { create: { permissionId: teamRead.id } }
+        }
+      })
+    ).id;
   });
   afterAll(async () => {
     if (prisma) await clean(prisma);

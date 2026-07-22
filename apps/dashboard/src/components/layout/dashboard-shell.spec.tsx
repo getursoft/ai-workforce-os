@@ -38,6 +38,7 @@ vi.mock("../../features/admin/authorization", () => ({
       "agents.run",
       "agents.conversations.read",
       "agents.executions.read",
+      "knowledge.read",
       "users.read",
       "roles.read",
       "invitations.read"
@@ -56,6 +57,7 @@ describe("DashboardShell", () => {
     expect(html).toContain("Krishna Pandey");
     expect(html).toContain("Dashboard");
     expect(html).toContain("AI Employees");
+    expect(html).toContain("Knowledge Base");
     expect(html).toContain("Settings");
   });
 

@@ -64,9 +64,11 @@ export interface PluginAiConfiguration {
   providerType: AiProviderType | null;
   configuration: {
     model?: string;
+    embeddingModel?: string;
     baseUrl?: string;
     endpoint?: string;
     deploymentName?: string;
+    embeddingDeployment?: string;
     apiVersion?: string;
     timeoutMs?: number;
   };

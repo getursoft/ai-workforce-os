@@ -5,9 +5,10 @@ import { PluginModule } from "../plugins/plugin.module";
 import { ConnectorModule } from "../connectors/connector.module";
 import { AgentController } from "./agent.controller";
 import { AgentService, MemoryService } from "./agent.service";
+import { KnowledgeModule } from "../knowledge/knowledge.module";
 
 @Module({
-  imports: [PrismaModule, IdentityModule, PluginModule, ConnectorModule],
+  imports: [PrismaModule, IdentityModule, PluginModule, ConnectorModule, KnowledgeModule],
   controllers: [AgentController],
   providers: [MemoryService, AgentService],
   exports: [AgentService, MemoryService]

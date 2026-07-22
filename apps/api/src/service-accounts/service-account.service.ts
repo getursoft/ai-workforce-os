@@ -320,10 +320,14 @@ export class ServiceAccountService {
     };
   }
   private async roles(org: string, ids: string[]) {
-    const roles=await this.prisma.role.findMany({where:{id:{in:ids},organizationId:org},select:{id:true,name:true,isSystem:true}});
+    const roles = await this.prisma.role.findMany({
+      where: { id: { in: ids }, organizationId: org },
+      select: { id: true, name: true, isSystem: true }
+    });
     if (
       new Set(ids).size !== ids.length ||
-      roles.length !== ids.length || roles.some(role=>role.isSystem&&["Owner","Admin"].includes(role.name))
+      roles.length !== ids.length ||
+      roles.some((role) => role.isSystem && ["Owner", "Admin"].includes(role.name))
     )
       throw new BadRequestException("One or more roles are invalid");
   }

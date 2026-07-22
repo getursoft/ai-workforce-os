@@ -1,6 +1,7 @@
 import type { ApiClient } from "../../lib/api-client";
 export interface AgentEmployee {
   id: string;
+  slug: string;
   displayName: string;
   description: string;
   version: string;
@@ -22,6 +23,13 @@ export interface AgentRunResult {
     totalTokens: number;
     estimatedCost: number | null;
   };
+  sources: Array<{
+    documentId: string;
+    title: string;
+    pageNumber: number | null;
+    chunkIndex: number;
+    score: number;
+  }>;
 }
 export interface Conversation {
   id: string;

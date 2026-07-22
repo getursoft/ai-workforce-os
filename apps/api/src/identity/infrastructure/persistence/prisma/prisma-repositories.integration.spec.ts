@@ -60,7 +60,10 @@ function organization(slug: string): Organization {
   );
 }
 
-function organizationSetting(organizationId: Organization["id"], timezone = "UTC"): OrganizationSetting {
+function organizationSetting(
+  organizationId: Organization["id"],
+  timezone = "UTC"
+): OrganizationSetting {
   return OrganizationSetting.create({
     id: OrganizationSettingId.from(identifiers.generate()),
     organizationId,

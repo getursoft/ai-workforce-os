@@ -5,6 +5,7 @@ import { loadSecurityConfig } from "./security-config";
 function validEnvironment(): Record<string, string | undefined> {
   return {
     NODE_ENV: "test",
+    DATABASE_URL: "postgresql://user:password@localhost:5432/ai_workforce_os_test?schema=public",
     WEB_APP_URL: "http://localhost:3000",
     JWT_ACCESS_SECRET: "jwt-test-secret-with-more-than-thirty-two-bytes",
     JWT_ACCESS_EXPIRES_IN_SECONDS: "900",
@@ -28,6 +29,7 @@ describe("loadSecurityConfig", () => {
     const config = loadSecurityConfig(validEnvironment());
 
     expect(config.nodeEnvironment).toBe("test");
+    expect(config.allowDevelopmentImplementations).toBe(true);
     expect(config.webAppUrl).toBe("http://localhost:3000");
     expect(config.accessToken.expiresInSeconds).toBe(900);
     expect(config.refreshToken.expiresInSeconds).toBe(2_592_000);
@@ -111,6 +113,37 @@ describe("loadSecurityConfig", () => {
       expect(error).toBeInstanceOf(InvalidSecurityConfigurationError);
       expect((error as Error).message).not.toContain(secret);
     }
+  });
+
+  it("fails closed for unsafe production configuration", () => {
+    const environment = validEnvironment();
+    environment.APP_ENV = "production";
+    environment.NODE_ENV = "production";
+    environment.DATABASE_URL =
+      "postgresql://user:password@localhost:5432/ai_workforce_os_test?schema=public";
+    environment.WEB_APP_URL = "http://localhost:3000";
+    environment.COOKIE_SECURE = "false";
+    environment.ALLOW_DEVELOPMENT_IMPLEMENTATIONS = "true";
+    expect(() => loadSecurityConfig(environment)).toThrow(InvalidSecurityConfigurationError);
+  });
+
+  it("accepts staging with secure non-development settings", () => {
+    const environment = validEnvironment();
+    environment.APP_ENV = "staging";
+    environment.NODE_ENV = "production";
+    environment.DATABASE_URL =
+      "postgresql://user:password@db.internal:5432/ai_workforce_os?schema=public";
+    environment.WEB_APP_URL = "https://staging.example.invalid";
+    environment.API_PUBLIC_URL = "https://api.staging.example.invalid";
+    environment.JWT_ACCESS_SECRET = "staging-random-jwt-material-with-more-than-thirty-two-bytes";
+    environment.REFRESH_TOKEN_PEPPER =
+      "staging-random-refresh-material-with-more-than-thirty-two-bytes";
+    environment.API_KEY_PEPPER = "staging-random-api-key-material-with-more-than-thirty-two-bytes";
+    environment.COOKIE_SECURE = "true";
+    environment.ALLOW_DEVELOPMENT_IMPLEMENTATIONS = "false";
+    const config = loadSecurityConfig(environment);
+    expect(config.nodeEnvironment).toBe("staging");
+    expect(config.allowDevelopmentImplementations).toBe(false);
   });
 
   it.each([undefined, "not-canonical-base64", Buffer.alloc(31).toString("base64")])(

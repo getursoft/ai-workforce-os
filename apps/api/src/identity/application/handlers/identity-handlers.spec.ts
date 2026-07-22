@@ -306,11 +306,7 @@ function harness() {
     logout: new LogoutHandler(repos.sessions, unitOfWork, refreshTokens, clock),
     current: new GetCurrentUserHandler(repos.users, repos.organizations),
     getOrganization: new GetOrganizationHandler(repos.users, repos.organizations),
-    updateOrganization: new UpdateOrganizationHandler(
-      repos.users,
-      repos.organizations,
-      unitOfWork
-    ),
+    updateOrganization: new UpdateOrganizationHandler(repos.users, repos.organizations, unitOfWork),
     getOrganizationSettings: new GetOrganizationSettingsHandler(
       repos.users,
       repos.organizations,
@@ -616,9 +612,9 @@ describe("identity application handlers", () => {
       sessionId: session.id
     };
 
-    await expect(context.updateOrganization.execute(principal, { name: "ab" })).rejects.toMatchObject(
-      { code: "VALIDATION_ERROR" }
-    );
+    await expect(
+      context.updateOrganization.execute(principal, { name: "ab" })
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(
       context.updateOrganizationSettings.execute(principal, {
         timezone: "Invalid/Zone"

@@ -74,8 +74,8 @@ export function createConnectorApi(client: ApiClient) {
     install: (body: {
       connectorKey: string;
       displayName: string;
-      configuration: Record<string, unknown>;
-      credentials: Record<string, string>;
+      configuration?: Record<string, unknown>;
+      credentials?: Record<string, string>;
       grantedCapabilities: string[];
     }) =>
       client.request<ConnectorInstallation>("/connector-installations", {

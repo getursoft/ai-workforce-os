@@ -52,7 +52,21 @@ export const DEFAULT_PERMISSIONS = {
     "connector.remove",
     "connector.audit.read",
     "connector.execution.read",
-    "connector.event.read"
+    "connector.event.read",
+    "knowledge.read",
+    "knowledge.upload",
+    "knowledge.delete",
+    "knowledge.reindex",
+    "knowledge.search",
+    "channel.read",
+    "channel.create",
+    "channel.update",
+    "channel.delete",
+    "channel.test",
+    "channel.message.read",
+    "travel.config.read",
+    "travel.config.update",
+    "travel.conversation.reset"
   ],
   Admin: [
     "users.read",
@@ -103,7 +117,21 @@ export const DEFAULT_PERMISSIONS = {
     "connector.remove",
     "connector.audit.read",
     "connector.execution.read",
-    "connector.event.read"
+    "connector.event.read",
+    "knowledge.read",
+    "knowledge.upload",
+    "knowledge.delete",
+    "knowledge.reindex",
+    "knowledge.search",
+    "channel.read",
+    "channel.create",
+    "channel.update",
+    "channel.delete",
+    "channel.test",
+    "channel.message.read",
+    "travel.config.read",
+    "travel.config.update",
+    "travel.conversation.reset"
   ],
   Manager: [
     "users.read",
@@ -132,7 +160,14 @@ export const DEFAULT_PERMISSIONS = {
     "connector.test",
     "connector.health",
     "connector.execution.read",
-    "connector.event.read"
+    "connector.event.read",
+    "knowledge.read",
+    "knowledge.search",
+    "channel.read",
+    "channel.test",
+    "channel.message.read",
+    "travel.config.read",
+    "travel.conversation.reset"
   ],
   Member: [
     "users.read",
@@ -144,9 +179,19 @@ export const DEFAULT_PERMISSIONS = {
     "agents.conversations.read",
     "agents.memory.read",
     "agents.memory.write",
-    "agents.tools.execute"
+    "agents.tools.execute",
+    "knowledge.read",
+    "knowledge.search"
   ],
-  Viewer: ["users.read", "TEAM_READ", "plugin.read", "connector.read"]
+  Viewer: [
+    "users.read",
+    "TEAM_READ",
+    "plugin.read",
+    "connector.read",
+    "knowledge.read",
+    "channel.read",
+    "travel.config.read"
+  ]
 } as const;
 
 const descriptions: Record<string, string> = {
@@ -198,7 +243,21 @@ const descriptions: Record<string, string> = {
   "connector.remove": "Archive connector installations",
   "connector.audit.read": "View connector audit history",
   "connector.execution.read": "View connector executions",
-  "connector.event.read": "View connector inbound events"
+  "connector.event.read": "View connector inbound events",
+  "knowledge.read": "View organization knowledge documents",
+  "knowledge.upload": "Upload and index knowledge documents",
+  "knowledge.delete": "Delete knowledge documents",
+  "knowledge.reindex": "Re-index knowledge documents",
+  "knowledge.search": "Search organization knowledge",
+  "channel.read": "View messaging channel connections and configuration",
+  "channel.create": "Create messaging channel connections",
+  "channel.update": "Update messaging channel configuration and credentials",
+  "channel.delete": "Archive messaging channel connections",
+  "channel.test": "Test and enable or disable messaging channel connections",
+  "channel.message.read": "View channel conversations and messages",
+  "travel.config.read": "View Travel Employee configuration",
+  "travel.config.update": "Update Travel Employee configuration",
+  "travel.conversation.reset": "Reset a Travel Employee conversation"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

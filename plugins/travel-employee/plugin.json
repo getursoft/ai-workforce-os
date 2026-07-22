@@ -1,0 +1,16 @@
+{
+  "id": "travel-employee",
+  "name": "Travel Employee",
+  "version": "1.0.0",
+  "displayName": "Travel Employee",
+  "description": "AI travel planning employee. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["travel.chat", "CRM"],
+  "tools": [
+    { "name": "travel.search_flights", "description": "Search placeholder flight options" },
+    { "name": "travel.search_hotels", "description": "Search placeholder hotel options" },
+    { "name": "travel.escalate", "description": "Escalate the conversation to a human team member" }
+  ]
+}

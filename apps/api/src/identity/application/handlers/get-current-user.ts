@@ -9,10 +9,7 @@ export const GET_CURRENT_USER = Symbol("GetCurrentUser");
 export class GetCurrentUserHandler {
   private readonly organizationAccess: OrganizationAccessService;
 
-  constructor(
-    users: UserRepository,
-    organizations: OrganizationRepository
-  ) {
+  constructor(users: UserRepository, organizations: OrganizationRepository) {
     this.organizationAccess = new OrganizationAccessService(users, organizations);
   }
 

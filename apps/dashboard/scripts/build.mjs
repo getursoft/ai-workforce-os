@@ -13,7 +13,7 @@ let exitCode = 0;
 
 try {
   writeFileSync(tsconfigPath, `${JSON.stringify(tsconfigForBuild, null, 2)}\n`);
-  rmSync(buildOutputPath, { force: true, recursive: true });
+  rmSync(buildOutputPath, { force: true, recursive: true, maxRetries: 5, retryDelay: 100 });
   const result = spawnSync(resolve(process.cwd(), "node_modules/.bin/next"), ["build"], {
     stdio: "inherit"
   });

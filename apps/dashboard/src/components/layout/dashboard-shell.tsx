@@ -15,7 +15,7 @@ const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[]
   { href: "/dashboard/tasks", label: "Tasks" },
   { href: "/conversations", label: "Conversations", permission: "agents.conversations.read" },
   { href: "/execution-history", label: "Execution History", permission: "agents.executions.read" },
-  { href: "/dashboard/knowledge", label: "Knowledge" },
+  { href: "/knowledge", label: "Knowledge Base", permission: "knowledge.read" },
   { href: "/dashboard/integrations", label: "Integrations" },
   { href: "/teams", label: "Teams", permission: "TEAM_READ" },
   { href: "/dashboard/organization", label: "Organization" },
@@ -23,6 +23,8 @@ const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[]
 ] as const;
 
 export const ADMIN_ITEMS = [
+  { href: "/travel-employee", label: "Travel Employee", permission: "travel.config.read" },
+  { href: "/channels", label: "Channels", permission: "channel.read" },
   { href: "/connectors", label: "Connectors", permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", permission: "plugin.read" },
   {
