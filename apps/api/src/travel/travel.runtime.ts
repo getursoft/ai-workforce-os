@@ -162,6 +162,7 @@ export type TravelPendingAction =
   | "SEARCH_OPTIONS"
   | "GENERATE_ITINERARY"
   | "MODIFY_HOTEL_BUDGET"
+  | "BOOK_FLIGHT"
   | null;
 
 /**
@@ -174,6 +175,7 @@ export type TravelPendingAction =
  */
 export type TravelPlanningAction =
   | "GENERATE_ITINERARY"
+  | "BOOK_FLIGHT"
   | "SEARCH_FLIGHTS"
   | "SEARCH_HOTELS"
   | "CALCULATE_BUDGET"
@@ -193,6 +195,11 @@ const ITINERARY_ACTION_PATTERN =
 // or calculate anything — only an actual ask/search framing should classify as one of these actions.
 const HOTEL_SEARCH_ACTION_PATTERN =
   /\b(search|show|find|see|check)\s+(?:me\s+)?(?:some\s+)?hotels?\b|\bhotels?\s+(?:options?|please)\b|\bwhich\s+hotels?\b|\bhotels?\s+(?:batao|dikhao)\b/i;
+// Deliberately distinct from FLIGHT_SEARCH_ACTION_PATTERN: "book" signals a definite go-ahead, not a
+// browse-the-options ask, and must handle Hinglish SOV phrasing ("flight book kar do") where the object
+// precedes the verb, not just English verb-first phrasing ("book the flight").
+const BOOK_FLIGHT_ACTION_PATTERN =
+  /\bbook\s+(?:the\s+|a\s+|my\s+|this\s+)?flights?\b|\bflights?\s+book\s+(?:kar\s*(?:do|dena|dijiye|dijiyega)|karo|kijiye|kijiyega)\b|\bbook\s+kar\s*(?:do|dena|dijiye|dijiyega)\s+(?:the\s+)?flights?\b|\bflight\s+booking\s+(?:kar\s*(?:do|dena)|karo)\b/i;
 const FLIGHT_SEARCH_ACTION_PATTERN =
   /\b(search|show|find|see|check)\s+(?:me\s+)?(?:some\s+)?flights?\b|\bflights?\s+(?:options?|please)\b|\bwhich\s+flights?\b|\bflights?\s+(?:batao|dikhao)\b/i;
 const BUDGET_ACTION_PATTERN =
@@ -241,6 +248,9 @@ export function detectCurrencyConversionRequest(text: string): { targetCurrency:
  */
 export function classifyPlanningAction(text: string): TravelPlanningAction {
   if (ITINERARY_ACTION_PATTERN.test(text)) return "GENERATE_ITINERARY";
+  // A booking go-ahead is a stronger, more definite intent than a browse/search ask — must be checked
+  // before the generic flight-search pattern so it is never miscategorized as a mere options request.
+  if (BOOK_FLIGHT_ACTION_PATTERN.test(text)) return "BOOK_FLIGHT";
   if (detectCurrencyConversionRequest(text)) return "CONVERT_ESTIMATE_CURRENCY";
   if (isHotelBudgetModificationRequest(text)) return null;
   if (HOTEL_SEARCH_ACTION_PATTERN.test(text)) return "SEARCH_HOTELS";
@@ -1615,6 +1625,28 @@ export function computePassengerState(entities: TravelEntities): TravelPassenger
 }
 
 /**
+ * Whether a fresh passenger-composition mention this turn is a single-field correction (PATCH — e.g. "1
+ * infant", "kids 2") or a full breakdown restatement (FULL_REPLACEMENT — e.g. "2 adults 1 kid"). This
+ * distinction matters because a lone corrected field should patch onto the existing candidate/entities,
+ * while two or more categories mentioned together is an unambiguous, complete new breakdown that must
+ * replace the whole candidate rather than keep a stale, unmentioned category from before. Only counts a
+ * category as "mentioned" when it's neither `null` nor `undefined` — extraction always fills an untouched
+ * field with `null`, never leaves it `undefined`.
+ */
+export type PassengerCorrectionMode = "PATCH" | "FULL_REPLACEMENT";
+
+export function detectPassengerCorrectionMode(extracted: {
+  adults?: number | null | undefined;
+  children?: number | null | undefined;
+  infants?: number | null | undefined;
+}): PassengerCorrectionMode {
+  const mentionedCount = [extracted.adults, extracted.children, extracted.infants].filter(
+    (value) => value !== null && value !== undefined
+  ).length;
+  return mentionedCount >= 2 ? "FULL_REPLACEMENT" : "PATCH";
+}
+
+/**
  * GENERATE_ITINERARY's only real requirements: destination, duration, and dates. Passenger composition may
  * personalize the plan but must never block it — budget and passenger state are deliberately excluded here.
  */
@@ -1624,6 +1656,21 @@ export function hasItineraryFields(entities: TravelEntities): boolean {
     (entities.days !== null || entities.nights !== null) &&
     Boolean(entities.travelMonth || entities.departureDate)
   );
+}
+
+/**
+ * BOOK_FLIGHT's own required-fields check — deliberately excludes budget. Booking a specific flight is a
+ * definite go-ahead, not a cost-planning exercise, so the collection flow must never fall back to asking
+ * for a budget amount while this is pending. Origin is checked separately (see `canEstimateFlights`), the
+ * same hard-blocker every other flight-dependent flow already uses.
+ */
+export function missingBookingFields(entities: TravelEntities): string[] {
+  const missing: string[] = [];
+  if (!entities.destinationCity) missing.push("destinationCity");
+  if (!entities.travelMonth && !entities.departureDate) missing.push("travelDates");
+  if (entities.days === null && entities.nights === null) missing.push("duration");
+  if (computePassengerState(entities) === "MISSING") missing.push("adults");
+  return missing;
 }
 
 export function computeMissingEntityFields(
@@ -2852,7 +2899,8 @@ const VALID_PENDING_ACTIONS: readonly Exclude<TravelPendingAction, null>[] = [
   "GENERATE_BUDGET_GUIDANCE",
   "SEARCH_OPTIONS",
   "GENERATE_ITINERARY",
-  "MODIFY_HOTEL_BUDGET"
+  "MODIFY_HOTEL_BUDGET",
+  "BOOK_FLIGHT"
 ];
 const VALID_RESPONSE_LANGUAGES: readonly TravelResponseLanguage[] = ["ENGLISH", "HINDI", "HINGLISH"];
 
@@ -3226,6 +3274,15 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       return this.tag("generate_itinerary", textResult(itinerary));
     }
 
+    // BOOK_FLIGHT: an explicit booking go-ahead ("flight book kar do") must persist across every
+    // clarification and collect only booking-required fields — never budget. See `continueBookFlightFlow`.
+    if (planningAction === "BOOK_FLIGHT") {
+      return this.tag(
+        "book_flight",
+        await this.continueBookFlightFlow(merged, feasibility, request.tools, changed, currentText, isFirstTurn)
+      );
+    }
+
     // CONVERT_ESTIMATE_CURRENCY: "give in INR" / "convert to rupees" converts the LAST STORED estimate
     // with one FX rate — this is never a request to state a new budget amount, and must run before any
     // budget-guidance/signal logic that would otherwise misread it as one.
@@ -3264,7 +3321,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       );
     }
     if (planningAction === "CALCULATE_BUDGET" && canEstimateFlights) {
-      this.pendingAction = null;
+      // A budget aside must never erase an in-progress booking — answer it, but leave BOOK_FLIGHT pending
+      // so the next turn's resume-check picks the booking flow back up instead of losing the intent.
+      if (this.pendingAction !== "BOOK_FLIGHT") this.pendingAction = null;
       if (missing.length > 0) {
         this.lastStage = stageForMissingEntityField(missing[0] ?? "");
         this.lastAskedField = missing[0] ?? null;
@@ -3302,6 +3361,12 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     if (this.pendingAction === "MODIFY_HOTEL_BUDGET" && readyToSearch && itineraryAlreadyPresented) {
       this.pendingAction = null;
       return this.tag("resume_hotel_modification", this.handleHotelBudgetModification(merged));
+    }
+    if (this.pendingAction === "BOOK_FLIGHT") {
+      return this.tag(
+        "resume_book_flight",
+        await this.continueBookFlightFlow(merged, feasibility, request.tools, changed, currentText, isFirstTurn)
+      );
     }
 
     // A deterministic, phrase-based budget-mode request ("you suggest your budget", "no budget") must
@@ -3553,6 +3618,27 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     const touchedComposition = extracted.adults != null || extracted.children != null || extracted.infants != null;
     if (!touchedComposition) return null;
 
+    const mode = detectPassengerCorrectionMode(extracted);
+
+    // FULL_REPLACEMENT: two or more categories mentioned together is an unambiguous, complete breakdown —
+    // any category not mentioned this turn becomes zero (never carried forward from a stale candidate or
+    // prior entities), and it commits immediately. There is nothing left to reconcile against a previously
+    // stated total: the traveler has just told us, definitively, what the new total is.
+    if (mode === "FULL_REPLACEMENT") {
+      const candidateAdults = extracted.adults ?? 0;
+      const candidateChildren = extracted.children ?? 0;
+      const candidateInfants = extracted.infants ?? 0;
+      this.pendingPassengerConflict = null;
+      extracted.adults = candidateAdults;
+      extracted.children = candidateChildren;
+      extracted.infants = candidateInfants;
+      extracted.totalTravellers = candidateAdults + candidateChildren + candidateInfants;
+      return null;
+    }
+
+    // PATCH: exactly one category mentioned — patch just that field onto the existing candidate/entities
+    // and re-check against any previously stated total, since a single-field correction alone doesn't tell
+    // us whether the rest of the breakdown still adds up.
     const pending = this.pendingPassengerConflict;
     const candidateAdults = extracted.adults ?? pending?.candidateAdults ?? this.lastEntities.adults;
     const candidateChildren = extracted.children ?? pending?.candidateChildren ?? this.lastEntities.children;
@@ -3583,6 +3669,48 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     extracted.infants = candidateInfants ?? null;
     extracted.totalTravellers = newTotal;
     return null;
+  }
+
+  /**
+   * BOOK_FLIGHT's collection/resume logic, shared by the fresh-classification branch and the pending-action
+   * resume-check: booking intent must survive every clarification (city confirmation, passenger conflict,
+   * an intervening budget aside), and must only ever collect booking-required fields — never budget. Once
+   * ready, "book it" is itself explicit authorization to search, so this hands off directly rather than
+   * parking a SEARCH_OPTIONS offer first.
+   */
+  private async continueBookFlightFlow(
+    merged: TravelEntities,
+    feasibility: BudgetFeasibilityResult | null,
+    tools: readonly AiToolDefinition[] | undefined,
+    changed: string[],
+    currentText: string,
+    isFirstTurn: boolean
+  ): Promise<AiCompletionResult> {
+    this.pendingAction = "BOOK_FLIGHT";
+    const canEstimateFlights = validateBudgetEstimateInputs(merged).canEstimateFlights;
+    if (!canEstimateFlights) {
+      this.lastStage = "ASK_MISSING_INFO";
+      this.lastWorkflowPhase = "COLLECTING_DETAILS";
+      this.lastAskedField = "originCity";
+      return textResult(buildOriginRequiredMessage(this.responseLanguage));
+    }
+    const missingForBooking = missingBookingFields(merged);
+    if (missingForBooking.length > 0) {
+      this.lastStage = stageForMissingEntityField(missingForBooking[0] ?? "");
+      this.lastWorkflowPhase = "COLLECTING_DETAILS";
+      this.lastAskedField = missingForBooking[0] ?? null;
+      const reply = await this.safeGenerateReply(merged, missingForBooking, changed, currentText, isFirstTurn, false);
+      return textResult(reply);
+    }
+    if (computePassengerState(merged) === "TOTAL_ONLY") {
+      this.lastWorkflowPhase = "COLLECTING_DETAILS";
+      this.lastAskedField = "passengerComposition";
+      if (this.diagnostics) this.diagnostics.passengerClarificationRequired = true;
+      return textResult(buildPassengerCompositionClarificationMessage(merged.totalTravellers, this.responseLanguage));
+    }
+    this.pendingAction = null;
+    this.lastWorkflowPhase = "READY_TO_SEARCH";
+    return this.searchOrBelowMinimumHandoff(merged, feasibility, tools, true);
   }
 
   /**
@@ -3633,6 +3761,13 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     if (this.pendingAction === "MODIFY_HOTEL_BUDGET" && readyToSearch) {
       this.pendingAction = null;
       return this.handleHotelBudgetModification(merged);
+    }
+    if (this.pendingAction === "BOOK_FLIGHT") {
+      const feasibilityForBooking: BudgetFeasibilityResult | null =
+        this.budgetMode === "USER_DEFINED" && merged.budget !== null
+          ? classifyBudgetFeasibility(merged.budget, estimateBudgetRange(merged, this.config))
+          : null;
+      return this.continueBookFlightFlow(merged, feasibilityForBooking, tools, [], pending.proposedValue, false);
     }
     // No pending action to resume — acknowledge the field update and stop there.
     return textResult(buildClarificationConfirmedMessage(pending.field, pending.proposedValue, this.responseLanguage));

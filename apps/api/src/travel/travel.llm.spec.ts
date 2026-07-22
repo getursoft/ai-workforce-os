@@ -33,6 +33,7 @@ import {
   convertStoredBudgetEstimate,
   detectBudgetModeSignal,
   detectCurrencyConversionRequest,
+  detectPassengerCorrectionMode,
   detectResponseLanguage,
   deterministicExtractFallback,
   entitiesFromStoredState,
@@ -41,6 +42,7 @@ import {
   generatePlaceholderFlights,
   generatePlaceholderHotels,
   hasItineraryFields,
+  missingBookingFields,
   interpretDatePhrase,
   isExecutionRequest,
   isHotelBudgetModificationRequest,
@@ -2148,7 +2150,7 @@ describe("live-conversation regression: total traveller count vs passenger compo
     expect(computePassengerState(orchestrator.lastEntities)).toBe("COMPLETE");
   });
 
-  it("a composition that conflicts with a previously stated total asks for clarification instead of silently overwriting either number", async () => {
+  it("stating two or more passenger categories together is a full replacement of the candidate — commits immediately, zeroing any unmentioned category, even against a conflicting prior total", async () => {
     const tripTotalOnly: TravelEntities = {
       ...EMPTY_TRAVEL_ENTITIES,
       originCity: "New Delhi",
@@ -2162,9 +2164,12 @@ describe("live-conversation regression: total traveller count vs passenger compo
     const real = fakeProvider({ extraction: { adults: 2, children: 1 }, intent: "provide_trip_details" });
     const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, tripTotalOnly);
     const result = await orchestrator.complete({ messages: [{ role: "user", content: "2 adults 1 kid" }] });
-    expect(result.content).toBe(buildPassengerCompositionConflictMessage(5, 3, "ENGLISH"));
-    expect(orchestrator.lastEntities.adults).toBeNull();
-    expect(orchestrator.lastEntities.totalTravellers).toBe(5);
+    expect(result.content).not.toBe(buildPassengerCompositionConflictMessage(5, 3, "ENGLISH"));
+    expect(orchestrator.lastEntities.adults).toBe(2);
+    expect(orchestrator.lastEntities.children).toBe(1);
+    expect(orchestrator.lastEntities.infants).toBe(0);
+    expect(orchestrator.lastEntities.totalTravellers).toBe(3);
+    expect(orchestrator.pendingPassengerConflict).toBeNull();
   });
 
   it("a user correction that updates composition preserves every other trip field", async () => {
@@ -2216,6 +2221,33 @@ describe("classifyPlanningAction (deterministic, LLM-independent request routing
   });
   it("never classifies a plain statement mentioning 'budget' as a budget question", () => {
     expect(classifyPlanningAction("Plan me a trip with a budget of 10000 USD")).not.toBe("CALCULATE_BUDGET");
+  });
+  it("classifies an explicit booking go-ahead, including Hinglish SOV phrasing, as BOOK_FLIGHT", () => {
+    expect(classifyPlanningAction("flight book kar do")).toBe("BOOK_FLIGHT");
+    expect(classifyPlanningAction("book the flight")).toBe("BOOK_FLIGHT");
+    expect(classifyPlanningAction("book my flight please")).toBe("BOOK_FLIGHT");
+    expect(classifyPlanningAction("flights book kar dijiye")).toBe("BOOK_FLIGHT");
+  });
+  it("a plain browse/search ask is still SEARCH_FLIGHTS, not BOOK_FLIGHT", () => {
+    expect(classifyPlanningAction("show me flight options")).toBe("SEARCH_FLIGHTS");
+    expect(classifyPlanningAction("which flights are available")).toBe("SEARCH_FLIGHTS");
+  });
+});
+
+describe("detectPassengerCorrectionMode (parser: PATCH vs FULL_REPLACEMENT)", () => {
+  it("classifies exactly one mentioned category as PATCH", () => {
+    expect(detectPassengerCorrectionMode({ infants: 1 })).toBe("PATCH");
+    expect(detectPassengerCorrectionMode({ children: 2 })).toBe("PATCH");
+    expect(detectPassengerCorrectionMode({ adults: 3 })).toBe("PATCH");
+  });
+  it("classifies two or more mentioned categories as FULL_REPLACEMENT", () => {
+    expect(detectPassengerCorrectionMode({ adults: 2, children: 1 })).toBe("FULL_REPLACEMENT");
+    expect(detectPassengerCorrectionMode({ children: 2, infants: 1 })).toBe("FULL_REPLACEMENT");
+    expect(detectPassengerCorrectionMode({ adults: 2, children: 1, infants: 0 })).toBe("FULL_REPLACEMENT");
+  });
+  it("treats null/undefined fields as not mentioned — zero categories mentioned still defaults to PATCH", () => {
+    expect(detectPassengerCorrectionMode({ adults: 2, children: null, infants: undefined })).toBe("PATCH");
+    expect(detectPassengerCorrectionMode({})).toBe("PATCH");
   });
 });
 
@@ -2400,26 +2432,39 @@ describe("live-conversation regression: passenger-conflict candidate patching (b
       days: 5,
       totalTravellers: 5
     };
-    const real1 = fakeProvider({ extraction: { adults: 2, children: 2 }, intent: "provide_trip_details" });
+    // Each turn mentions exactly one passenger category (PATCH mode) so the candidate is built up
+    // incrementally and re-checked against the previously stated total each time — two or more categories
+    // mentioned together would instead be a FULL_REPLACEMENT, see the classifyPlanningAction describe block.
+    const real1 = fakeProvider({ extraction: { adults: 2 }, intent: "provide_trip_details" });
     const orchestrator1 = new TravelEmployeeLlmOrchestrator(real1, config, tripTotalOnly);
-    const conflictResult = await orchestrator1.complete({ messages: [{ role: "user", content: "2 adults 2 kids" }] });
-    expect(conflictResult.content).toBe(buildPassengerCompositionConflictMessage(5, 4, "ENGLISH"));
+    const conflictResult1 = await orchestrator1.complete({ messages: [{ role: "user", content: "2 adults" }] });
+    expect(conflictResult1.content).toBe(buildPassengerCompositionConflictMessage(5, 2, "ENGLISH"));
     expect(orchestrator1.lastEntities.adults).toBeNull();
 
-    const real2 = fakeProvider({ extraction: { infants: 1 }, intent: "provide_trip_details" });
+    const real2 = fakeProvider({ extraction: { children: 2 }, intent: "provide_trip_details" });
     const orchestrator2 = new TravelEmployeeLlmOrchestrator(
       real2,
       config,
       orchestrator1.lastEntities,
       orchestrator1.lastMemory
     );
-    await orchestrator2.complete({ messages: [{ role: "user", content: "1 infant" }] });
-    expect(orchestrator2.lastEntities.adults).toBe(2);
-    expect(orchestrator2.lastEntities.children).toBe(2);
-    expect(orchestrator2.lastEntities.infants).toBe(1);
-    expect(orchestrator2.lastEntities.totalTravellers).toBe(5);
-    expect(computePassengerState(orchestrator2.lastEntities)).toBe("COMPLETE");
-    expect(orchestrator2.pendingPassengerConflict).toBeNull();
+    const conflictResult2 = await orchestrator2.complete({ messages: [{ role: "user", content: "kids 2" }] });
+    expect(conflictResult2.content).toBe(buildPassengerCompositionConflictMessage(5, 4, "ENGLISH"));
+
+    const real3 = fakeProvider({ extraction: { infants: 1 }, intent: "provide_trip_details" });
+    const orchestrator3 = new TravelEmployeeLlmOrchestrator(
+      real3,
+      config,
+      orchestrator2.lastEntities,
+      orchestrator2.lastMemory
+    );
+    await orchestrator3.complete({ messages: [{ role: "user", content: "1 infant" }] });
+    expect(orchestrator3.lastEntities.adults).toBe(2);
+    expect(orchestrator3.lastEntities.children).toBe(2);
+    expect(orchestrator3.lastEntities.infants).toBe(1);
+    expect(orchestrator3.lastEntities.totalTravellers).toBe(5);
+    expect(computePassengerState(orchestrator3.lastEntities)).toBe("COMPLETE");
+    expect(orchestrator3.pendingPassengerConflict).toBeNull();
   });
 });
 
@@ -2554,5 +2599,174 @@ describe("live-conversation regression: personalized itinerary generation (bug f
     expect(itineraryPrompt).toContain("2026-01-10");
     expect(itineraryPrompt).toMatch(/slower pace|rest\/nap/i);
     expect(itineraryPrompt).toMatch(/opening hours vary by season/i);
+  });
+});
+
+describe("missingBookingFields (BOOK_FLIGHT's own required-fields check)", () => {
+  it("never includes budget, unlike computeMissingEntityFields", () => {
+    const trip: TravelEntities = {
+      ...EMPTY_TRAVEL_ENTITIES,
+      originCity: "Chennai",
+      destinationCity: "Sydney",
+      travelMonth: "January",
+      days: 5,
+      adults: 2
+    };
+    expect(missingBookingFields(trip)).toEqual([]);
+    expect(computeMissingEntityFields(trip)).toEqual(["budget"]);
+  });
+  it("lists destination/dates/duration/adults when absent, in that order", () => {
+    expect(missingBookingFields(EMPTY_TRAVEL_ENTITIES)).toEqual([
+      "destinationCity",
+      "travelDates",
+      "duration",
+      "adults"
+    ]);
+  });
+  it("treats a TOTAL_ONLY headcount as satisfying the passenger requirement", () => {
+    const trip: TravelEntities = {
+      ...EMPTY_TRAVEL_ENTITIES,
+      originCity: "Chennai",
+      destinationCity: "Sydney",
+      travelMonth: "January",
+      days: 5,
+      totalTravellers: 4
+    };
+    expect(missingBookingFields(trip)).toEqual([]);
+  });
+});
+
+describe("live-conversation regression: BOOK_FLIGHT must survive every clarification and never fall back to budget collection (bug fix)", () => {
+  it("flight book kar do -> persists BOOK_FLIGHT, never asks for budget, collects only booking-required fields", async () => {
+    const trip: TravelEntities = {
+      ...EMPTY_TRAVEL_ENTITIES,
+      destinationCity: "Sydney",
+      travelMonth: "January",
+      days: 5,
+      adults: 2,
+      children: 1
+    };
+    const real = fakeProvider({ extraction: {}, intent: "provide_trip_details" });
+    const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, trip);
+    const result = await orchestrator.complete({
+      messages: [{ role: "user", content: "flight book kar do" }],
+      tools: [{ name: "travel.search_flights", description: "", inputSchema: {} }]
+    });
+    expect(orchestrator.pendingAction).toBe("BOOK_FLIGHT");
+    expect(result.content).toBe(buildOriginRequiredMessage("ENGLISH"));
+  });
+
+  it("a budget question mid-booking is answered but leaves BOOK_FLIGHT pending for the next turn to resume", async () => {
+    const trip: TravelEntities = {
+      ...EMPTY_TRAVEL_ENTITIES,
+      originCity: "Chennai",
+      destinationCity: "Sydney",
+      travelMonth: "January",
+      days: 5,
+      adults: 2
+    };
+    const real = fakeProvider({ extraction: {}, intent: "ask_question" });
+    const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, trip, {
+      ...EMPTY_TRAVEL_CONVERSATION_MEMORY,
+      pendingAction: "BOOK_FLIGHT"
+    });
+    await orchestrator.complete({
+      messages: [{ role: "user", content: "what's the budget looking like" }],
+      tools: [{ name: "travel.search_flights", description: "", inputSchema: {} }]
+    });
+    expect(orchestrator.pendingAction).toBe("BOOK_FLIGHT");
+  });
+
+  it("full regression: Estimate -> Book flight -> Budget aside -> Passenger conflict -> Replacement -> Search resumes", async () => {
+    const trip: TravelEntities = {
+      ...EMPTY_TRAVEL_ENTITIES,
+      originCity: "Chennai",
+      destinationCity: "Sydney",
+      travelMonth: "January",
+      days: 5,
+      totalTravellers: 5
+    };
+    const tools = [{ name: "travel.search_flights", description: "", inputSchema: {} }];
+
+    // 1. Estimate: a plain budget question, answered normally — nothing booking-related pending yet.
+    const real1 = fakeProvider({ extraction: {}, intent: "ask_question" });
+    const orchestrator1 = new TravelEmployeeLlmOrchestrator(real1, config, trip);
+    const result1 = await orchestrator1.complete({
+      messages: [{ role: "user", content: "what's the budget looking like" }],
+      tools
+    });
+    expect(result1.toolCalls).toEqual([]);
+    expect(orchestrator1.pendingAction).toBeNull();
+
+    // 2. Book flight: an explicit go-ahead persists BOOK_FLIGHT and asks for the passenger-composition
+    // breakdown (a booking-required field) — never budget, which is already excluded from this flow.
+    const real2 = fakeProvider({ extraction: {}, intent: "provide_trip_details" });
+    const orchestrator2 = new TravelEmployeeLlmOrchestrator(
+      real2,
+      config,
+      orchestrator1.lastEntities,
+      orchestrator1.lastMemory
+    );
+    const result2 = await orchestrator2.complete({
+      messages: [{ role: "user", content: "flight book kar do" }],
+      tools
+    });
+    expect(orchestrator2.pendingAction).toBe("BOOK_FLIGHT");
+    expect(result2.content).not.toMatch(/budget/i);
+    expect(result2.content).toBe(buildPassengerCompositionClarificationMessage(5, "ENGLISH"));
+
+    // 3. Budget aside: an explicit budget question mid-booking is answered, but must not erase the
+    // in-progress booking intent.
+    const real3 = fakeProvider({ extraction: {}, intent: "ask_question" });
+    const orchestrator3 = new TravelEmployeeLlmOrchestrator(
+      real3,
+      config,
+      orchestrator2.lastEntities,
+      orchestrator2.lastMemory
+    );
+    await orchestrator3.complete({
+      messages: [{ role: "user", content: "what's the budget looking like" }],
+      tools
+    });
+    expect(orchestrator3.pendingAction).toBe("BOOK_FLIGHT");
+
+    // 4. Passenger conflict: a single-category correction (PATCH) doesn't add up to the previously stated
+    // total of 5 — asks for clarification instead of silently guessing, and BOOK_FLIGHT survives untouched.
+    const real4 = fakeProvider({ extraction: { adults: 2 }, intent: "provide_trip_details" });
+    const orchestrator4 = new TravelEmployeeLlmOrchestrator(
+      real4,
+      config,
+      orchestrator3.lastEntities,
+      orchestrator3.lastMemory
+    );
+    const result4 = await orchestrator4.complete({
+      messages: [{ role: "user", content: "2 adults" }],
+      tools
+    });
+    expect(result4.content).toBe(buildPassengerCompositionConflictMessage(5, 2, "ENGLISH"));
+    expect(orchestrator4.lastEntities.adults).toBeNull();
+    expect(orchestrator4.pendingAction).toBe("BOOK_FLIGHT");
+
+    // 5. Replacement + search resumes: two categories mentioned together is a FULL_REPLACEMENT — it
+    // commits immediately (zeroing the unmentioned infants), which completes the booking-required fields
+    // and resumes BOOK_FLIGHT into an actual travel.search_flights call in the very same turn.
+    const real5 = fakeProvider({ extraction: { adults: 2, children: 3 }, intent: "provide_trip_details" });
+    const orchestrator5 = new TravelEmployeeLlmOrchestrator(
+      real5,
+      config,
+      orchestrator4.lastEntities,
+      orchestrator4.lastMemory
+    );
+    const result5 = await orchestrator5.complete({
+      messages: [{ role: "user", content: "2 adults 3 kids" }],
+      tools
+    });
+    expect(orchestrator5.lastEntities.adults).toBe(2);
+    expect(orchestrator5.lastEntities.children).toBe(3);
+    expect(orchestrator5.lastEntities.infants).toBe(0);
+    expect(orchestrator5.lastEntities.totalTravellers).toBe(5);
+    expect(orchestrator5.pendingPassengerConflict).toBeNull();
+    expect(orchestrator5.pendingAction).toBeNull();
+    expect(result5.toolCalls[0]?.name).toBe("travel.search_flights");
   });
 });
