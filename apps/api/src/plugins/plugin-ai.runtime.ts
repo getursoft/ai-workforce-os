@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
+import { Logger } from "@nestjs/common";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
@@ -58,17 +59,26 @@ export class OpenAiCompatibleProvider implements AiProvider {
     request: AiCompletionRequest,
     headers: Record<string, string>
   ): Promise<AiCompletionResult> {
+    const t0 = Date.now();
+    const bodyStr = JSON.stringify(mapRequest(request, model));
+    const serialiseMs = Date.now() - t0;
+    const bodyBytes = new TextEncoder().encode(bodyStr).length;
     let response: Response;
+    let fetchMs = 0;
+    let statusCode = 0;
     try {
+      const t1 = Date.now();
       response = await withTimeout(
         this.fetcher(url, {
           method: "POST",
-          headers: { "content-type": "application/json", ...headers },
-          body: JSON.stringify(mapRequest(request, model))
+          headers: { "content-type": "application/json", ...headers, accept: "application/json" },
+          body: bodyStr
         }),
         this.settings.timeoutMs,
         "AI_PROVIDER_TIMEOUT"
       );
+      fetchMs = Date.now() - t1;
+      statusCode = response.status;
     } catch (error) {
       throw safeProviderError(error);
     }
@@ -81,13 +91,33 @@ export class OpenAiCompatibleProvider implements AiProvider {
     if (response.status >= 500)
       throw new AiProviderError("AI_PROVIDER_UNAVAILABLE", response.status);
     if (!response.ok) throw new AiProviderError("AI_PROVIDER_TEST_FAILED", response.status);
+    const t2 = Date.now();
     const body = await safeJson(response);
-    return mapResponse(
+    const parseMs = Date.now() - t2;
+    const totalMs = Date.now() - t0;
+    const result = mapResponse(
       body,
       this.settings.providerType === "AZURE_OPENAI" ? "azure-openai" : "openai-compatible",
       model,
       toolNameMap(request.tools ?? [])
     );
+    // Structured provider timing log — no secrets, no prompts, no customer data
+    Logger.log({
+      event: "AI_PROVIDER_CALL",
+      model,
+      provider: this.settings.providerType,
+      serialiseMs,
+      bodyBytes,
+      fetchMs,
+      parseMs,
+      totalMs,
+      statusCode,
+      inputTokens: result.usage?.inputTokens,
+      outputTokens: result.usage?.outputTokens,
+      toolCount: request.tools?.length ?? 0,
+      messageCount: request.messages.length
+    }, OpenAiCompatibleProvider.name);
+    return result;
   }
 }
 export class AzureOpenAiProvider extends OpenAiCompatibleProvider {

@@ -35,6 +35,10 @@ export interface SecurityConfig {
     chunkTargetTokens: number;
     chunkOverlapTokens: number;
     searchCandidateLimit: number;
+    searchDefaultTopK: number;
+    searchMaxTopK: number;
+    searchDefaultScoreThreshold: number;
+    retrievalDebugLogging: boolean;
   };
   browserAuth: {
     cookieDomain?: string;
@@ -67,6 +71,20 @@ function integer(
   }
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new InvalidSecurityConfigurationError(variable);
+  }
+  return value;
+}
+
+function float(
+  environment: Environment,
+  variable: string,
+  minimum: number,
+  maximum: number
+): number {
+  const raw = required(environment, variable);
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
     throw new InvalidSecurityConfigurationError(variable);
   }
   return value;
@@ -243,11 +261,11 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
       chunkTargetTokens: integer(
         {
           ...environment,
-          KNOWLEDGE_CHUNK_TARGET_TOKENS: environment.KNOWLEDGE_CHUNK_TARGET_TOKENS ?? "800"
+          KNOWLEDGE_CHUNK_TARGET_TOKENS: environment.KNOWLEDGE_CHUNK_TARGET_TOKENS ?? "500"
         },
         "KNOWLEDGE_CHUNK_TARGET_TOKENS",
-        100,
-        4000
+        400,
+        600
       ),
       chunkOverlapTokens: integer(
         {
@@ -255,8 +273,8 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
           KNOWLEDGE_CHUNK_OVERLAP_TOKENS: environment.KNOWLEDGE_CHUNK_OVERLAP_TOKENS ?? "100"
         },
         "KNOWLEDGE_CHUNK_OVERLAP_TOKENS",
-        0,
-        1000
+        80,
+        120
       ),
       searchCandidateLimit: integer(
         {
@@ -266,7 +284,36 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
         "KNOWLEDGE_SEARCH_CANDIDATE_LIMIT",
         10,
         5000
-      )
+      ),
+      searchDefaultTopK: integer(
+        {
+          ...environment,
+          KNOWLEDGE_SEARCH_DEFAULT_TOP_K: environment.KNOWLEDGE_SEARCH_DEFAULT_TOP_K ?? "5"
+        },
+        "KNOWLEDGE_SEARCH_DEFAULT_TOP_K",
+        1,
+        20
+      ),
+      searchMaxTopK: integer(
+        {
+          ...environment,
+          KNOWLEDGE_SEARCH_MAX_TOP_K: environment.KNOWLEDGE_SEARCH_MAX_TOP_K ?? "10"
+        },
+        "KNOWLEDGE_SEARCH_MAX_TOP_K",
+        1,
+        50
+      ),
+      searchDefaultScoreThreshold: float(
+        {
+          ...environment,
+          KNOWLEDGE_SEARCH_DEFAULT_SCORE_THRESHOLD:
+            environment.KNOWLEDGE_SEARCH_DEFAULT_SCORE_THRESHOLD ?? "0.2"
+        },
+        "KNOWLEDGE_SEARCH_DEFAULT_SCORE_THRESHOLD",
+        -1,
+        1
+      ),
+      retrievalDebugLogging: boolean(environment, "KNOWLEDGE_RETRIEVAL_DEBUG_LOGGING", false)
     },
     browserAuth
   };

@@ -154,7 +154,7 @@ describe("TravelEmployeeService.state", () => {
       agentMemory: { findFirst: vi.fn().mockResolvedValue(null) },
       conversationMessage: {
         findMany: vi.fn().mockResolvedValue([
-          { role: "USER", content: "Dubai in December for 5 days, 2 adults, budget $2000" }
+          { role: "USER", content: "My name is Alex. Dubai in December for 5 days, 2 adults, budget $2000" }
         ])
       }
     } as unknown as PrismaService;

@@ -138,15 +138,37 @@ suite("Travel Employee end-to-end", () => {
     const auth = () => ({ Authorization: `Bearer ${token}` });
     let conversationId: string;
 
-    it("greets and asks for the destination on the first message", async () => {
+    it("greets and asks for the traveler's name on the first message", async () => {
       const run = await request(app.getHttpServer())
         .post("/api/v1/agents/run")
         .set(auth())
         .send({ pluginInstallationId: pluginId, message: "Hi there" })
         .expect(201);
       expect(run.body.status).toBe("COMPLETED");
-      expect(run.body.response).toMatch(/where would you like to travel/i);
+      expect(run.body.response).toMatch(/may i know your name/i);
+      expect(run.body.response).not.toMatch(/where would you like to travel/i);
       conversationId = run.body.conversationId;
+    });
+
+    it("offers the Intent Discovery menu right after the name is captured, instead of assuming a trip is being planned", async () => {
+      const run = await request(app.getHttpServer())
+        .post("/api/v1/agents/run")
+        .set(auth())
+        .send({ pluginInstallationId: pluginId, conversationId, message: "Krishna" })
+        .expect(201);
+      expect(run.body.response).toMatch(/krishna/i);
+      expect(run.body.response).toMatch(/how may i help you today/i);
+      expect(run.body.response).toMatch(/plan a trip/i);
+      expect(run.body.response).toMatch(/build an itinerary/i);
+      expect(run.body.response).toMatch(/estimate costs/i);
+      expect(run.body.response).toMatch(/explain policies/i);
+      expect(run.body.response).toMatch(/answer travel questions/i);
+      expect(run.body.response).not.toMatch(/where would you like to travel/i);
+      const state = await request(app.getHttpServer())
+        .get(`/api/v1/travel-employee/${pluginId}/conversations/${conversationId}/state`)
+        .set(auth())
+        .expect(200);
+      expect(state.body.stage).toBe("DISCOVER_INTENT");
     });
 
     it("never re-asks for information already collected while progressing through stages", async () => {
@@ -156,14 +178,11 @@ suite("Travel Employee end-to-end", () => {
         .send({ pluginInstallationId: pluginId, conversationId, message: "Dubai" })
         .expect(201);
       expect(destination.body.response).not.toMatch(/where would you like to travel/i);
-      expect(destination.body.response).toMatch(/when are you planning to travel/i);
-
-      const stuck = await request(app.getHttpServer())
-        .post("/api/v1/agents/run")
-        .set(auth())
-        .send({ pluginInstallationId: pluginId, conversationId, message: "not totally sure yet" })
-        .expect(201);
-      expect(stuck.body.response).toMatch(/still need/i);
+      // Once destination is known, the remaining gaps are asked together in one natural bulleted
+      // message, not one mechanical question per turn.
+      expect(destination.body.response).toMatch(/when you're travelling/i);
+      expect(destination.body.response).toMatch(/how many people/i);
+      expect(destination.body.response).toMatch(/your approximate budget/i);
 
       const dates = await request(app.getHttpServer())
         .post("/api/v1/agents/run")
@@ -171,7 +190,7 @@ suite("Travel Employee end-to-end", () => {
         .send({
           pluginInstallationId: pluginId,
           conversationId,
-          message: "December for 5 days, 2 adults, budget $2000"
+          message: "December for 5 days, 2 adults, budget $6000"
         })
         .expect(201);
       expect(dates.body.response).toMatch(/itinerary summary/i);
@@ -188,7 +207,7 @@ suite("Travel Employee end-to-end", () => {
         destination: "Dubai",
         travelMonth: "December",
         passengers: 2,
-        budgetAmount: 2000,
+        budgetAmount: 6000,
         stage: "CONFIRM_BOOKING"
       });
       const memory = await prisma.agentMemory.findFirst({
@@ -197,18 +216,31 @@ suite("Travel Employee end-to-end", () => {
       expect(memory).not.toBeNull();
     });
 
-    it("confirms the booking intent and records BOOKING_CONFIRMED state", async () => {
+    it("asks for a phone number on confirmation, then persists an internal TravelLead and records BOOKING_CONFIRMED state — no CRM connector involved", async () => {
       const confirm = await request(app.getHttpServer())
         .post("/api/v1/agents/run")
         .set(auth())
         .send({ pluginInstallationId: pluginId, conversationId, message: "yes, please confirm" })
         .expect(201);
-      expect(confirm.body.response).toMatch(/booking intent has been recorded/i);
+      expect(confirm.body.response).toMatch(/phone number|mobile number/i);
+      expect(confirm.body.response).not.toMatch(/CRM/i);
+
+      const withPhone = await request(app.getHttpServer())
+        .post("/api/v1/agents/run")
+        .set(auth())
+        .send({ pluginInstallationId: pluginId, conversationId, message: "+919876543210" })
+        .expect(201);
+      expect(withPhone.body.response).toMatch(/travel request has been submitted successfully/i);
+
       const state = await request(app.getHttpServer())
         .get(`/api/v1/travel-employee/${pluginId}/conversations/${conversationId}/state`)
         .set(auth())
         .expect(200);
       expect(state.body.stage).toBe("BOOKING_CONFIRMED");
+
+      const lead = await prisma.travelLead.findFirst({ where: { conversationId } });
+      expect(lead).not.toBeNull();
+      expect(lead?.phoneNumber).toBe("+919876543210");
     });
 
     it("resets the conversation, archiving it so a fresh conversation starts next", async () => {
@@ -264,7 +296,8 @@ suite("Travel Employee end-to-end", () => {
       source: { type: "CHANNEL", channelId: channelConnectionId, externalUserId },
       requestId: "whatsapp-request-1"
     });
-    expect(first.response).toMatch(/where would you like to travel/i);
+    expect(first.response).toMatch(/may i know your name/i);
+    expect(first.response).not.toMatch(/where would you like to travel/i);
     const conversation = requireDefined(
       await prisma.conversation.findFirst({ where: { id: first.conversationId } }),
       "conversation not created"
@@ -277,16 +310,111 @@ suite("Travel Employee end-to-end", () => {
       agentId: pluginId,
       conversationId: first.conversationId,
       actor: { type: "CHANNEL", channelConnectionId, externalUserId },
-      text: "Bali in January for 4 days, 2 people, budget $1500",
+      text: "Priya",
       source: { type: "CHANNEL", channelId: channelConnectionId, externalUserId },
       requestId: "whatsapp-request-2"
     });
+    expect(second.response).toMatch(/priya/i);
+    expect(second.response).toMatch(/how may i help you today/i);
     expect(second.response).not.toMatch(/where would you like to travel/i);
-    expect(second.response).toMatch(/itinerary summary/i);
+
+    const third = await agents.execute({
+      organizationId,
+      agentId: pluginId,
+      conversationId: first.conversationId,
+      actor: { type: "CHANNEL", channelConnectionId, externalUserId },
+      text: "Bali in January for 4 days, 2 people, budget $4000",
+      source: { type: "CHANNEL", channelId: channelConnectionId, externalUserId },
+      requestId: "whatsapp-request-3"
+    });
+    expect(third.response).not.toMatch(/where would you like to travel/i);
+    expect(third.response).toMatch(/itinerary summary/i);
+  });
+
+  describe("Travel Leads API (Conversation Completion & Lead Capture)", () => {
+    const auth = () => ({ Authorization: `Bearer ${token}` });
+    let leadId: string;
+
+    beforeAll(async () => {
+      const conversation = await prisma.conversation.create({
+        data: { organizationId, pluginInstallationId: pluginId, title: "Lead capture test conversation" }
+      });
+      const lead = await prisma.travelLead.create({
+        data: {
+          organizationId,
+          pluginInstallationId: pluginId,
+          conversationId: conversation.id,
+          reference: "TRV-E2E001",
+          customerName: "Test Traveler",
+          phoneNumber: "+919876543210",
+          departureCity: "New Delhi",
+          destination: "Paris",
+          travelDates: "August",
+          passengers: "2 adults",
+          budgetAmount: 2000,
+          budgetCurrency: "USD",
+          conversationSummary: "New Delhi -> Paris | August | 2 adults | Budget: 2000 USD"
+        }
+      });
+      leadId = lead.id;
+    });
+
+    it("lists leads captured for the organization", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/travel-employee/${pluginId}/leads`)
+        .set(auth())
+        .expect(200);
+      expect(res.body.total).toBeGreaterThanOrEqual(1);
+      expect(res.body.items.some((item: { id: string }) => item.id === leadId)).toBe(true);
+      const found = res.body.items.find((item: { id: string }) => item.id === leadId);
+      expect(found).toMatchObject({ reference: "TRV-E2E001", destination: "Paris", status: "NEW" });
+    });
+
+    it("filters by status", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/travel-employee/${pluginId}/leads?status=CONTACTED`)
+        .set(auth())
+        .expect(200);
+      expect(res.body.items.some((item: { id: string }) => item.id === leadId)).toBe(false);
+    });
+
+    it("updates a lead's status", async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/travel-employee/${pluginId}/leads/${leadId}/status`)
+        .set(auth())
+        .send({ status: "CONTACTED" })
+        .expect(200);
+      expect(res.body.status).toBe("CONTACTED");
+    });
+
+    it("rejects an invalid status value", async () => {
+      await request(app.getHttpServer())
+        .patch(`/api/v1/travel-employee/${pluginId}/leads/${leadId}/status`)
+        .set(auth())
+        .send({ status: "NOT_A_REAL_STATUS" })
+        .expect(400);
+    });
+
+    it("enforces tenant isolation", async () => {
+      const other = await request(app.getHttpServer())
+        .post("/api/v1/auth/register")
+        .send({
+          organizationName: "Other Leads Org",
+          firstName: "Other",
+          email: `travel-leads-other-${Date.now()}@example.com`,
+          password: "StrongPassword@123"
+        })
+        .expect(201);
+      await request(app.getHttpServer())
+        .get(`/api/v1/travel-employee/${pluginId}/leads`)
+        .set("Authorization", `Bearer ${other.body.data.tokens.accessToken}`)
+        .expect(404);
+    });
   });
 });
 
 async function cleanup(prisma: PrismaService): Promise<void> {
+  await prisma.travelLead.deleteMany();
   await prisma.channelMessage.deleteMany();
   await prisma.channelConnection.deleteMany();
   await prisma.conversationMessage.deleteMany();

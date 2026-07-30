@@ -11,6 +11,7 @@ import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginModule } from "../plugins/plugin.module";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
 import { KnowledgeChunkingService } from "./knowledge.chunking";
+import { KnowledgeCollectionService } from "./knowledge.collection";
 import { KnowledgeController } from "./knowledge.controller";
 import { KnowledgeEmbeddingService } from "./knowledge.embedding";
 import {
@@ -72,9 +73,16 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
         prisma: PrismaService,
         embeddings: KnowledgeEmbeddingService,
         config: SecurityConfig
-      ) => new KnowledgeSearchService(prisma, embeddings, config.knowledge.searchCandidateLimit)
+      ) =>
+        new KnowledgeSearchService(
+          prisma,
+          embeddings,
+          config,
+          config.knowledge.searchCandidateLimit
+        )
     },
     KnowledgeEmbeddingService,
+    KnowledgeCollectionService,
     NoopKnowledgeVirusScanner,
     {
       provide: KnowledgeIndexingService,

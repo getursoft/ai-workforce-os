@@ -111,6 +111,7 @@ describe("ChannelService.update — secret preservation", () => {
       channelConnection: {
         findFirst: vi.fn().mockResolvedValue({
           id: "channel-1",
+          provider: "TWILIO",
           organizationId: "organization-1",
           configuration: { accountSid: "AC" + "a".repeat(32), fromNumber: "+14155238886" },
           encryptedSecrets,
@@ -118,15 +119,17 @@ describe("ChannelService.update — secret preservation", () => {
           pluginInstallation: { id: "agent-1", displayName: "Travel Agent", status: "ACTIVE" }
         }),
         update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
-          updatedData = data;
-          return {
+          const result = {
             id: "channel-1",
-            configuration: data.configuration,
-            encryptedSecrets: data.encryptedSecrets,
-            secretMetadata: data.secretMetadata,
+            provider: "TWILIO",
+            configuration: data.configuration ?? { accountSid: "AC" + "a".repeat(32), fromNumber: "+14155238886" },
+            encryptedSecrets: data.encryptedSecrets ?? encryptedSecrets,
+            secretMetadata: data.secretMetadata ?? { authToken: { configured: true, updatedAt: new Date().toISOString() } },
             pluginInstallationId: "agent-1",
             pluginInstallation: { id: "agent-1", displayName: "Travel Agent", status: "ACTIVE" }
           };
+          updatedData = result;
+          return result;
         })
       }
     } as unknown as PrismaService;
@@ -135,9 +138,8 @@ describe("ChannelService.update — secret preservation", () => {
       name: "Renamed channel"
     });
     expect(result.hasAuthToken).toBe(true);
-    const decrypted = encryption.decrypt(
-      updatedData.encryptedSecrets as Parameters<typeof encryption.decrypt>[0]
-    );
+    const secretPayload = updatedData.encryptedSecrets as unknown as { version: 1; iv: string; tag: string; ciphertext: string };
+    const decrypted = encryption.decrypt(secretPayload);
     expect(decrypted.authToken).toBe("original-secret");
   });
 
@@ -148,6 +150,7 @@ describe("ChannelService.update — secret preservation", () => {
       channelConnection: {
         findFirst: vi.fn().mockResolvedValue({
           id: "channel-1",
+          provider: "TWILIO",
           organizationId: "organization-1",
           configuration: { accountSid: "AC" + "a".repeat(32), fromNumber: "+14155238886" },
           encryptedSecrets,
@@ -156,7 +159,7 @@ describe("ChannelService.update — secret preservation", () => {
         }),
         update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           updatedData = data;
-          return { id: "channel-1", ...data, pluginInstallation: { id: "agent-1", displayName: "x", status: "ACTIVE" } };
+          return { id: "channel-1", provider: "TWILIO", ...data, pluginInstallation: { id: "agent-1", displayName: "x", status: "ACTIVE" } };
         })
       }
     } as unknown as PrismaService;
@@ -164,10 +167,9 @@ describe("ChannelService.update — secret preservation", () => {
     await service.update("organization-1", "user-1", "request-1", "channel-1", {
       configuration: { authToken: "brand-new-secret" }
     });
-    const decrypted = encryption.decrypt(
-      updatedData.encryptedSecrets as Parameters<typeof encryption.decrypt>[0]
-    );
-    expect(decrypted.authToken).toBe("brand-new-secret");
+    const secretPayload2 = updatedData.encryptedSecrets as unknown as { version: 1; iv: string; tag: string; ciphertext: string };
+    const decrypted2 = encryption.decrypt(secretPayload2);
+    expect(decrypted2.authToken).toBe("brand-new-secret");
   });
 });
 
@@ -180,6 +182,7 @@ describe("ChannelService.test", () => {
       channelConnection: {
         findFirst: vi.fn().mockResolvedValue({
           id: "channel-1",
+          provider: "TWILIO",
           organizationId: "organization-1",
           configuration: { accountSid: "AC" + "a".repeat(32), fromNumber: "+14155238886" },
           encryptedSecrets,
@@ -201,7 +204,7 @@ describe("ChannelService.test", () => {
       { message: "CHANNEL_PROVIDER_AUTHENTICATION_FAILED" }
     );
     expect(updates[0]).toMatchObject({
-      lastTestStatus: "FAILED",
+      lastTestStatus: "failed",
       lastErrorCode: "CHANNEL_PROVIDER_AUTHENTICATION_FAILED"
     });
     expect(JSON.stringify(updates[0])).not.toContain(secretValue);

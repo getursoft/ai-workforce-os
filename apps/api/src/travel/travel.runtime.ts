@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
@@ -5,14 +6,33 @@ import type {
   AiProvider,
   AiToolDefinition
 } from "@ai-workforce-os/plugin-sdk";
+import {
+  CurrencyService,
+  isSupportedCurrency,
+  SUPPORTED_CURRENCIES,
+  type CurrencyCode,
+  type CurrencyPreference
+} from "./currency.service";
+import {
+  extractPhoneNumber,
+  formatSuggestedActions,
+  generateLeadReference,
+  isAffirmativeResponse,
+  isNegativeResponse,
+  type ConversationCompletionStage,
+  type SuggestedAction
+} from "../conversation/conversation-completion";
 
 export const TRAVEL_EMPLOYEE_PLUGIN_SLUG = "travel-employee";
 export const TRAVEL_TRIP_STATE_MEMORY_KEY = "travel.trip_state";
 
 export type TravelStage =
   | "GREETING"
+  | "COLLECT_NAME"
+  | "DISCOVER_INTENT"
   | "COLLECT_DESTINATION"
   | "COLLECT_DATES"
+  | "ASK_TRAVEL_YEAR"
   | "COLLECT_PASSENGERS"
   | "COLLECT_BUDGET"
   | "ASK_MISSING_INFO"
@@ -20,6 +40,8 @@ export type TravelStage =
   | "ITINERARY_SUMMARY"
   | "CONFIRM_BOOKING"
   | "BOOKING_CONFIRMED"
+  | "OFFER_TRAVEL_REQUEST"
+  | "AWAITING_CONTACT"
   | "ESCALATED";
 
 export interface TravelSlots {
@@ -32,6 +54,16 @@ export interface TravelSlots {
 }
 
 export interface TravelState extends TravelSlots {
+  /** The traveler's own name, captured during onboarding — see `extractCustomerName`. Never guessed. */
+  customerName: string | null;
+  /** True once `customerName` is known — onboarding (the COLLECT_NAME gate) is done and normal trip-slot collection may proceed. */
+  onboardingCompleted: boolean;
+  /** True once the proactive greeting has been shown for this conversation (always true once any state is derived — the greeting always precedes the first derived turn). */
+  greetingSent: boolean;
+  /** The user's local time for timezone-aware greetings. */
+  userLocalTime?: Date;
+  /** The detected intent from the user's latest message. */
+  currentIntent?: string | null;
   stage: TravelStage;
   missingFields: string[];
 }
@@ -41,6 +73,8 @@ export interface TravelState extends TravelSlots {
  * Superset of {@link TravelSlots} so a single stored state document stays readable by both engines.
  */
 export interface TravelEntities {
+  /** The traveler's own name, captured during onboarding — see `extractCustomerName`/the `customerName` extraction rule. Never guessed from a city, month, or other trip detail. */
+  customerName: string | null;
   originCity: string | null;
   destinationCity: string | null;
   departureDate: string | null;
@@ -62,10 +96,23 @@ export interface TravelEntities {
   cabinClass: string | null;
   tripType: string | null;
   hotelStars: number | null;
+  /** True once a visa need has actually been mentioned/confirmed either way — never inferred purely from
+   * origin/destination being international, since that's a generic caveat (see `buildVisaInsuranceCaveat`),
+   * not a fact about this specific traveler's actual visa situation. */
+  visaRequired: boolean | null;
+  /** Free-text passport status as the traveler stated it (e.g. "valid", "expired", "renewing", "none yet") —
+   * deliberately a string, not an enum: travelers describe this in many ways and the exact wording matters
+   * for a human agent following up, more than forcing it into a fixed category would. */
+  passportStatus: string | null;
+  /** Leisure vs. business — asked once, alongside the Intent Discovery menu (see
+   * `buildIntentDiscoveryMessage`), purely to personalize the conversation ("how's the conference going to
+   * go" vs. "hope you have a great holiday"); never required, never blocks any other flow. */
+  tripPurpose: "LEISURE" | "BUSINESS" | null;
   preferences: string[];
 }
 
 export const EMPTY_TRAVEL_ENTITIES: TravelEntities = {
+  customerName: null,
   originCity: null,
   destinationCity: null,
   departureDate: null,
@@ -82,6 +129,9 @@ export const EMPTY_TRAVEL_ENTITIES: TravelEntities = {
   cabinClass: null,
   tripType: null,
   hotelStars: null,
+  visaRequired: null,
+  passportStatus: null,
+  tripPurpose: null,
   preferences: []
 };
 
@@ -117,7 +167,14 @@ const ALL_TRAVEL_INTENTS: readonly TravelIntent[] = [
 export type ConfirmableEntityKey = Exclude<keyof TravelEntities, "preferences">;
 
 /** Who supplied a confirmed entity's value — used only for observability, never for merge decisions. */
-export type EntitySource = "user" | "llm" | "default";
+export type EntitySource = "USER_EXPLICIT" | "DERIVED" | "MODEL_INFERRED" | "CORRECTED" | "user" | "llm" | "default";
+
+export interface PendingDepartureDate {
+  day: number;
+  month: number;
+  year: null;
+  source: "USER_EXPLICIT";
+}
 
 /**
  * Immutable per-field confirmation record. Once `confirmed` is true, {@link mergeConfirmedEntities} will
@@ -163,6 +220,7 @@ export type TravelPendingAction =
   | "GENERATE_ITINERARY"
   | "MODIFY_HOTEL_BUDGET"
   | "BOOK_FLIGHT"
+  | "BOOK_HOTEL"
   | null;
 
 /**
@@ -174,22 +232,140 @@ export type TravelPendingAction =
  * "what's worth seeing".
  */
 export type TravelPlanningAction =
+  | "ADD_TRIP_LEG"
+  | "SUBMIT_ENQUIRY"
+  | "CREATE_LEAD"
+  | "REQUEST_CALLBACK"
+  | "GENERATE_COMPLETE_TRIP_PLAN"
   | "GENERATE_ITINERARY"
   | "BOOK_FLIGHT"
+  | "BOOK_HOTEL"
+  | "SEARCH_LIVE_OPTIONS"
+  | "GENERATE_FLIGHT_RECOMMENDATIONS"
+  | "GENERATE_HOTEL_RECOMMENDATIONS"
   | "SEARCH_FLIGHTS"
   | "SEARCH_HOTELS"
   | "CALCULATE_BUDGET"
+  | "CALCULATE_JOURNEY_BUDGET"
   | "CONVERT_ESTIMATE_CURRENCY"
   | "RECOMMEND_ATTRACTIONS"
   | "RECOMMEND_FOOD"
   | "RECOMMEND_TRANSPORT"
   | null;
 
+// These four are business-workflow commands, not trip-planning content — they must win over every other
+// classification (including the LLM's own intent label, which has been observed to misread "ask anyone to
+// call" as a request-human-agent escalation, and "submit"/"generate lead" as a booking confirmation) since
+// none of them are ever a reason to touch a search tool.
+//
+// "continue to <city>" / Hinglish SOV "<origin> se <destination> ka plan continue karo" — a second (or
+// later) leg of the SAME journey, never a correction to the current one and never a plain itinerary ask.
+// Also matches "ye/yeh bhi include kro" ("include this too") and the bare chain connector "aur fir" ("and
+// then") — both strong signals that one or more ADDITIONAL legs are being described, possibly several at
+// once (see `parseJourneyLegChain`, used to detect exactly how many).
+const ADD_TRIP_LEG_PATTERN =
+  /\bcontinue\s+(?:the\s+|this\s+|my\s+)?(?:trip|plan|journey)?\s*(?:to|karo|kar\s+do|kijiye)\b|\badd\s+(?:a\s+|another\s+)?(?:trip\s+)?leg\b|\bnext\s+leg\b|\bthen\s+(?:go|travel|fly|back)\s+to\b|\b(?:ye|yeh|is(?:e|ko)?)\s+bhi\s+include\s+(?:kar\s*(?:o|do|dijiye)|karein|kro)\b|\balso\s+include\s+this\b|\baur\s+fir\b/i;
+// Explicit "this is a separate/independent trip" phrasing — must win over structural continuity so a
+// deliberately independent trip (e.g. "Plan another trip from Tokyo to London") is never silently folded
+// into the existing journey just because its origin happens to match a prior destination.
+const NEW_INDEPENDENT_TRIP_PATTERN =
+  /\b(?:another|a\s+new|a\s+separate|a\s+different)\s+trip\b|\bstart\s+(?:a\s+)?new\s+trip\b|\bplan\s+(?:another|a\s+separate|a\s+different)\s+trip\b|\bnaya\s+trip\b|\bek\s+(?:aur|naya)\s+trip\b|\balag\s+trip\b/i;
+// A bare correction telling us the last few turns should have been chained into ONE multi-city journey
+// ("bhai multileg hai") — never itself a new route, just an instruction to reinterpret what's already
+// been said as connected. Must never be silently absorbed by ADD_TRIP_LEG_PATTERN's "continue to" phrasing.
+const MULTILEG_CORRECTION_PATTERN =
+  /\b(?:bhai\s+)?multi[\s-]?(?:leg|city)\s+hai\b|\bye\s+(?:ek\s+)?multi[\s-]?(?:leg|city)\s+(?:trip\s+)?hai\b|\bit'?s\s+(?:a\s+)?multi[\s-]?(?:leg|city)\s+(?:trip|journey)\b|\btreat\s+(?:it|this|ye|isko)\s+as\s+(?:a\s+)?multi[\s-]?(?:leg|city)\b|\bisko\s+multi[\s-]?(?:leg|city)\s+(?:treat\s+)?karo\b|\bthis\s+is\s+multi[\s-]?(?:leg|city)\b/i;
+
+/**
+ * Deterministic classification of how the CURRENT message's route relates to the trip already in
+ * progress — the load-bearing decision behind "should this extend the existing journey, start a brand new
+ * one, or is what I've already said actually one connected trip". Structural continuity (the new leg's
+ * origin matches the currently confirmed destination, or the route returns to the traveler's home city) is
+ * the primary, low-risk signal — deliberately NOT "any destination change is ambiguous", which would
+ * regress the existing, well-tested single-destination-correction flow ("not London, Paris").
+ */
+export type RouteRelationship = "EXTENSION" | "NEW_TRIP" | "MULTILEG_CORRECTION" | "AMBIGUOUS" | "NONE";
+
+export function classifyRouteRelationship(
+  text: string,
+  confirmedDestination: string | null,
+  homeOriginCity: string | null
+): RouteRelationship {
+  if (MULTILEG_CORRECTION_PATTERN.test(text)) return "MULTILEG_CORRECTION";
+  if (NEW_INDEPENDENT_TRIP_PATTERN.test(text)) return "NEW_TRIP";
+  if (ADD_TRIP_LEG_PATTERN.test(text)) return "EXTENSION";
+  // A same-leg destination CORRECTION ("not London, Paris") often mentions the current destination
+  // immediately followed by the new one — structurally identical to a genuine extension ("London se Paris
+  // jana hai"). An explicit negation/correction marker is the deciding signal: never treat it as a route
+  // continuation, however the cities happen to be ordered — the existing destination-correction flow (see
+  // `mergeConfirmedEntities`'s `destinationChanged`) already owns this case correctly.
+  if (/^\s*(?:not|nahi|instead\s+of|actually|galti\s+se|correction[:\s]|i\s+meant)\b/i.test(text)) return "NONE";
+  // Fuzzy on purpose: `KNOWN_DESTINATIONS` only has "delhi", not "new delhi" — a traveler whose stated home
+  // city is "New Delhi" would otherwise never match a later "back to Delhi" mention via strict equality.
+  const sameCity = (a: string, b: string): boolean => {
+    const left = a.toLowerCase();
+    const right = b.toLowerCase();
+    return left === right || left.includes(right) || right.includes(left);
+  };
+  // A one-city "phir wapas Delhi" ("then back to Delhi") never forms a 2-mention chain — it has an implicit
+  // origin (wherever the journey currently is). An explicit return-home marker plus a bare mention of the
+  // home city is enough on its own; never requires a full origin->destination pair.
+  const RETURN_HOME_MARKER_PATTERN = /\b(?:wapas|wapis|vapas|lauta?te?|return(?:ing)?)\b/i;
+  if (homeOriginCity !== null && RETURN_HOME_MARKER_PATTERN.test(text)) {
+    const mentionsHome = findKnownCityMentions(text).some((mention) => sameCity(mention.name, homeOriginCity));
+    if (mentionsHome) return "EXTENSION";
+  }
+  const parsedLegs = parseJourneyLegChain(text);
+  if (parsedLegs.length === 0) return "NONE";
+  const firstLeg = parsedLegs[0];
+  if (!firstLeg) return "NONE";
+  const continuesFromDestination = confirmedDestination !== null && sameCity(firstLeg.origin, confirmedDestination);
+  const returnsHome =
+    homeOriginCity !== null && parsedLegs.some((leg) => sameCity(leg.destination, homeOriginCity));
+  if (continuesFromDestination || returnsHome) return "EXTENSION";
+  // A route was mentioned but doesn't structurally continue from where the journey currently stands — this
+  // could be a genuinely separate trip, or a correction the traveler expects to be connected. Never guess;
+  // ask instead (see the routing priority order's "route-extension/new-trip classification" stage).
+  if (confirmedDestination !== null) return "AMBIGUOUS";
+  return "NONE";
+}
+const SUBMIT_ENQUIRY_PATTERN = /\bsubmit\s+(?:this\s+|the\s+|my\s+)?(?:request|enquiry|inquiry|lead)\b/i;
+const CREATE_LEAD_PATTERN = /\b(?:generate|create|raise|log|capture)\s+(?:my\s+|a\s+|the\s+)?lead\b/i;
+// Matched independently of CREATE_LEAD/SUBMIT_ENQUIRY so a single message that asks for both ("generate
+// lead and ask anyone to call") can be detected as both, even though classifyPlanningAction itself only
+// ever returns one action — see the CREATE_LEAD/SUBMIT_ENQUIRY handling in `complete()`.
+const REQUEST_CALLBACK_PATTERN =
+  /\bcall\s+me\b|\bask\s+(?:anyone|someone|somebody)\s+to\s+call\b|\b(?:request|schedule)\s+a\s+call\s*back\b|\bcall\s*back\s+(?:please|request)\b|\bhave\s+(?:someone|somebody)\s+call\s+me\b|\bget\s+(?:someone|somebody)\s+to\s+call\s+me\b/i;
+
+// A "complete/full/end-to-end" plan asks for everything (flights, hotels, budget, day-wise itinerary) in
+// one go — must win over the plain itinerary pattern below, which only ever covers the day-wise schedule.
+const COMPLETE_TRIP_PLAN_PATTERN =
+  /\bcomplete\s+(?:end[\s-]?to[\s-]?end\s+)?(?:trip\s+)?plan\b|\bend[\s-]?to[\s-]?end\s+(?:trip\s+)?plan\b|\bfull\s+trip\s+plan\b|\bcomplete\s+package\b|\b(?:poora|pura)\s+plan\b|\bflights?\W+hotels?\W+itinerary\s+sab\b/i;
+// Explicit "live/current/real-time" phrasing is the ONLY thing that forces a fresh provider call after a
+// recent failure (see `hasBlockingProviderFailure`) — everything else defaults to indicative recommendations.
+const SEARCH_LIVE_OPTIONS_PATTERN =
+  /\blive\s+options?\b|\bcurrent\s+(?:flight|hotel)\s+(?:prices?|options?|availability)\b|\breal[\s-]?time\s+(?:options?|availability|prices?)\b|\blive\s+availability\b|\bactual\s+availability\b|\blive\s+(?:flights?|hotels?)\b|\blive\s+search\b|\bretry\s+(?:the\s+)?(?:live\s+)?search\b/i;
+export function isExplicitLiveOptionsRequest(text: string): boolean {
+  return SEARCH_LIVE_OPTIONS_PATTERN.test(text);
+}
+const FLIGHT_RECOMMENDATION_PATTERN =
+  /\bflights?\s+recommend|\brecommend\s+(?:me\s+)?(?:some\s+)?flights?\b|\bflight\s+recommendations?\b|\bflights?\s+suggest\b/i;
+const HOTEL_RECOMMENDATION_PATTERN =
+  /\bhotels?\s+recommend|\brecommend\s+(?:me\s+)?(?:some\s+)?hotels?\b|\bhotel\s+recommendations?\b|\bhotels?\s+suggest\b|\bsuggest\s+(?:me\s+)?(?:some\s+)?hotels?\b/i;
+// Generic — no explicit "flight"/"hotel" word — still means "recommend, don't search live"; defaults to
+// GENERATE_FLIGHT_RECOMMENDATIONS since the handler always renders both flight AND hotel guidance together.
+const GENERIC_RECOMMENDATION_PATTERN =
+  /\brecommendations?\s+(?:bhejo|please|send|share|do|dijiye|dena|de\s+do)\b|\bsend\s+(?:me\s+)?(?:some\s+)?recommendations?\b|\bgive\s+me\s+(?:some\s+)?recommendations?\b|\bsuggest\s+(?:me\s+)?(?:a\s+)?(?:complete\s+)?package\b/i;
+// Deliberately distinct from HOTEL_SEARCH_ACTION_PATTERN, mirroring BOOK_FLIGHT_ACTION_PATTERN: a definite
+// go-ahead, including Hinglish SOV phrasing ("hotel book kar do"), not a browse-the-options ask.
+const BOOK_HOTEL_ACTION_PATTERN =
+  /\bbook\s+(?:the\s+|a\s+|my\s+|this\s+)?hotels?\b|\bhotels?\s+book\s+(?:kar\s*(?:do|dena|dijiye|dijiyega)|karo|kijiye|kijiyega)\b|\bbook\s+kar\s*(?:do|dena|dijiye|dijiyega)\s+(?:the\s+)?hotels?\b/i;
+
 // Broad on purpose: natural itinerary asks rarely say the word "itinerary" — "trip wise day optimise",
 // "din ka plan", "day wise plan mera trip" all mean the same thing. Budget/composition must never gate
 // this; it is checked before every other planning action.
 const ITINERARY_ACTION_PATTERN =
-  /\b(day\s*[-]?\s*plan|itinerary|plan\s+(?:my|the|our|mera|humara)?\s*(?:day|din)\b|daily\s+(?:plan|schedule)|schedule\s+for\s+the\s+day|din\s+(?:ka\s+)?plan|din\s*[-]?\s*wise|day\s*[-]?\s*wise|trip\s*[-]?\s*wise|(?:day|din)\b.{0,25}\boptimi[sz]e|optimi[sz]e.{0,25}\b(?:day|din)\b)\b/i;
+  /\b(day\s*[-]?\s*plan|itinerary|plan\s+(?:my|the|our|mera|humara)?\s*(?:day|din)\b|daily\s+(?:plan|schedule)|schedule\s+for\s+the\s+day|din\s+(?:ka\s+)?plan|din\s*[-]?\s*wise|day\s*[-]?\s*wise|trip\s*[-]?\s*wise|day\s*[-]?\s*by\s*[-]?\s*day|day\s+to\s+day|din\s*[-]?\s*(?:by|ba)\s*[-]?\s*din|(?:day|din)\b.{0,25}\boptimi[sz]e|optimi[sz]e.{0,25}\b(?:day|din)\b)\b/i;
 // Deliberately narrower than a bare "\bhotels?\b"/"\bflights?\b": a message that merely mentions a hotel
 // preference ("5-star hotel") or states a budget ("budget of 10000 USD") is not itself a request to search
 // or calculate anything — only an actual ask/search framing should classify as one of these actions.
@@ -203,41 +379,35 @@ const BOOK_FLIGHT_ACTION_PATTERN =
 const FLIGHT_SEARCH_ACTION_PATTERN =
   /\b(search|show|find|see|check)\s+(?:me\s+)?(?:some\s+)?flights?\b|\bflights?\s+(?:options?|please)\b|\bwhich\s+flights?\b|\bflights?\s+(?:batao|dikhao)\b/i;
 const BUDGET_ACTION_PATTERN =
-  /\b(what(?:'s| is) (?:the |my )?budget|how much (?:will|does|is)|package\s+cost|total\s+cost|cost\s+of\s+(?:the\s+)?(?:trip|package)|budget\s+(?:kitna|batao|check)|calculate\s+(?:the\s+)?budget|check\s+(?:the\s+)?budget)\b/i;
+  /\b(what(?:'s| is) (?:the |my )?budget|how much (?:will|does|is)|package\s+cost|total\s+cost|cost\s+of\s+(?:the\s+)?(?:trip|package)|(?:total\s+)?budget\s+(?:kitna|batao|btao|check)|calculate\s+(?:the\s+)?budget|(?:you\s+)?estimate\s+(?:the\s+|my\s+|our\s+)?(?:total\s+)?(?:trip\s+)?budget|check\s+(?:the\s+)?budget|kharch\w*\s+(?:batao|kitna|kitni|bta\s*(?:o|do))|total\s+kharch\w*)\b/i;
+// Explicit "the whole journey, not just the active leg" budget ask — checked ahead of the plain
+// BUDGET_ACTION_PATTERN. A plain budget ask (or "you suggest the budget") is ALSO reclassified to
+// CALCULATE_JOURNEY_BUDGET, but only once a multi-leg journey actually exists — see the stateful
+// reclassification in `complete()`, since that decision needs `this.journey`, not just the raw text.
+const JOURNEY_BUDGET_PATTERN =
+  /\b(?:full|total|overall|entire|whole|complete)\s+(?:trip|journey)\s+budget\b|\bjourney\s+budget\b|\bestimate\s+(?:the\s+)?(?:full|entire|whole|complete)?\s*(?:trip|journey)\s+budget\b|\bbudget\s+for\s+(?:the\s+)?(?:full|entire|whole|complete)\s+(?:trip|journey)\b/i;
+// "kis date ko Delhi land karunga", "mai kis din wapas aungi", "when will I land/arrive/be back" — a
+// conversation-state question about the journey's own final arrival date, answered directly from
+// structured journey state (see `projectJourneyReturnDate`), never routed to RAG/knowledge search.
+const RETURN_DATE_QUESTION_PATTERN =
+  /\b(?:kis|which)\s+(?:date|din)\b.{0,25}\b(?:wapas|wapis|vapas|land\w*|arriv\w*|reach\w*|pahunch\w*)\b|\bwhen\s+(?:will\s+i|do\s+i|would\s+i|can\s+i)\b.{0,25}\b(?:land|arrive|reach|return|be\s+back)\b|\bwapas\s+(?:kab|kis\s+din)\b|\bkab\s+wapas\b|\breturn\s+date\b|\bfinal\s+arrival\s+date\b/i;
 const ATTRACTIONS_ACTION_PATTERN =
   /\b(ghumne\s+layak|ghumne\s+ke\s+liye|ghumna\s+chahiye|kaha\s+ghum\w*|places?\s+to\s+(?:see|visit)|sightseeing|attractions?|things?\s+to\s+do|what\s+(?:all\s+)?(?:is|are)\s+(?:worth\s+)?(?:seeing|visiting|there\s+to\s+do))\b/i;
 const FOOD_ACTION_PATTERN = /\b(food|restaurants?|cuisine|where\s+to\s+eat|khane\s+ke\s+liye|khana)\b/i;
 const TRANSPORT_ACTION_PATTERN =
   /\b(transport(?:ation)?|getting\s+around|local\s+travel|commute|taxi|metro|train\s+pass)\b/i;
 
-const CURRENCY_WORD_TO_CODE: Record<string, string> = {
-  inr: "INR",
-  rupee: "INR",
-  rupees: "INR",
-  usd: "USD",
-  dollar: "USD",
-  dollars: "USD",
-  eur: "EUR",
-  euro: "EUR",
-  euros: "EUR",
-  gbp: "GBP",
-  pound: "GBP",
-  pounds: "GBP"
-};
-const CURRENCY_CONVERSION_PATTERN =
-  /\b(?:give(?:\s+it)?\s+in|show(?:\s+it)?\s+in|tell\s+me\s+in|convert(?:\s+it)?\s+to|batao\s+in)\s+(inr|usd|eur|gbp|rupees?|dollars?|euros?|pounds?)\b|\b(inr|usd|eur|gbp|rupees?)\s+me(?:in)?\s+batao\b/i;
+const currencyService = new CurrencyService();
 
 /**
  * Deterministic detection of an explicit request to convert the last shown estimate to a different
- * currency ("give in INR", "INR me batao", "convert to rupees") — this is never a request for a new
- * budget amount, and must never be confused with `detectBudgetModeSignal` or the plain CALCULATE_BUDGET ask.
+ * currency ("give in INR", "INR me batao", "convert to dirhams") — this is never a request for a new
+ * budget amount, and must never be confused with `detectBudgetModeSignal` or the plain CALCULATE_BUDGET
+ * ask. Thin delegation to the standalone {@link CurrencyService} — see `currency.service.ts`.
  */
 export function detectCurrencyConversionRequest(text: string): { targetCurrency: string } | null {
-  const match = CURRENCY_CONVERSION_PATTERN.exec(text);
-  if (!match) return null;
-  const word = (match[1] ?? match[2] ?? "").toLowerCase();
-  const code = CURRENCY_WORD_TO_CODE[word];
-  return code ? { targetCurrency: code } : null;
+  const currency = currencyService.detectRequestedCurrency(text);
+  return currency ? { targetCurrency: currency } : null;
 }
 
 /**
@@ -247,14 +417,33 @@ export function detectCurrencyConversionRequest(text: string): { targetCurrency:
  * "reduce hotel cost") is deliberately excluded here — that has its own dedicated, more specific flow.
  */
 export function classifyPlanningAction(text: string): TravelPlanningAction {
+  // Business-workflow commands always win — checked before anything else, including itinerary/booking asks.
+  if (ADD_TRIP_LEG_PATTERN.test(text)) return "ADD_TRIP_LEG";
+  if (SUBMIT_ENQUIRY_PATTERN.test(text)) return "SUBMIT_ENQUIRY";
+  if (CREATE_LEAD_PATTERN.test(text)) return "CREATE_LEAD";
+  if (REQUEST_CALLBACK_PATTERN.test(text)) return "REQUEST_CALLBACK";
+  // A "complete/full/end-to-end" plan ask must never be read as only GENERATE_ITINERARY (a day-wise
+  // schedule is just one section of it) — checked first between the two.
+  if (COMPLETE_TRIP_PLAN_PATTERN.test(text)) return "GENERATE_COMPLETE_TRIP_PLAN";
   if (ITINERARY_ACTION_PATTERN.test(text)) return "GENERATE_ITINERARY";
   // A booking go-ahead is a stronger, more definite intent than a browse/search ask — must be checked
   // before the generic flight-search pattern so it is never miscategorized as a mere options request.
   if (BOOK_FLIGHT_ACTION_PATTERN.test(text)) return "BOOK_FLIGHT";
+  if (BOOK_HOTEL_ACTION_PATTERN.test(text)) return "BOOK_HOTEL";
+  // Explicit "live/current" phrasing always means a real provider call — checked before the recommendation
+  // patterns below so it's never softened into an indicative-only reply.
+  if (SEARCH_LIVE_OPTIONS_PATTERN.test(text)) return "SEARCH_LIVE_OPTIONS";
   if (detectCurrencyConversionRequest(text)) return "CONVERT_ESTIMATE_CURRENCY";
   if (isHotelBudgetModificationRequest(text)) return null;
+  // "Recommend"/"suggest"/"send recommendations" phrasing means indicative guidance, never a live search —
+  // checked before HOTEL_SEARCH_ACTION_PATTERN/FLIGHT_SEARCH_ACTION_PATTERN, whose own "search/show/find/see/
+  // check" wording is what still means an actual live search.
+  if (FLIGHT_RECOMMENDATION_PATTERN.test(text)) return "GENERATE_FLIGHT_RECOMMENDATIONS";
+  if (HOTEL_RECOMMENDATION_PATTERN.test(text)) return "GENERATE_HOTEL_RECOMMENDATIONS";
+  if (GENERIC_RECOMMENDATION_PATTERN.test(text)) return "GENERATE_FLIGHT_RECOMMENDATIONS";
   if (HOTEL_SEARCH_ACTION_PATTERN.test(text)) return "SEARCH_HOTELS";
   if (FLIGHT_SEARCH_ACTION_PATTERN.test(text)) return "SEARCH_FLIGHTS";
+  if (JOURNEY_BUDGET_PATTERN.test(text)) return "CALCULATE_JOURNEY_BUDGET";
   if (BUDGET_ACTION_PATTERN.test(text)) return "CALCULATE_BUDGET";
   if (ATTRACTIONS_ACTION_PATTERN.test(text)) return "RECOMMEND_ATTRACTIONS";
   if (FOOD_ACTION_PATTERN.test(text)) return "RECOMMEND_FOOD";
@@ -268,6 +457,277 @@ export function classifyPlanningAction(text: string): TravelPlanningAction {
  * conversation back to English (see {@link detectResponseLanguage} and its upgrade-only merge).
  */
 export type TravelResponseLanguage = "ENGLISH" | "HINDI" | "HINGLISH";
+
+export type TravelPendingInputAction =
+  | "AWAITING_LEAD_CONTACT"
+  | "AWAITING_LEAD_CONSENT"
+  | "CONFIRM_STANDALONE_CONTACT_USE"
+  | "AWAITING_PASSENGER_COMPOSITION"
+  | "AWAITING_TRAVEL_YEAR"
+  | null;
+
+export type ResolvedTravelInput =
+  | { kind: "PENDING_CONTACT"; contact: string }
+  | { kind: "PENDING_CONTACT_NON_CONTACT" }
+  | { kind: "PENDING_CONTACT_PAUSED" }
+  | { kind: "INVALID_CONTACT_ATTEMPT" }
+  | { kind: "STANDALONE_CONTACT"; contact: string }
+  | { kind: "STANDALONE_CONTACT_CONFIRMED"; contact: string }
+  | { kind: "STANDALONE_CONTACT_DECLINED" }
+  | { kind: "EXPLICIT_INTENT"; action: Exclude<TravelPlanningAction, null> }
+  | { kind: "DATE_INPUT" }
+  | { kind: "PASSENGER_INPUT" }
+  | { kind: "BUDGET_INPUT" }
+  | { kind: "GENERIC_NUMERIC" }
+  | { kind: "LLM_FALLBACK" };
+
+export type ConversationTurnIntent =
+  | "PROVIDE_CONTACT"
+  | "CONFIRM_STANDALONE_CONTACT_USE"
+  | "DECLINE_STANDALONE_CONTACT_USE"
+  | "PAUSE_PENDING_ACTION"
+  | "ACKNOWLEDGEMENT"
+  | "PROVIDE_DATE"
+  | "PROVIDE_PASSENGER_COMPOSITION"
+  | "PROVIDE_BUDGET"
+  | "GENERIC_NUMERIC"
+  | "EXPLICIT_TRAVEL_ACTION"
+  | "SEMANTIC_CLASSIFICATION_REQUIRED";
+
+export type ConversationTurnDecision = {
+  intent: ConversationTurnIntent;
+  entities: Record<string, unknown>;
+  answersPendingAction: boolean;
+  supersedesPendingAction: boolean;
+  preservePendingAction: boolean;
+  confidence: number;
+  source: "DETERMINISTIC" | "LLM";
+  planningAction?: Exclude<TravelPlanningAction, null>;
+};
+
+export type ConversationTurnContext = {
+  pendingInputAction?: TravelPendingInputAction;
+  pendingContactValue?: string | null;
+  tripState?: TravelEntities;
+  lastAssistantQuestion?: string | null;
+  conversationClosed?: boolean;
+  currentLeadState?: "NONE" | "PENDING" | "CREATED" | null;
+};
+
+const EMAIL_CONTACT_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+const PHONE_LIKE_PATTERN = /^\s*\+?[\d\s().-]{10,20}\s*$/;
+
+export function extractContactValue(text: string): string | null {
+  return extractPhoneNumber(text) ?? EMAIL_CONTACT_PATTERN.exec(text)?.[0] ?? null;
+}
+
+export function looksLikePhoneOrContact(text: string): boolean {
+  return extractContactValue(text) !== null || PHONE_LIKE_PATTERN.test(text);
+}
+
+/**
+ * Central arbitration boundary for every Travel Employee turn.
+ *
+ * A typed pending action is evidence about what the assistant expects, never an exclusive lock on the
+ * next message. Explicit requests and corrections are therefore resolved before checking whether the
+ * message actually answers the pending question. Ambiguous turns are deliberately returned to semantic
+ * classification without mutating state; execution remains deterministic after classification.
+ */
+export function arbitrateConversationTurn(
+  text: string,
+  context: ConversationTurnContext
+): ConversationTurnDecision {
+  const planningAction = classifyPlanningAction(text);
+  if (planningAction)
+    return {
+      intent: "EXPLICIT_TRAVEL_ACTION",
+      entities: {},
+      answersPendingAction: false,
+      supersedesPendingAction: false,
+      preservePendingAction: context.pendingInputAction != null,
+      confidence: 1,
+      source: "DETERMINISTIC",
+      planningAction
+    };
+
+  const contact = extractContactValue(text);
+  if (contact)
+    return {
+      intent:
+        context.pendingInputAction === "CONFIRM_STANDALONE_CONTACT_USE"
+          ? "SEMANTIC_CLASSIFICATION_REQUIRED"
+          : "PROVIDE_CONTACT",
+      entities: { contact },
+      answersPendingAction: context.pendingInputAction === "AWAITING_LEAD_CONTACT",
+      supersedesPendingAction:
+        context.pendingInputAction != null &&
+        context.pendingInputAction !== "AWAITING_LEAD_CONTACT",
+      preservePendingAction: false,
+      confidence: 1,
+      source: "DETERMINISTIC"
+    };
+
+  if (context.pendingInputAction === "CONFIRM_STANDALONE_CONTACT_USE") {
+    if (isAffirmativeResponse(text) && context.pendingContactValue)
+      return {
+        intent: "CONFIRM_STANDALONE_CONTACT_USE",
+        entities: { contact: context.pendingContactValue },
+        answersPendingAction: true,
+        supersedesPendingAction: false,
+        preservePendingAction: false,
+        confidence: 1,
+        source: "DETERMINISTIC"
+      };
+    if (isNegativeResponse(text) || isFarewellMessage(text))
+      return {
+        intent: "DECLINE_STANDALONE_CONTACT_USE",
+        entities: {},
+        answersPendingAction: true,
+        supersedesPendingAction: false,
+        preservePendingAction: false,
+        confidence: 1,
+        source: "DETERMINISTIC"
+      };
+  }
+
+  const dateInput =
+    parsePendingDepartureDate(text) !== null ||
+    extractTravelMonth(text) !== null ||
+    /\b\d{1,2}(?:st|nd|rd|th)?[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(text);
+  if (dateInput)
+    return {
+      intent: "PROVIDE_DATE",
+      entities: {},
+      answersPendingAction: context.pendingInputAction === "AWAITING_TRAVEL_YEAR",
+      supersedesPendingAction: false,
+      preservePendingAction:
+        context.pendingInputAction != null &&
+        context.pendingInputAction !== "AWAITING_TRAVEL_YEAR",
+      confidence: 0.98,
+      source: "DETERMINISTIC"
+    };
+
+  const passengerInput =
+    !looksLikePhoneOrContact(text) &&
+    /\b(?:\d{1,2}\s*(?:adults?|children?|child|kids?|infants?|travell?ers?|people|pax)|(?:adults?|children?|kids?|infants?)\s*\d{1,2})\b/i.test(
+      text
+    );
+  if (passengerInput)
+    return {
+      intent: "PROVIDE_PASSENGER_COMPOSITION",
+      entities: {},
+      answersPendingAction: context.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION",
+      supersedesPendingAction: false,
+      preservePendingAction:
+        context.pendingInputAction != null &&
+        context.pendingInputAction !== "AWAITING_PASSENGER_COMPOSITION",
+      confidence: 0.98,
+      source: "DETERMINISTIC"
+    };
+
+  if (extractBudget(text) || currencyService.detectPreference(text))
+    return {
+      intent: "PROVIDE_BUDGET",
+      entities: {},
+      answersPendingAction: false,
+      supersedesPendingAction: false,
+      preservePendingAction: context.pendingInputAction != null,
+      confidence: 0.98,
+      source: "DETERMINISTIC"
+    };
+
+  if (context.pendingInputAction === "AWAITING_LEAD_CONTACT") {
+    if (looksLikePhoneOrContact(text))
+      return {
+        intent: "PROVIDE_CONTACT",
+        entities: { invalidContactAttempt: true },
+        answersPendingAction: true,
+        supersedesPendingAction: false,
+        preservePendingAction: true,
+        confidence: 1,
+        source: "DETERMINISTIC"
+      };
+    if (isNegativeResponse(text) && !isFarewellMessage(text))
+      return {
+        intent: "PAUSE_PENDING_ACTION",
+        entities: {},
+        answersPendingAction: true,
+        supersedesPendingAction: false,
+        preservePendingAction: false,
+        confidence: 1,
+        source: "DETERMINISTIC"
+      };
+    if (isFarewellMessage(text))
+      return {
+        intent: "ACKNOWLEDGEMENT",
+        entities: {},
+        answersPendingAction: false,
+        supersedesPendingAction: false,
+        preservePendingAction: true,
+        confidence: 1,
+        source: "DETERMINISTIC"
+      };
+  }
+
+  if (/^\s*\d+(?:\.\d+)?\s*$/.test(text))
+    return {
+      intent: "GENERIC_NUMERIC",
+      entities: {},
+      answersPendingAction:
+        context.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION" ||
+        context.pendingInputAction === "AWAITING_TRAVEL_YEAR",
+      supersedesPendingAction: false,
+      preservePendingAction: false,
+      confidence: 0.9,
+      source: "DETERMINISTIC"
+    };
+
+  return {
+    intent: "SEMANTIC_CLASSIFICATION_REQUIRED",
+    entities: {},
+    answersPendingAction: false,
+    supersedesPendingAction: false,
+    preservePendingAction: context.pendingInputAction != null,
+    confidence: 0,
+    source: "LLM"
+  };
+}
+
+export function resolveTravelInput(
+  text: string,
+  state: ConversationTurnContext
+): ResolvedTravelInput {
+  const decision = arbitrateConversationTurn(text, state);
+  if (decision.intent === "EXPLICIT_TRAVEL_ACTION" && decision.planningAction)
+    return { kind: "EXPLICIT_INTENT", action: decision.planningAction };
+  if (decision.intent === "PROVIDE_CONTACT") {
+    if (decision.entities.invalidContactAttempt) return { kind: "INVALID_CONTACT_ATTEMPT" };
+    const contact = decision.entities.contact;
+    if (typeof contact === "string")
+      return decision.answersPendingAction
+        ? { kind: "PENDING_CONTACT", contact }
+        : { kind: "STANDALONE_CONTACT", contact };
+  }
+  if (
+    decision.intent === "CONFIRM_STANDALONE_CONTACT_USE" &&
+    typeof decision.entities.contact === "string"
+  )
+    return { kind: "STANDALONE_CONTACT_CONFIRMED", contact: decision.entities.contact };
+  if (decision.intent === "DECLINE_STANDALONE_CONTACT_USE")
+    return { kind: "STANDALONE_CONTACT_DECLINED" };
+  if (decision.intent === "ACKNOWLEDGEMENT") return { kind: "PENDING_CONTACT_NON_CONTACT" };
+  if (decision.intent === "PAUSE_PENDING_ACTION") return { kind: "PENDING_CONTACT_PAUSED" };
+  if (decision.intent === "PROVIDE_DATE") return { kind: "DATE_INPUT" };
+  if (decision.intent === "PROVIDE_PASSENGER_COMPOSITION") return { kind: "PASSENGER_INPUT" };
+  if (decision.intent === "PROVIDE_BUDGET") return { kind: "BUDGET_INPUT" };
+  if (decision.intent === "GENERIC_NUMERIC") {
+    if (state.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION")
+      return { kind: "PASSENGER_INPUT" };
+    if (state.pendingInputAction === "AWAITING_TRAVEL_YEAR") return { kind: "DATE_INPUT" };
+    return { kind: "GENERIC_NUMERIC" };
+  }
+  return { kind: "LLM_FALLBACK" };
+}
 
 const DEVANAGARI_PATTERN = /[ऀ-ॿ]/;
 /** Romanized Hindi function/marker words — presence of any (as a whole word) signals Hinglish. */
@@ -315,6 +775,9 @@ export interface TravelConversationMemory {
   lastAskedField: string | null;
   budgetMode: TravelBudgetMode;
   pendingAction: TravelPendingAction;
+  pendingInputAction?: TravelPendingInputAction;
+  pendingContactValue?: string | null;
+  conversationClosed?: boolean;
   responseLanguage: TravelResponseLanguage;
   /**
    * True once the traveler has been shown the BELOW_MINIMUM feasibility explanation at least once.
@@ -327,7 +790,60 @@ export interface TravelConversationMemory {
   lastBudgetEstimate: StoredBudgetEstimate | null;
   /** A passenger-composition breakdown awaiting reconciliation against a previously stated total. */
   pendingPassengerConflict: PendingPassengerConflict | null;
+  pendingDepartureDate?: PendingDepartureDate | null;
+  /** The multi-leg trip this conversation is planning, if any leg has ever been finalized — see {@link Journey}. */
+  journey: Journey | null;
+  /** The most recent itinerary text actually generated, if any — captured into a leg when it is finalized. */
+  lastGeneratedItinerary: string | null;
+  /** The most recent live-provider failure, if one hasn't yet been retried — see {@link ProviderFailureRecord}. */
+  providerFailure: ProviderFailureRecord | null;
+  /** Where this conversation is in the Conversation Completion & Lead Capture flow — see
+   * {@link ConversationCompletionStage} and `apps/api/src/conversation/conversation-completion.ts`. */
+  completionStage: ConversationCompletionStage;
+  /** The reference of the {@link TravelLead} captured for this conversation, if any. */
+  capturedLeadReference: string | null;
+  /** The traveler's chosen DISPLAY currency for cost figures — deliberately separate from the trip's
+   * `budgetCurrency` (the original budget constraint, e.g. INR 50,000): a "share in USD" request only
+   * changes how amounts are shown, never the underlying budget. Null until the traveler asks for one. */
+  displayCurrency: string | null;
+  /**
+   * Set when `classifyRouteRelationship` returns "AMBIGUOUS" — the traveler mentioned a route that neither
+   * structurally continues the current journey nor states outright that it's a new trip. `originalMessage`
+   * is kept so the answer ("same trip" / "separate trip") can be applied to the route actually described,
+   * without asking the traveler to repeat themselves. A bare Hinglish affirmative ("ji"/"haan") must NEVER
+   * resolve this by itself — see the routing priority order's "resolve active clarification" stage.
+   */
+  pendingRouteClarification: { originalMessage: string; fromDestination: string | null; toDestination: string | null } | null;
 }
+
+/**
+ * A live flight/hotel provider call that failed, kept so a later VAGUE follow-up ("recommendations bhejo",
+ * a bare "yes") doesn't blindly retry the same broken call — only an explicit "live/current" ask, or a
+ * fresh explicit SEARCH_FLIGHTS/SEARCH_HOTELS/BOOK_FLIGHT/BOOK_HOTEL request, does. `provider` is the tool
+ * name that failed; `retryable` is currently always true (every failure here is a transient technical one,
+ * never a permanent business result — those are handled separately via BELOW_MINIMUM feasibility).
+ */
+export interface ProviderFailureRecord {
+  failedAction: "SEARCH_LIVE_OPTIONS" | "BOOK_FLIGHT" | "BOOK_HOTEL";
+  provider: string;
+  failedAt: string;
+  retryable: boolean;
+  /** Which of the three recovery-menu options the traveler picked, if any — see {@link ProviderFailureRecoverySelection}. */
+  selectedRecoveryAction: ProviderFailureRecoverySelection | null;
+  /**
+   * Whether a bare "1"/"2"/"3" reply should still be interpreted as a recovery-menu pick right now. Starts
+   * true when the menu is shown; set false the moment ANY other explicit planning action fires (the
+   * traveler has moved on) or once `menuExpiresAt` has passed — whichever comes first. `providerFailure`
+   * itself is NOT cleared when this goes false: the broader "don't blindly retry a known-broken provider"
+   * gate must keep working even after the numeric-reply window has closed.
+   */
+  menuActive: boolean;
+  /** ISO timestamp after which a bare digit reply is no longer treated as a menu pick, even if still active. */
+  menuExpiresAt: string;
+}
+
+/** The three choices offered after a provider failure — see {@link buildProviderFailureRecoveryOffer}. */
+export type ProviderFailureRecoverySelection = "INDICATIVE_RECOMMENDATIONS" | "RETRY_LIVE_SEARCH" | "CALLBACK";
 
 /**
  * A composition breakdown that didn't add up to a previously confirmed total headcount, kept as a
@@ -341,16 +857,112 @@ export interface PendingPassengerConflict {
   candidateInfants: number | null;
 }
 
+/**
+ * The business-workflow status of a {@link Journey}. The orchestrator itself only ever advances a journey
+ * as far as `ENQUIRY_SUBMITTED` (submitting it to the CRM) — `SALES_ASSIGNED`, `BOOKED`, and `COMPLETED` are
+ * downstream states a human sales/ops workflow sets later (e.g. via the CRM), not something a single
+ * conversational turn can determine; the type still models them so a consumer of a persisted `Journey`
+ * record has a single, complete status vocabulary to switch on.
+ */
+export type JourneyStatus =
+  | "DRAFT"
+  | "PLANNING"
+  | "ESTIMATE_READY"
+  | "ENQUIRY_SUBMITTED"
+  | "SALES_ASSIGNED"
+  | "BOOKED"
+  | "COMPLETED";
+
+/** One leg's dates — kept as its own shape (rather than flattened) so a leg reads as a self-contained record. */
+export interface JourneyLegDates {
+  travelMonth: string | null;
+  departureDate: string | null;
+  returnDate: string | null;
+  /**
+   * True only when `departureDate` was derived from a prior leg's date + stay duration (see
+   * `deriveNextLegDepartureDate`), never stated outright by the traveler — must stay visible wherever this
+   * leg's date is shown, per the "clearly label derived dates as assumptions" requirement. Older persisted
+   * journeys predate this field and are read back as `false` (a safe "treat as stated" default — there is
+   * no way to recover which of those dates were actually assumptions after the fact).
+   */
+  departureDateIsAssumption: boolean;
+}
+export interface JourneyLegDuration {
+  days: number | null;
+  nights: number | null;
+}
+export interface JourneyLegPassengers {
+  adults: number | null;
+  children: number | null;
+  infants: number | null;
+  totalTravellers: number | null;
+}
+export interface JourneyLegBudget {
+  amount: number | null;
+  currency: string | null;
+}
+
+/**
+ * One origin-to-destination leg of a multi-leg {@link Journey} — everything specific to that single trip
+ * segment. Traveler-identity facts that carry across every leg (home departure city, cabin/hotel
+ * preferences) live on `Journey.travellerProfile` instead, not duplicated per leg.
+ */
+export interface JourneyLeg {
+  /** 1-indexed position within `Journey.legs` — kept as an explicit field (not just array order) per spec. */
+  sequence: number;
+  origin: string | null;
+  destination: string | null;
+  dates: JourneyLegDates;
+  duration: JourneyLegDuration;
+  passengers: JourneyLegPassengers;
+  budget: JourneyLegBudget;
+  itinerary: string | null;
+  estimates: StoredBudgetEstimate | null;
+  destinationRole?: "STAY_DESTINATION" | "CONNECTION" | "FINAL_RETURN";
+}
+
+/** Traveler-identity facts shared across every leg of a {@link Journey}. */
+export interface JourneyTravellerProfile {
+  originCity: string | null;
+  cabinClass: string | null;
+  hotelStars: number | null;
+  preferences: string[];
+}
+
+/**
+ * A traveler's full, potentially multi-leg trip — created lazily the first time a leg is finalized (via
+ * ADD_TRIP_LEG) or a lead is captured for a single-leg trip that was never split.
+ */
+export interface Journey {
+  id: string;
+  /** Monotonic structural revision; increments only when a leg or destination stay actually changes. */
+  version?: number;
+  travellerProfile: JourneyTravellerProfile;
+  status: JourneyStatus;
+  legs: JourneyLeg[];
+}
+
 export const EMPTY_TRAVEL_CONVERSATION_MEMORY: TravelConversationMemory = {
   confirmation: EMPTY_TRAVEL_ENTITY_CONFIRMATION,
   pendingClarification: null,
   lastAskedField: null,
   budgetMode: "UNKNOWN",
   pendingAction: null,
+  pendingInputAction: null,
+  pendingContactValue: null,
+  conversationClosed: false,
   responseLanguage: "ENGLISH",
   budgetDiscussionCompleted: false,
   lastBudgetEstimate: null,
-  pendingPassengerConflict: null
+  pendingPassengerConflict: null,
+  pendingDepartureDate: null,
+  journey: null,
+  lastGeneratedItinerary: null,
+  providerFailure: null,
+  completionStage: "NOT_OFFERED",
+  capturedLeadReference: null,
+  displayCurrency: null,
+  pendingRouteClarification: null
 };
 
 export interface TravelEmployeeRuntimeConfig {
@@ -368,7 +980,7 @@ export interface TravelEmployeeRuntimeConfig {
 export const DEFAULT_TRAVEL_EMPLOYEE_CONFIG: TravelEmployeeRuntimeConfig = {
   persona:
     "A friendly, efficient AI travel consultant who plans trips without ever claiming to complete a real booking.",
-  welcomeMessage: "Hi! I'm your AI travel assistant. Where would you like to travel to?",
+  welcomeMessage: "Hi \u{1F44B}, I am your travel companion. May I know your name, please?",
   escalationContact: "support@ai-workforce-os.example",
   brandTone: "FRIENDLY",
   defaultCurrency: "USD",
@@ -454,8 +1066,310 @@ const KNOWN_DESTINATIONS = [
   "perth",
   "brisbane",
   "auckland",
-  "new delhi"
+  "new delhi",
+  "washington",
+  "kolkata",
+  "chennai",
+  "hyderabad",
+  "pune",
+  "ahmedabad",
+  "kochi"
 ];
+
+/**
+ * City -> country, for domestic/international travel classification (see `isDomesticTrip`). Keyed by the
+ * same lowercase spellings as `KNOWN_DESTINATIONS`. A city missing from this map classifies as unknown
+ * (`countryOf` returns null) rather than guessed — `isDomesticTrip` only ever returns true when BOTH
+ * cities are positively known to be in the same country, so an unrecognized city never causes a domestic
+ * trip to be misclassified as domestic (the safer default, matching the pre-existing international-style
+ * estimate, is preserved when classification is uncertain).
+ */
+const CITY_COUNTRY: Record<string, string> = {
+  dubai: "UAE",
+  paris: "France",
+  london: "UK",
+  "new york": "USA",
+  tokyo: "Japan",
+  singapore: "Singapore",
+  bali: "Indonesia",
+  goa: "India",
+  kerala: "India",
+  manali: "India",
+  rome: "Italy",
+  bangkok: "Thailand",
+  istanbul: "Turkey",
+  maldives: "Maldives",
+  bangalore: "India",
+  mumbai: "India",
+  delhi: "India",
+  amsterdam: "Netherlands",
+  barcelona: "Spain",
+  sydney: "Australia",
+  "cape town": "South Africa",
+  zurich: "Switzerland",
+  vienna: "Austria",
+  prague: "Czechia",
+  lisbon: "Portugal",
+  phuket: "Thailand",
+  "kuala lumpur": "Malaysia",
+  "hong kong": "Hong Kong",
+  seoul: "South Korea",
+  "san francisco": "USA",
+  "los angeles": "USA",
+  miami: "USA",
+  toronto: "Canada",
+  dublin: "Ireland",
+  edinburgh: "UK",
+  venice: "Italy",
+  milan: "Italy",
+  santorini: "Greece",
+  mykonos: "Greece",
+  jaipur: "India",
+  udaipur: "India",
+  shimla: "India",
+  darjeeling: "India",
+  ooty: "India",
+  munnar: "India",
+  andaman: "India",
+  adelaide: "Australia",
+  melbourne: "Australia",
+  perth: "Australia",
+  brisbane: "Australia",
+  auckland: "New Zealand",
+  "new delhi": "India",
+  washington: "USA",
+  kolkata: "India",
+  chennai: "India",
+  hyderabad: "India",
+  pune: "India",
+  ahmedabad: "India",
+  kochi: "India"
+};
+
+/** Looks up a city's country from the curated catalog above — case/whitespace-insensitive, returns null
+ * for an unrecognized city rather than guessing. */
+export function countryOf(city: string | null): string | null {
+  if (!city) return null;
+  return CITY_COUNTRY[city.trim().toLowerCase()] ?? null;
+}
+
+/**
+ * True only when both the origin and destination city are positively known to be in the same country —
+ * this is what gates Visa/Insurance out of a budget estimate (see `estimateBudgetRange`). Deliberately
+ * conservative: an unknown origin or destination never yields `true`, so an unrecognized city cannot
+ * cause a genuinely international trip to be under-estimated by silently dropping Visa/Insurance.
+ */
+export function isDomesticTrip(originCity: string | null, destinationCity: string | null): boolean {
+  const originCountry = countryOf(originCity);
+  const destinationCountry = countryOf(destinationCity);
+  return originCountry !== null && destinationCountry !== null && originCountry === destinationCountry;
+}
+
+// Words a bare short reply must never be read as a name — trip vocabulary, months, days, common
+// acknowledgements — so a standalone answer like "August" (replying to a dates question) or "Yes" is never
+// misread as a self-introduction. Known destination cities are excluded separately, via KNOWN_DESTINATIONS.
+const NAME_STOPWORDS = new Set([
+  "yes",
+  "no",
+  "ok",
+  "okay",
+  "sure",
+  "fine",
+  "done",
+  "later",
+  "hi",
+  "hello",
+  "hey",
+  "thanks",
+  "thank",
+  "you",
+  ...MONTHS,
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+  "morning",
+  "evening",
+  "afternoon",
+  "night",
+  "noon",
+  "usd",
+  "inr",
+  "eur",
+  "gbp",
+  "aed",
+  "dollars",
+  "rupees",
+  "euros",
+  "pounds",
+  "dirhams",
+  "business",
+  "economy",
+  "first",
+  "premium",
+  "flight",
+  "flights",
+  "hotel",
+  "hotels",
+  "budget",
+  "adult",
+  "adults",
+  "child",
+  "children",
+  "infant",
+  "infants",
+  "domestic",
+  "international",
+  "solo",
+  "couple",
+  "family",
+  "friends",
+  "group",
+  "confirm",
+  "confirmed",
+  "cancel",
+  "book",
+  "proceed",
+  "continue",
+  "start",
+  "stop",
+  "help",
+  "wait",
+  "maybe",
+  "please",
+  "yeah",
+  "yep",
+  "nope",
+  "correct",
+  "right",
+  "wrong",
+  "skip",
+  "next",
+  "back",
+  "menu"
+]);
+
+/** Explicit self-introduction phrasing — the strongest, least ambiguous signal, checked first. */
+const NAME_INTRO_PATTERN =
+  /\b(?:my name is|i am called|call me|this is|naam)\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})/i;
+// "I'm X" / "I am X" is only a name when X isn't a verb/adjective continuing the sentence
+// ("I'm planning...", "I'm interested...") — filtered by NAME_IM_NON_MATCHES below.
+const NAME_IM_PATTERN = /\bi\s*(?:'m|am)\s+([A-Za-z][A-Za-z'-]*)\b/i;
+const NAME_IM_NON_MATCHES = new Set([
+  "planning",
+  "looking",
+  "trying",
+  "going",
+  "interested",
+  "not",
+  "sure",
+  "happy",
+  "excited",
+  "travelling",
+  "traveling",
+  "here",
+  "back",
+  "new",
+  "done",
+  "ready",
+  "thinking",
+  "wondering",
+  "flexible",
+  "open",
+  "still"
+]);
+
+// Words that end a name capture even mid-match — "My name is Krishna and I want to visit Delhi" must
+// yield "Krishna", not "Krishna and I" (the regex alone has no notion of where the name phrase ends).
+const NAME_CAPTURE_STOP_WORDS = new Set([
+  ...NAME_STOPWORDS,
+  "and",
+  "but",
+  "or",
+  "so",
+  "because",
+  "who",
+  "which",
+  "that",
+  "to",
+  "for",
+  "from",
+  "is",
+  "am",
+  "are",
+  "was",
+  "i",
+  "my",
+  "want",
+  "wants",
+  "wanting",
+  "need",
+  "needs",
+  "needing",
+  "looking",
+  "travelling",
+  "traveling",
+  "here",
+  "planning"
+]);
+
+/** Truncates a raw regex name capture at the first word that isn't actually part of the name. */
+function trimNameCapture(raw: string): string {
+  const words = raw.trim().split(/\s+/);
+  const kept: string[] = [];
+  for (const word of words) {
+    if (NAME_CAPTURE_STOP_WORDS.has(word.toLowerCase())) break;
+    kept.push(word);
+  }
+  return (kept.length ? kept : words.slice(0, 1)).join(" ");
+}
+
+/**
+ * A bare 1-3 word alphabetic reply (no digits, no trip/date/currency vocabulary, not a known destination
+ * city) is read as a direct answer to "may I know your name?" — the only context this heuristic is ever
+ * applied in (see `extractCustomerName`), so it stays deliberately narrow rather than a general free-text
+ * name detector.
+ */
+function looksLikeBareNameReply(message: string): string | null {
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.length > 40) return null;
+  if (!/^[A-Za-z][A-Za-z'-]*(\s+[A-Za-z][A-Za-z'-]*){0,2}$/.test(trimmed)) return null;
+  const words = trimmed.split(/\s+/);
+  if (words.some((word) => NAME_STOPWORDS.has(word.toLowerCase()))) return null;
+  if (words.some((word) => KNOWN_DESTINATIONS.includes(word.toLowerCase()))) return null;
+  return titleCase(trimmed);
+}
+
+/**
+ * Scans every user message for the traveler's own name — explicit self-introductions first ("my name is
+ * X", "I'm X"), then a bare short reply anywhere in the transcript (the direct answer to the greeting's
+ * "may I know your name?"). Never infers a name from a city, month, or other trip detail. Returns null
+ * (never guesses) until a real signal is found.
+ */
+export function extractCustomerName(userMessages: readonly string[]): string | null {
+  for (const message of userMessages) {
+    const explicit = NAME_INTRO_PATTERN.exec(message);
+    if (explicit?.[1]) return titleCase(trimNameCapture(explicit[1]));
+  }
+  for (const message of userMessages) {
+    const im = NAME_IM_PATTERN.exec(message);
+    const candidate = im?.[1]?.trim();
+    if (
+      candidate &&
+      !NAME_IM_NON_MATCHES.has(candidate.toLowerCase()) &&
+      !KNOWN_DESTINATIONS.includes(candidate.toLowerCase())
+    )
+      return titleCase(candidate);
+  }
+  for (const message of userMessages) {
+    const bare = looksLikeBareNameReply(message);
+    if (bare) return bare;
+  }
+  return null;
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -489,6 +1403,8 @@ export function normalizeCityName(raw: string | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
+  const alias = trimmed.toLowerCase().replace(/[\s._-]+/g, "");
+  if (alias === "nyc" || alias === "newyork") return "New York";
   const lower = trimmed.toLowerCase();
   let best: { name: string; distance: number } | null = null;
   for (const destination of KNOWN_DESTINATIONS) {
@@ -508,6 +1424,202 @@ export function extractDestination(text: string): string | null {
   return match?.[1] ? match[1].trim() : null;
 }
 
+// Longest names first so "new delhi" wins over "delhi" when both could match at the same position —
+// regex alternation tries left-to-right and stops at the first alternative that matches. Multi-word names
+// use `\s*` (not a literal space) between words so a real, common typing pattern — "newyork", "hongkong",
+// "kualalumpur" with no space at all — still matches, not just the properly spaced form.
+const KNOWN_CITY_MENTION_PATTERN = new RegExp(
+  `\\b(${[...KNOWN_DESTINATIONS]
+    .sort((a, b) => b.length - a.length)
+    .map((destination) => destination.split(" ").map(escapeRegExp).join("\\s*"))
+    .join("|")})\\b`,
+  "gi"
+);
+// Maps a whitespace-compressed destination ("newyork") back to its canonical, properly-spaced titleCase
+// form ("New York") — `findKnownCityMentions` matches the compressed form but must never surface it as the
+// mention's name, or every downstream leg/route string would silently lose the space.
+const KNOWN_DESTINATION_BY_COMPRESSED = new Map<string, string>(
+  KNOWN_DESTINATIONS.map((destination) => [destination.replace(/\s+/g, ""), titleCase(destination)])
+);
+
+interface CityMention {
+  name: string;
+  index: number;
+  length: number;
+}
+
+function findKnownCityMentions(text: string): CityMention[] {
+  return [...text.matchAll(KNOWN_CITY_MENTION_PATTERN)].map((match) => {
+    const raw = (match[1] ?? "").toLowerCase();
+    const name = KNOWN_DESTINATION_BY_COMPRESSED.get(raw.replace(/\s+/g, "")) ?? titleCase(raw);
+    return { name, index: match.index ?? 0, length: match[0].length };
+  });
+}
+
+/**
+ * Binds a stay duration to whichever known city it's stated against — "London me 3 din ka stay" or "3
+ * nights in London" — by looking at a small text window immediately after (Hinglish "CITY me N din ka
+ * stay") or immediately before (English "N days/nights in CITY") each city mention found, rather than
+ * capturing an open-ended run of characters as the city name — free text between unrelated city mentions
+ * would otherwise be swept into the capture. Anchored (`^`/`$` against the windowed slice), so it can never
+ * span past a clause it doesn't belong to.
+ */
+interface StayDurationParseResult {
+  bindings: Map<string, { days: number | null; nights: number | null }>;
+  /** Indices of mentions that are themselves PART OF a stay-duration phrase — e.g. the "London" in "London
+   *  me 3 din ka stay" — and must therefore be excluded from route-chain construction: that mention isn't
+   *  describing a new leg, only annotating an already-chained one. */
+  consumedIndices: Set<number>;
+}
+
+function parseStayDurationBindings(text: string, mentions: readonly CityMention[]): StayDurationParseResult {
+  const bindings = new Map<string, { days: number | null; nights: number | null }>();
+  const consumedIndices = new Set<number>();
+  // A stay-annotation mention is only a REDUNDANT annotation (to be excluded from the route chain) when the
+  // same city also appears elsewhere — e.g. "...London se Delhi, London me 3 din ka stay". When a city
+  // appears just once and carries its own stay ("3 days Tokyo me"), that single mention IS the route node
+  // and must stay in the chain; consuming it would drop the leg entirely (the multi-city UAT defect).
+  const occurrences = new Map<string, number>();
+  for (const mention of mentions)
+    occurrences.set(mention.name.toLowerCase(), (occurrences.get(mention.name.toLowerCase()) ?? 0) + 1);
+  const bind = (mention: CityMention, days: number | null, nights: number | null): void => {
+    bindings.set(mention.name.toLowerCase(), { days, nights });
+    if ((occurrences.get(mention.name.toLowerCase()) ?? 0) > 1) consumedIndices.add(mention.index);
+  };
+  for (const mention of mentions) {
+    const afterCity = text.slice(mention.index + mention.length, mention.index + mention.length + 40);
+    // "CITY me N din/days/raat (ka stay)?" — the "ka stay" suffix is optional: "Tokyo me 3 days" and
+    // "London me 3 din ka stay" are both real UAT phrasings for the same thing.
+    const hinglishMatch = /^\s*me(?:in)?\s+(\d{1,3})\s*(din|days?|nights?|raat(?:ein|en)?|rat)\b(?:\s+ka\s+stay\b)?/i.exec(afterCity);
+    if (hinglishMatch) {
+      const amount = Number(hinglishMatch[1]);
+      const unit = (hinglishMatch[2] ?? "").toLowerCase();
+      const isNight = unit.startsWith("night") || unit.startsWith("raat") || unit === "rat";
+      bind(mention, isNight ? null : amount, isNight ? amount : null);
+      continue;
+    }
+    const directStayMatch = /^\s+(\d{1,3})\s*(din|days?|nights?|raat(?:ein|en)?|rat)\b(?:\s+(?:ka\s+)?stay\b)?/i.exec(afterCity);
+    if (directStayMatch) {
+      const amount = Number(directStayMatch[1]);
+      const unit = (directStayMatch[2] ?? "").toLowerCase();
+      const isNight = unit.startsWith("night") || unit.startsWith("raat") || unit === "rat";
+      bind(mention, isNight ? null : amount, isNight ? amount : null);
+      continue;
+    }
+    const beforeCity = text.slice(Math.max(0, mention.index - 40), mention.index);
+    // Hinglish "N din/days/raat CITY me" — the number precedes the city and "me/mein" follows it
+    // ("3 days Tokyo me", "2 din London me", "3 raat Tokyo mein"). This is the exact multi-city phrasing
+    // from UAT that the earlier parser missed.
+    const hinglishBeforeMatch = /(\d{1,3})\s*(din|days?|nights?|raat(?:ein|en)?|rat)\s+$/i.exec(beforeCity);
+    const followedByMe = /^\s*me(?:in)?\b/i.test(afterCity);
+    if (hinglishBeforeMatch && followedByMe) {
+      const amount = Number(hinglishBeforeMatch[1]);
+      const unit = (hinglishBeforeMatch[2] ?? "").toLowerCase();
+      const isNight = unit.startsWith("night") || unit.startsWith("raat") || unit === "rat";
+      bind(mention, isNight ? null : amount, isNight ? amount : null);
+      continue;
+    }
+    const englishMatch = /(\d{1,3})\s*(days?|nights?)\s+(?:stay\s+)?in\s*$/i.exec(beforeCity);
+    if (englishMatch) {
+      const amount = Number(englishMatch[1]);
+      const unit = (englishMatch[2] ?? "").toLowerCase();
+      bind(mention, unit.startsWith("night") ? null : amount, unit.startsWith("night") ? amount : null);
+    }
+  }
+  return { bindings, consumedIndices };
+}
+
+export interface ParsedJourneyLeg {
+  origin: string;
+  destination: string;
+  days: number | null;
+  nights: number | null;
+}
+
+/**
+ * Parses one or more origin->destination legs described in a single free-text message — e.g. "Washington se
+ * London aur fir London se Delhi, London me 3 din ka stay hai" -> [Washington->London (3 days), London->Delhi
+ * (no stay, a same-day connecting/return leg)]. Deliberately anchored on {@link KNOWN_DESTINATIONS} mentions
+ * rather than parsing sentence connectors ("se"/"to"/"aur fir") directly: free-text connector parsing is
+ * fragile against multi-word city names and trailing clauses, whereas chaining known-city mentions in the
+ * order they appear is robust and simple — a repeated mention (the same city ending one leg and starting
+ * the next) collapses into a single shared chain node instead of producing a bogus self-loop leg. A mention
+ * that's part of a stay-duration phrase (see {@link parseStayDurationBindings}) is excluded from the chain
+ * entirely — it annotates a leg, it never introduces one.
+ */
+export function parseJourneyLegChain(text: string): ParsedJourneyLeg[] {
+  const mentions = findKnownCityMentions(text);
+  const { bindings: stayBindings, consumedIndices } = parseStayDurationBindings(text, mentions);
+  const routeMentions = mentions.filter((mention) => !consumedIndices.has(mention.index));
+
+  const chain: CityMention[] = [];
+  for (const mention of routeMentions) {
+    const last = chain[chain.length - 1];
+    if (last && last.name.toLowerCase() === mention.name.toLowerCase()) continue;
+    chain.push(mention);
+  }
+
+  const legs: ParsedJourneyLeg[] = [];
+  for (let index = 0; index < chain.length - 1; index++) {
+    const origin = chain[index]?.name ?? "";
+    const destination = chain[index + 1]?.name ?? "";
+    const binding = stayBindings.get(destination.toLowerCase()) ?? { days: null, nights: null };
+    legs.push({ origin, destination, days: binding.days, nights: binding.nights });
+  }
+  return legs;
+}
+
+/**
+ * Finds a stay-duration restatement for one already-known city inside free text, even when that city is
+ * never a DESTINATION within {@link parseJourneyLegChain}'s parsed chain — e.g. in "Tokyo me 3 days, phir
+ * London me 2 days, then back to Delhi", "Tokyo" only ever appears as the ORIGIN of the new Tokyo->London
+ * leg, so `parseJourneyLegChain` never attaches "3 days" to it. That "3 days" is really a correction/
+ * confirmation of the duration for the CURRENT, about-to-be-finalized leg (New Delhi->Tokyo), which this
+ * helper recovers by re-scanning for stay bindings scoped to just that one city name.
+ */
+export function extractStayOverrideForCity(
+  text: string,
+  city: string | null
+): { days: number | null; nights: number | null } | null {
+  if (!city) return null;
+  const mentions = findKnownCityMentions(text).filter((m) => m.name.toLowerCase() === city.toLowerCase());
+  if (mentions.length === 0) return null;
+  const { bindings } = parseStayDurationBindings(text, mentions);
+  return bindings.get(city.toLowerCase()) ?? null;
+}
+
+/** Adds `days` calendar days to an ISO-ish "YYYY-MM-DD" date string. Returns null if unparseable. */
+function addCalendarDays(dateString: string, days: number): string | null {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export interface DerivedNextLegDate {
+  departureDate: string | null;
+  /** True whenever a date IS returned but was computed (prior leg's date + stay), never explicitly stated. */
+  isAssumption: boolean;
+}
+
+/**
+ * A later leg's departure date is never known outright when it's parsed from the same message as the
+ * legs before it — but a TENTATIVE one can be derived from the immediately preceding leg's own departure
+ * date plus its stay duration (days, or nights+1 when only nights is known). Must always be surfaced as an
+ * assumption in the conversation (see `buildMultiLegAddedMessage`), never presented as a confirmed date.
+ */
+export function deriveNextLegDepartureDate(priorLeg: {
+  departureDate: string | null;
+  days: number | null;
+  nights: number | null;
+}): DerivedNextLegDate {
+  if (!priorLeg.departureDate) return { departureDate: null, isAssumption: false };
+  const stayDays = priorLeg.days ?? (priorLeg.nights !== null ? priorLeg.nights + 1 : null);
+  if (stayDays === null) return { departureDate: null, isAssumption: false };
+  const derived = addCalendarDays(priorLeg.departureDate, stayDays);
+  return { departureDate: derived, isAssumption: derived !== null };
+}
+
 export function extractTravelMonth(text: string): string | null {
   const lower = text.toLowerCase();
   for (const month of MONTHS) if (new RegExp(`\\b${month}\\b`, "i").test(lower)) return titleCase(month);
@@ -515,8 +1627,29 @@ export function extractTravelMonth(text: string): string | null {
 }
 
 export function extractDurationDays(text: string): number | null {
-  const match = /(\d{1,3})[\s-]*(?:days?|nights?)\b/i.exec(text);
+  const match = /(\d{1,3})[\s-]*(?:days?|din)\b/i.exec(text);
   return match?.[1] ? Number(match[1]) : null;
+}
+
+export function extractPassengerComposition(
+  text: string
+): Pick<TravelEntities, "adults" | "children" | "infants" | "totalTravellers"> {
+  if (looksLikePhoneOrContact(text))
+    return { adults: null, children: null, infants: null, totalTravellers: null };
+  const count = (pattern: RegExp): number | null => {
+    const match = pattern.exec(text);
+    return match?.[1] ? Number(match[1]) : null;
+  };
+  const adults = count(/\b(\d{1,2})\s*(?:adults?|grownups?)\b/i);
+  const children = count(/\b(\d{1,2})\s*(?:children?|child|kids?)\b/i);
+  const infants = count(/\b(\d{1,2})\s*(?:infants?|bab(?:y|ies))\b/i);
+  const explicit = adults !== null || children !== null || infants !== null;
+  return {
+    adults,
+    children,
+    infants,
+    totalTravellers: explicit ? (adults ?? 0) + (children ?? 0) + (infants ?? 0) : extractPassengers(text)
+  };
 }
 
 const NUMBER_WORDS: Record<string, number> = {
@@ -540,6 +1673,7 @@ function numberToWord(value: number): string {
 }
 
 export function extractPassengers(text: string): number | null {
+  if (looksLikePhoneOrContact(text)) return null;
   const numeric = /(\d{1,2})\s*(?:adults?|passengers?|people|log|travell?ers?|pax|persons?)\b/i.exec(text);
   if (numeric?.[1]) return Number(numeric[1]);
   const family = /family of (\d{1,2})/i.exec(text);
@@ -562,7 +1696,7 @@ export function extractBudget(
   const lakh = /(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*lakhs?/i.exec(text);
   if (lakh?.[1])
     return { amount: Math.round(parseFloat(lakh[1].replace(/,/g, "")) * 100_000), currency: "INR" };
-  const dollars = /\$\s*([\d,]+(?:\.\d+)?)|(?:usd)\s*([\d,]+(?:\.\d+)?)/i.exec(text);
+  const dollars = /\$\s*(\d[\d,]*(?:\.\d+)?)|(?:usd)\s*(\d[\d,]*(?:\.\d+)?)/i.exec(text);
   if (dollars)
     return {
       amount: Math.round(parseFloat((dollars[1] ?? dollars[2] ?? "0").replace(/,/g, ""))),
@@ -571,12 +1705,25 @@ export function extractBudget(
   const rupees = /(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)/i.exec(text);
   if (rupees?.[1])
     return { amount: Math.round(parseFloat(rupees[1].replace(/,/g, ""))), currency: "INR" };
-  const euros = /€\s*([\d,]+(?:\.\d+)?)|(?:eur)\s*([\d,]+(?:\.\d+)?)/i.exec(text);
+  const euros = /€\s*(\d[\d,]*(?:\.\d+)?)|(?:eur)\s*(\d[\d,]*(?:\.\d+)?)/i.exec(text);
   if (euros)
     return {
       amount: Math.round(parseFloat((euros[1] ?? euros[2] ?? "0").replace(/,/g, ""))),
       currency: "EUR"
     };
+  // Stage 9F only added POSTFIX ("10000 AED") support for the remaining currencies, leaving PREFIX
+  // ("AED 10,000" — the actual UAT phrasing) unrecognized entirely, so a correction like "AED 10,000"
+  // silently failed to register as a budget amount at all. This covers prefix ordering for every currency
+  // not already handled by the dedicated USD/INR/EUR checks above.
+  const prefix = /\b(aed|gbp|sgd|cad|aud|thb|jpy)\s*(\d[\d,]*(?:\.\d+)?)\b/i.exec(text);
+  if (prefix?.[1] && prefix[2])
+    return { amount: Math.round(parseFloat(prefix[2].replace(/,/g, ""))), currency: prefix[1].toUpperCase() };
+  // Postfix ordering ("10000 AED") for every currency this codebase already treats as a first-class
+  // display currency (see currency.service.ts's SUPPORTED_CURRENCIES), so a stated amount is recognized
+  // the same way regardless of word order.
+  const postfix = /(\d[\d,]*(?:\.\d+)?)\s*(usd|inr|eur|aed|gbp|sgd|cad|aud|thb|jpy)\b/i.exec(text);
+  if (postfix?.[1] && postfix[2])
+    return { amount: Math.round(parseFloat(postfix[1].replace(/,/g, ""))), currency: postfix[2].toUpperCase() };
   const generic = /budget\D{0,12}?([\d,]{2,}(?:\.\d+)?)/i.exec(text);
   if (generic?.[1])
     return { amount: Math.round(parseFloat(generic[1].replace(/,/g, ""))), currency: fallbackCurrency };
@@ -621,10 +1768,70 @@ export function isEscalationRequest(text: string): boolean {
   return ESCALATION_PATTERN.test(text);
 }
 
+// Hinglish affirmatives (ji/jee/haan/ha/theek hai/kar do) count as a booking confirmation too — a bare "ji"
+// must deterministically confirm/execute a pending action, never depend solely on the LLM's own intent
+// label (which is a hint, not a veto, exactly like `isExecutionRequest`'s own rationale below).
 const CONFIRMATION_PATTERN =
-  /\b(yes|confirm(?:ed)?|book it|go ahead|sounds good|let'?s book|proceed|okay|ok)\b/i;
+  /\b(yes|confirm(?:ed)?|book it|go ahead|sounds good|let'?s book|proceed|okay|ok|ji|jee|haan|ha|theek\s*hai|kar\s*do)\b/i;
 export function isBookingConfirmation(text: string): boolean {
   return CONFIRMATION_PATTERN.test(text);
+}
+
+// A standalone closing remark — "thanks", "that's all", "bye" — rather than a substantive reply. Deliberately
+// anchored to (nearly) the whole message: "thanks, and what about hotels?" must still be answered normally,
+// never swallowed as a goodbye just because it starts with a pleasantry. Bare "no"/"yes" are deliberately
+// excluded here (too ambiguous outside a specific yes/no context) — see the dedicated short-decline check
+// where the Conversation Completion offer is resolved instead. Up to two of these phrases may be chained
+// together (a real user very often types "thanks, that's all" or "ok thanks, bye" as one message).
+const FAREWELL_PHRASE =
+  "no\\s+thanks?|no\\s+thank\\s+you|that'?s\\s+all(?:\\s+for\\s+now)?|thats\\s+all(?:\\s+for\\s+now)?|that\\s+is\\s+all|nothing\\s+else(?:\\s+for\\s+now)?|i'?m\\s+(?:good|done)|all\\s+set|thanks?(?:\\s+(?:so\\s+much|a\\s+lot|very\\s+much))?|thank\\s+you(?:\\s+(?:so\\s+much|a\\s+lot|very\\s+much))?|bye|goodbye|good\\s*bye|see\\s+you(?:\\s+later)?|take\\s+care";
+const FAREWELL_PATTERN = new RegExp(
+  `^\\s*(?:ok(?:ay)?\\s*[,.!]*)?(?:${FAREWELL_PHRASE})(?:\\s*[,.!]*\\s*(?:and\\s+)?(?:${FAREWELL_PHRASE}))?\\s*[.!]*\\s*$`,
+  "i"
+);
+export function isFarewellMessage(text: string): boolean {
+  return FAREWELL_PATTERN.test(text);
+}
+
+const TRAVEL_STATE_RECALL_PATTERN =
+  /\b(?:sab\s+(?:piche|pehle)\s+(?:bataya|bata)|sab\s+pehle\s+bata\s+chuka|already\s+told\s+you|i\s+shared\s+that\s+earlier|upar\s+dekh|maine\s+details?\s+de\s+di|same\s+details?|kitne\s+log|kitni\s+raat|mera\s+route|maine\s+pehle\s+kya)\b/i;
+const TRAVEL_FRUSTRATION_PATTERN =
+  /\b(?:kya\s+bakwas|this\s+is\s+wrong|you\s+forgot\s+everything|forgot\s+(?:the\s+)?details?)\b/i;
+
+export function isTravelStateRecallRequest(text: string): boolean {
+  return TRAVEL_STATE_RECALL_PATTERN.test(text);
+}
+
+export function isTravelFrustrationMessage(text: string): boolean {
+  return TRAVEL_FRUSTRATION_PATTERN.test(text);
+}
+
+export function buildTravelStateRecallMessage(
+  entities: TravelEntities,
+  pendingDate: PendingDepartureDate | null,
+  journey: Journey | null,
+  acknowledge = false
+): string {
+  const lines: string[] = [acknowledge ? "You’re right — I still have:" : "You’re right. I already have:"];
+  const route = journey?.legs.length
+    ? describeJourneyRoute(journey.legs)
+    : entities.originCity && entities.destinationCity
+      ? `${entities.originCity} -> ${entities.destinationCity}`
+      : entities.destinationCity;
+  if (route) lines.push(`• Route: ${route}`);
+  if (entities.adults !== null)
+    lines.push(
+      `• Travellers: ${entities.adults} adult${entities.adults === 1 ? "" : "s"} and ${entities.children ?? 0} child${entities.children === 1 ? "" : "ren"}`
+    );
+  else if (entities.totalTravellers !== null) lines.push(`• Travellers: ${entities.totalTravellers}`);
+  if (entities.nights !== null) lines.push(`• Stay: ${entities.nights} nights`);
+  else if (entities.days !== null) lines.push(`• Stay: ${entities.days} days`);
+  if (pendingDate)
+    lines.push(`• Travel date: ${pendingDate.day} ${titleCase(MONTHS[pendingDate.month - 1] ?? "")}`);
+  else if (entities.departureDate) lines.push(`• Travel date: ${entities.departureDate}`);
+  else if (entities.travelMonth) lines.push(`• Travel month: ${entities.travelMonth}`);
+  if (pendingDate) lines.push("", `I only need the travel year to complete the plan.`);
+  return lines.join("\n");
 }
 
 const ITINERARY_MARKER = /reply ['"]?confirm['"]? to proceed|no booking has been made/i;
@@ -642,6 +1849,52 @@ export function wasBookingConfirmed(messages: readonly AiMessage[]): boolean {
   return messages.some(
     (message) => message.role === "assistant" && BOOKING_CONFIRMED_MARKER.test(message.content)
   );
+}
+
+// Mirrors `wasItineraryPresented`'s transcript-scanning pattern for the deterministic (no-LLM)
+// `TravelEmployeeProvider`, which is stateless — everything it knows about "where the conversation is" is
+// re-derived from the message transcript on every turn, never from persisted instance fields.
+const CONTACT_REQUEST_MARKER = /phone number|mobile number/i;
+/** True when the LAST assistant turn asked for a phone number — the deterministic provider's own
+ * AWAITING_CONTACT-equivalent state, since it has no persisted `completionStage` to check instead. */
+export function wasContactInfoRequested(messages: readonly AiMessage[]): boolean {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return lastAssistant ? CONTACT_REQUEST_MARKER.test(lastAssistant.content) : false;
+}
+
+const LEAD_CAPTURED_MARKER = /travel request has been submitted successfully/i;
+const LEAD_REFERENCE_MARKER = /reference number:\s*([a-z0-9-]+)/i;
+/** True once a lead was actually captured this conversation — see {@link buildLeadCapturedMessage}. */
+export function wasLeadCaptured(messages: readonly AiMessage[]): boolean {
+  return messages.some((message) => message.role === "assistant" && LEAD_CAPTURED_MARKER.test(message.content));
+}
+/** Recovers the reference shown in a prior `buildLeadCapturedMessage` turn — used so a repeated
+ * confirmation/affirmative after capture re-confirms the SAME reference instead of asking for contact
+ * details again or silently doing nothing. */
+export function extractCapturedLeadReference(messages: readonly AiMessage[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    const match = LEAD_REFERENCE_MARKER.exec(message.content);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+// Matches the Intent Discovery menu in all three languages (see `buildIntentDiscoveryMessage`) — the
+// English "how may I help you today", Hinglish "kaise madad kar", and Hindi "कैसे मदद कर सकता" lines are
+// each distinctive enough on their own not to collide with any other reply.
+const INTENT_DISCOVERY_MARKER = /how may i help you today|kaise madad kar|कैसे मदद कर सकता/i;
+/**
+ * True only when the Intent Discovery menu is the very last message in the transcript — i.e. it was
+ * just shown and the traveler has not replied to it yet. Deliberately checks only the last message
+ * (unlike `wasEscalated`/`wasItineraryPresented`, which look for the marker anywhere): once the traveler
+ * replies with anything at all, the conversation must move on to whatever that reply says, not keep
+ * reporting DISCOVER_INTENT for the rest of the conversation the way ESCALATED/CONFIRM_BOOKING do.
+ */
+export function isIntentDiscoveryPending(messages: readonly AiMessage[]): boolean {
+  const last = messages.at(-1);
+  return last?.role === "assistant" && INTENT_DISCOVERY_MARKER.test(last.content);
 }
 
 function stageForMissingField(field: string): TravelStage {
@@ -663,14 +1916,26 @@ function stageForMissingField(field: string): TravelStage {
 export function deriveTravelState(messages: readonly AiMessage[], fallbackCurrency = "USD"): TravelState {
   const userMessages = messages.filter((message) => message.role === "user").map((message) => message.content);
   const slots = extractTravelSlots(userMessages, fallbackCurrency);
+  const customerName = extractCustomerName(userMessages);
   const missing = missingFields(slots);
   let stage: TravelStage;
   if (wasEscalated(messages)) stage = "ESCALATED";
-  else if (wasBookingConfirmed(messages)) stage = "BOOKING_CONFIRMED";
+  else if (wasBookingConfirmed(messages) || wasLeadCaptured(messages)) stage = "BOOKING_CONFIRMED";
+  else if (!customerName) stage = "COLLECT_NAME";
+  else if (isIntentDiscoveryPending(messages)) stage = "DISCOVER_INTENT";
   else if (missing.length > 0) stage = stageForMissingField(missing[0] ?? "");
   else if (wasItineraryPresented(messages)) stage = "CONFIRM_BOOKING";
   else stage = "RECOMMEND_OPTIONS";
-  return { ...slots, stage, missingFields: missing };
+  return {
+    ...slots,
+    customerName,
+    onboardingCompleted: customerName !== null,
+    // This function only ever runs on a turn AFTER the proactive greeting has already been shown (see
+    // AgentService.execute's greeting bypass) — greetingSent is therefore always true here by construction.
+    greetingSent: true,
+    stage,
+    missingFields: missing
+  };
 }
 
 function seedFromString(value: string): number {
@@ -766,6 +2031,30 @@ export function generatePlaceholderHotels(input: {
   return { hotelOptions, disclaimer: PLACEHOLDER_DISCLAIMER, starNote };
 }
 
+/** Human-readable passenger breakdown for a {@link TravelLead} row — e.g. "2 adults, 1 child". Falls back
+ * to an ambiguous total ("5 travellers") only when no composition breakdown was ever given. */
+export function formatPassengerSummaryForLead(entities: TravelEntities): string | null {
+  const parts: string[] = [];
+  if (entities.adults) parts.push(`${entities.adults} adult${entities.adults === 1 ? "" : "s"}`);
+  if (entities.children) parts.push(`${entities.children} child${entities.children === 1 ? "" : "ren"}`);
+  if (entities.infants) parts.push(`${entities.infants} infant${entities.infants === 1 ? "" : "s"}`);
+  if (parts.length) return parts.join(", ");
+  return entities.totalTravellers ? `${entities.totalTravellers} traveller${entities.totalTravellers === 1 ? "" : "s"}` : null;
+}
+
+/** One-line summary of the trip for a {@link TravelLead}'s `conversationSummary` — a human agent's first
+ * glance at what this enquiry is about, not a full transcript. */
+export function buildLeadConversationSummary(entities: TravelEntities): string {
+  const route =
+    entities.originCity && entities.destinationCity
+      ? `${entities.originCity} -> ${entities.destinationCity}`
+      : (entities.destinationCity ?? "Travel enquiry");
+  const dates = entities.departureDate ?? entities.travelMonth;
+  const passengers = formatPassengerSummaryForLead(entities);
+  const budget = entities.budget !== null ? `Budget: ${entities.budget} ${entities.budgetCurrency ?? ""}`.trim() : null;
+  return [route, dates, passengers, budget].filter((part): part is string => Boolean(part)).join(" | ");
+}
+
 export function buildCrmLeadPayload(
   slots: TravelSlots,
   notes: string,
@@ -805,8 +2094,337 @@ export function buildCrmLeadPayload(
   };
 }
 
+/** Snapshots the current trip entities as a finalized {@link JourneyLeg} — pure, no orchestrator state. */
+export function toJourneyLeg(
+  entities: TravelEntities,
+  itinerary: string | null,
+  estimate: StoredBudgetEstimate | null,
+  sequence: number,
+  departureDateIsAssumption = false
+): JourneyLeg {
+  return {
+    sequence,
+    origin: entities.originCity,
+    destination: entities.destinationCity,
+    dates: {
+      travelMonth: entities.travelMonth,
+      departureDate: entities.departureDate,
+      returnDate: entities.returnDate,
+      departureDateIsAssumption
+    },
+    duration: { days: entities.days, nights: entities.nights },
+    passengers: {
+      adults: entities.adults,
+      children: entities.children,
+      infants: entities.infants,
+      totalTravellers: entities.totalTravellers
+    },
+    budget: { amount: entities.budget, currency: entities.budgetCurrency },
+    itinerary,
+    estimates: estimate,
+    destinationRole: entities.days !== null || entities.nights !== null ? "STAY_DESTINATION" : "CONNECTION"
+  };
+}
+
+/**
+ * Updates matching origin/destination pairs in place and appends only genuinely new continuous legs.
+ * Stay durations are destination-scoped and consumed once; they are never summed across cities.
+ */
+export function reconcileJourneyLegs(
+  existingLegs: readonly JourneyLeg[],
+  proposedLegs: readonly JourneyLeg[],
+  homeOrigin: string | null
+): JourneyLeg[] {
+  const cityKey = (city: string | null): string | null => {
+    const normalized = normalizeCityName(city)?.toLowerCase().replace(/\s+/g, "") ?? null;
+    return normalized === "newdelhi" ? "delhi" : normalized;
+  };
+  const result = existingLegs.map((leg) => ({ ...leg, duration: { ...leg.duration } }));
+  for (const proposed of proposedLegs) {
+    const origin = normalizeCityName(proposed.origin);
+    const destination = normalizeCityName(proposed.destination);
+    const match = result.find(
+      (leg) =>
+        cityKey(leg.origin) === cityKey(origin) &&
+        cityKey(leg.destination) === cityKey(destination)
+    );
+    if (match) {
+      if (proposed.duration.days !== null || proposed.duration.nights !== null)
+        match.duration = { ...proposed.duration };
+      match.passengers = proposed.passengers;
+      match.destinationRole =
+        match.duration.days !== null || match.duration.nights !== null
+          ? "STAY_DESTINATION"
+          : (match.destinationRole ?? "CONNECTION");
+      continue;
+    }
+    const lastDestination = result[result.length - 1]?.destination ?? null;
+    if (
+      result.length === 0 ||
+      cityKey(lastDestination) === cityKey(origin) ||
+      cityKey(destination) === cityKey(homeOrigin)
+    )
+      result.push({ ...proposed, origin, destination });
+  }
+  result.forEach((leg, index) => {
+    leg.sequence = index + 1;
+    const isLast = index === result.length - 1;
+    leg.destinationRole =
+      isLast &&
+      cityKey(leg.destination) === cityKey(homeOrigin)
+        ? "FINAL_RETURN"
+        : leg.duration.days !== null || leg.duration.nights !== null
+          ? "STAY_DESTINATION"
+          : index < result.length - 1
+            ? "CONNECTION"
+            : (leg.destinationRole ?? "CONNECTION");
+  });
+  return result;
+}
+
+/** Deterministic acknowledgement when a leg is finalized and a new one starts — see ADD_TRIP_LEG. */
+export function buildTripLegAddedMessage(
+  fromDestination: string | null,
+  toDestination: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const to = toDestination ?? (language === "ENGLISH" ? "your next stop" : "agla stop");
+  if (language === "HINGLISH")
+    return `${fromDestination ? `${fromDestination} wala plan save ho gaya hai. ` : ""}Ab ${to} ke liye trip plan karte hain.`;
+  if (language === "HINDI")
+    return `${fromDestination ? `${fromDestination} की योजना सुरक्षित कर ली गई है। ` : ""}अब ${to} के लिए यात्रा की योजना बनाते हैं।`;
+  return `${fromDestination ? `Got it — your ${fromDestination} leg is saved. ` : ""}Let's plan the ${to} leg next.`;
+}
+
+/** Deterministic acknowledgement when two or more legs are parsed from a single message — see {@link parseJourneyLegChain}. */
+/** A parsed leg plus its tentative, derived departure date, if one could be computed — see {@link deriveNextLegDepartureDate}. */
+export interface DerivedJourneyLegPlan extends ParsedJourneyLeg {
+  departureDate: string | null;
+  departureDateIsAssumption: boolean;
+}
+
+export function buildMultiLegAddedMessage(
+  legs: readonly DerivedJourneyLegPlan[],
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const legLines = legs
+    .map((leg, index) => {
+      const finalReturn =
+        index === legs.length - 1 &&
+        normalizeCityName(leg.destination)?.toLowerCase() ===
+          normalizeCityName(legs[0]?.origin ?? null)?.toLowerCase();
+      const stay =
+        finalReturn
+          ? "return flight"
+          : leg.days !== null || leg.nights !== null
+          ? language === "HINGLISH"
+            ? `${leg.nights ?? leg.days} ${leg.nights !== null ? "raat" : "din"} ka stay`
+            : `${leg.nights ?? leg.days} ${leg.nights !== null ? "night(s)" : "day(s)"} stay`
+          : language === "HINGLISH"
+            ? "koi stay nahi (connecting)"
+            : "no stay (connecting)";
+      const dateNote = leg.departureDate
+        ? language === "HINGLISH"
+          ? ` — tentative date ${leg.departureDate} (assumption, based on the previous leg)`
+          : ` — tentative date ${leg.departureDate} (assumption, derived from the previous leg)`
+        : "";
+      return `  ${leg.origin} -> ${leg.destination} — ${stay}${dateNote}`;
+    })
+    .join("\n");
+  if (language === "HINGLISH") return `Ye legs journey mein add kar diye gaye hain:\n${legLines}`;
+  if (language === "HINDI") return `ये चरण यात्रा में जोड़ दिए गए हैं:\n${legLines}`;
+  return `Added the following legs to your journey:\n${legLines}`;
+}
+
+/** Renders a journey's legs as a single "A -> B -> C" route string, e.g. for acknowledgement messages. */
+export function describeJourneyRoute(legs: readonly { origin: string | null; destination: string | null }[]): string {
+  if (legs.length === 0) return "";
+  const cities = [legs[0]?.origin ?? null, ...legs.map((leg) => leg.destination)].filter(
+    (city): city is string => Boolean(city)
+  );
+  return cities.join(" -> ");
+}
+
+/**
+ * Response to a MULTILEG_CORRECTION ("bhai multileg hai") — acknowledges the route already established
+ * without restarting budget/detail collection and without repeating a generic "what dates work" prompt.
+ */
+export function buildMultilegCorrectionMessage(
+  legs: readonly { origin: string | null; destination: string | null }[],
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const route = describeJourneyRoute(legs);
+  const routeText = route || (language === "HINGLISH" ? "abhi tak batayi gayi cities" : "the cities mentioned so far");
+  if (language === "HINGLISH")
+    return `Theek hai, main ise ek hi connected multi-city trip maan raha hoon: ${routeText}. Jo bhi details aapne pehle batayi hain, wo sab maine rakhi hain — dobara se shuru nahi kar raha.`;
+  if (language === "HINDI")
+    return `ठीक है, मैं इसे एक ही जुड़ी हुई मल्टी-सिटी यात्रा मान रहा हूँ: ${routeText}। आपने अब तक जो भी बताया है, वह सब सुरक्षित है — दोबारा शुरू नहीं कर रहा।`;
+  return `Got it — treating this as one connected multi-city journey: ${routeText}. Everything you've already told me for each leg is preserved; I'm not restarting.`;
+}
+
+/**
+ * Response when a message's route neither structurally continues the journey nor states it's a new trip —
+ * asks rather than guesses (per policy, a bare "ji"/"haan" reply to a pending clarification like this must
+ * never be interpreted as answering the ambiguity itself — see `CLARIFY_ROUTE_RELATIONSHIP`).
+ */
+export function buildRouteRelationshipClarificationMessage(
+  fromDestination: string | null,
+  toDestination: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const from = fromDestination ?? (language === "ENGLISH" ? "your current trip" : "abhi tak ka trip");
+  const to = toDestination ?? (language === "ENGLISH" ? "this new destination" : "is naye destination");
+  if (language === "HINGLISH")
+    return `Kya main ${to} ko ${from} wali trip ke baad usi journey mein add karoon, ya ye ek alag/naya trip hai?`;
+  if (language === "HINDI")
+    return `क्या मैं ${to} को ${from} वाली यात्रा के बाद उसी यात्रा में जोड़ूँ, या यह एक अलग/नई यात्रा है?`;
+  return `Should I add ${to} after ${from} in the same trip, or is this a separate trip?`;
+}
+
+/**
+ * Idempotency: a repeated submit/callback/confirm ask never creates a second {@link TravelLead} for the
+ * same conversation — this just re-confirms the one already captured.
+ */
+export function buildLeadAlreadyCapturedMessage(reference: string, language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH") return `Aapki request pehle se hi submit hai — Reference Number: ${reference}.`;
+  if (language === "HINDI") return `आपका अनुरोध पहले से ही सबमिट है — संदर्भ संख्या: ${reference}।`;
+  return `Your request is already submitted — Reference Number: ${reference}.`;
+}
+
 function greetingPrefix(isFirstTurn: boolean, config: TravelEmployeeRuntimeConfig): string {
   return isFirstTurn ? `${config.welcomeMessage}\n\n` : "";
+}
+
+/** Warm, one-time acknowledgement rendered on the turn the traveler's name is first captured. */
+export function buildNameAcknowledgment(name: string, language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINDI") return `${name} जी, आपसे मिलकर अच्छा लगा।`;
+  return `Nice to meet you, ${name}.`;
+}
+
+/**
+ * The COLLECT_NAME gate's reply: asks for the traveler's name, naturally acknowledging any destination
+ * already mentioned in the same message rather than ignoring it — see UAT example: "Delhi jana hai" during
+ * COLLECT_NAME should acknowledge Delhi but still ask for the name, never silently skip onboarding.
+ */
+export function buildNameRequestMessage(currentText: string): string {
+  const destination = extractDestination(currentText);
+  const language = detectResponseLanguage(currentText);
+  if (!destination) {
+    if (language === "HINGLISH") return "Bataiye, aapka naam kya hai?";
+    if (language === "HINDI") return "क्या मैं आपका नाम जान सकता/सकती हूँ?";
+    return "Before we get started, may I know your name?";
+  }
+  const place = titleCase(destination);
+  if (language === "HINGLISH") return `${place} sounds good. Planning shuru karne se pehle, may I know your name?`;
+  if (language === "HINDI") return `${place} बढ़िया विकल्प है। योजना शुरू करने से पहले, क्या मैं आपका नाम जान सकता/सकती हूँ?`;
+  return `${place} sounds like a great choice! Before we get started, may I know your name?`;
+}
+
+/**
+ * Time-of-day greeting word ("Good morning"/"Good afternoon"/"Good evening") for the Intent Discovery
+ * message. Uses server time — no per-traveler timezone reaches this runtime today (the `userLocalTime`
+ * field on `TravelState` has no populated source yet), so this is an honest best-effort, not a claim of
+ * the traveler's actual local time. Boundaries: before 12:00 -> morning, 12:00-16:59 -> afternoon,
+ * 17:00+ -> evening.
+ */
+export function timeOfDayGreeting(now: Date = new Date()): "Good morning" | "Good afternoon" | "Good evening" {
+  const hour = now.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+const INTENT_MENU_ITEMS_EN = [
+  "Plan a trip",
+  "Build an itinerary",
+  "Estimate costs",
+  "Explain policies",
+  "Answer travel questions"
+] as const;
+const INTENT_MENU_ITEMS_HINGLISH = [
+  "Trip plan karna",
+  "Itinerary banana",
+  "Cost estimate karna",
+  "Policies explain karna",
+  "Travel se judhe sawalon ke jawab dena"
+] as const;
+const INTENT_MENU_ITEMS_HINDI = [
+  "यात्रा की योजना बनाना",
+  "यात्रा कार्यक्रम बनाना",
+  "लागत का अनुमान लगाना",
+  "नीतियाँ समझाना",
+  "यात्रा संबंधी प्रश्नों के उत्तर देना"
+] as const;
+
+/**
+ * The Intent Discovery turn's reply — shown exactly once, right after the traveler's name is captured
+ * with no trip content stated yet (see the COLLECT_NAME gate in both `TravelEmployeeProvider` and
+ * `TravelEmployeeLlmOrchestrator`). Only then does the assistant ask what the traveler actually wants,
+ * instead of assuming a trip is being planned and jumping straight to "where would you like to travel?".
+ */
+export function buildIntentDiscoveryMessage(
+  name: string,
+  language: TravelResponseLanguage = "ENGLISH",
+  now: Date = new Date()
+): string {
+  const greeting = timeOfDayGreeting(now);
+  if (language === "HINGLISH")
+    return [
+      `${greeting}, ${name}! \u{1F44B}`,
+      "",
+      "Aapse milkar accha laga.",
+      "",
+      "Aaj main aapki kaise madad kar sakta/sakti hoon?",
+      "",
+      "Main in cheezon mein madad kar sakta/sakti hoon:",
+      ...INTENT_MENU_ITEMS_HINGLISH.map((item) => `• ${item}`),
+      "",
+      "Aur, ye trip leisure ke liye hai ya business ke liye?"
+    ].join("\n");
+  if (language === "HINDI") {
+    const hindiGreeting =
+      greeting === "Good morning" ? "सुप्रभात" : greeting === "Good afternoon" ? "शुभ दोपहर" : "शुभ संध्या";
+    return [
+      `${hindiGreeting}, ${name} जी! \u{1F44B}`,
+      "",
+      "आपसे मिलकर अच्छा लगा।",
+      "",
+      "मैं आज आपकी कैसे मदद कर सकता/सकती हूँ?",
+      "",
+      "मैं इनमें मदद कर सकता/सकती हूँ:",
+      ...INTENT_MENU_ITEMS_HINDI.map((item) => `• ${item}`),
+      "",
+      "और, क्या यह यात्रा छुट्टियों के लिए है या व्यावसायिक (business) है?"
+    ].join("\n");
+  }
+  return [
+    `${greeting}, ${name}! \u{1F44B}`,
+    "",
+    "Nice to meet you.",
+    "",
+    "How may I help you today?",
+    "",
+    "I can help you:",
+    ...INTENT_MENU_ITEMS_EN.map((item) => `• ${item}`),
+    "",
+    "Also, is this trip for leisure or business?"
+  ].join("\n");
+}
+
+// A small, deterministic rotation — never random, so output stays testable — used wherever a reply
+// would otherwise always open with the same word ("Great!"/"Sure!"/"Got it!" on every turn reads as
+// robotic; a real consultant varies their phrasing). Picked by a stable hash of some turn-specific text
+// (e.g. the destination) so the SAME input always produces the SAME opener, but different inputs vary.
+const ACKNOWLEDGEMENT_OPENERS = [
+  "Wonderful!",
+  "That sounds like a great trip!",
+  "Lovely choice!",
+  "Excellent!",
+  "That's exciting!"
+] as const;
+function pickOpener(seedText: string): string {
+  const options = ACKNOWLEDGEMENT_OPENERS;
+  return options[seedFromString(seedText) % options.length] ?? options[0];
 }
 
 export function buildAskMessage(
@@ -817,8 +2435,10 @@ export function buildAskMessage(
 ): string {
   const prefix = greetingPrefix(isFirstTurn, config);
   if (field === "destination") return `${prefix}Where would you like to travel to?`;
-  if (field === "travelMonth")
-    return `${prefix}Great${slots.destination ? `, ${slots.destination} it is!` : ""} When are you planning to travel (which month), and for how many days?`;
+  if (field === "travelMonth") {
+    const opener = slots.destination ? `${pickOpener(slots.destination)} ${slots.destination} is a great pick.` : "";
+    return `${prefix}${opener} When are you planning to travel (which month), and for how many days?`.trim();
+  }
   if (field === "passengers") return `${prefix}How many travelers should I plan for?`;
   if (field === "budgetAmount")
     return `${prefix}What's your approximate budget (in ${config.defaultCurrency})?`;
@@ -827,19 +2447,29 @@ export function buildAskMessage(
 
 const MISSING_FIELD_LABELS: Record<string, string> = {
   destination: "your destination",
-  travelMonth: "your travel dates",
-  passengers: "the number of travelers",
-  budgetAmount: "your budget"
+  travelMonth: "when you're travelling",
+  passengers: "how many people",
+  budgetAmount: "your approximate budget"
 };
 
-export function buildMissingInfoMessage(missing: string[], config: TravelEmployeeRuntimeConfig): string {
-  const items = missing.map(
-    (field) =>
-      MISSING_FIELD_LABELS[field] ?? field
-  );
+/**
+ * Combines every missing field into one natural, bulleted ask instead of one mechanical question per
+ * turn — the deterministic (non-LLM) engine's equivalent of `combineMissingLabels`/the LLM prompt
+ * instruction below. Used for BOTH the first ask (when 2+ fields are already missing at once) and any
+ * repeat ask, so the traveler is never marched through the same fields one at a time.
+ */
+export function buildMissingInfoMessage(
+  missing: string[],
+  config: TravelEmployeeRuntimeConfig,
+  isFirstTurn = false
+): string {
+  const prefix = greetingPrefix(isFirstTurn, config);
+  const items = missing.map((field) => MISSING_FIELD_LABELS[field] ?? field);
   const budgetIndex = missing.indexOf("budgetAmount");
-  if (budgetIndex >= 0) items[budgetIndex] = `your budget (in ${config.defaultCurrency})`;
-  return `I still need a bit more information to help plan your trip: ${items.join(", ")}. Could you share that?`;
+  if (budgetIndex >= 0) items[budgetIndex] = `your approximate budget (in ${config.defaultCurrency})`;
+  if (items.length <= 1) return `${prefix}Could you share ${items[0] ?? "a few more trip details"}?`;
+  const bullets = items.map((item) => `• ${item}`).join("\n");
+  return `${prefix}To recommend the best options, I'd like to know:\n${bullets}\n\nFeel free to answer in one message or separately.`;
 }
 
 const IRREGULAR_PLURALS: Record<string, string> = { child: "children" };
@@ -988,6 +2618,16 @@ export function buildGenericContinuationMessage(language: TravelResponseLanguage
   return "Thanks — let me know how you'd like to proceed with your trip.";
 }
 
+/** A natural, warm sign-off — see {@link isFarewellMessage}. Never re-asks for anything or repeats
+ * whatever was last discussed; the conversation simply ends here. */
+export function buildFarewellMessage(customerName: string | null, language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return `Bilkul${customerName ? `, ${customerName}` : ""}! Jab bhi kuch aur chahiye ho, bas wapas aa jaiyega. Aapki trip shubh ho! \u{1F44B}`;
+  if (language === "HINDI")
+    return `बिल्कुल${customerName ? `, ${customerName}` : ""}! जब भी कुछ और चाहिए हो, बस वापस आ जाइएगा। आपकी यात्रा शुभ हो! \u{1F44B}`;
+  return `You're welcome${customerName ? `, ${customerName}` : ""}! Feel free to come back anytime you need anything else. Have a wonderful trip! \u{1F44B}`;
+}
+
 export function buildEscalationMessage(
   config: TravelEmployeeRuntimeConfig,
   language: TravelResponseLanguage = "ENGLISH"
@@ -1003,9 +2643,170 @@ export function buildEscalationMessage(
   return `I'll connect you with a human team member. You can reach us directly at ${config.escalationContact || "our support team"}${hours}.`;
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Conversation Completion & Lead Capture — Travel's own message copy and readiness/suggestion catalog
+// around the generic state machine in `apps/api/src/conversation/conversation-completion.ts`. See the
+// three-language pattern used throughout this file (buildConfirmPrompt et al.) — kept consistent here.
+// ---------------------------------------------------------------------------------------------------
+
+/**
+ * The proactive "would you like to submit this?" ask — shown at most once per conversation (see
+ * `completionStage`), and only once the traveler has actually received something substantial (a budget
+ * estimate, options, or an itinerary) for a trip whose core details are complete.
+ */
+export function buildCompletionOfferMessage(
+  customerName: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  if (language === "HINGLISH")
+    return "Kya aap chahenge ki main ye travel request submit kar doon, taaki hamari team live pricing aur booking mein aapki madad kar sake?";
+  if (language === "HINDI")
+    return "क्या आप चाहेंगे कि मैं यह यात्रा अनुरोध सबमिट कर दूँ, ताकि हमारी टीम लाइव प्राइसिंग और बुकिंग में आपकी मदद कर सके?";
+  return `Would you like to submit this travel request${customerName ? `, ${customerName}` : ""}, so one of our travel experts can contact you with live pricing and booking assistance?`;
+}
+
+/** Asks for a phone number after the traveler has said yes to `buildCompletionOfferMessage`. */
+export function buildContactRequestMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH") return "Bilkul! Kya aap apna mobile number bata sakte hain, taaki hamara travel advisor aapse is trip ke baare mein baat kar sake?";
+  if (language === "HINDI") return "बिल्कुल! क्या आप अपना मोबाइल नंबर बता सकते हैं, ताकि हमारा ट्रैवल एडवाइज़र आपसे इस यात्रा के बारे में बात कर सके?";
+  return "Wonderful! May I have your mobile number so that our travel advisor can contact you regarding this trip?";
+}
+
+/** Shown when a reply during AWAITING_CONTACT doesn't contain a recognizable phone number. */
+export function buildInvalidPhoneMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH") return "Maaf kijiye, wo ek valid mobile number nahi lagta. Kya aap country code ke saath dobara bhej sakte hain (jaise +91 98765 43210)?";
+  if (language === "HINDI") return "क्षमा करें, वह एक मान्य मोबाइल नंबर नहीं लगता। क्या आप देश कोड सहित दोबारा भेज सकते हैं (जैसे +91 98765 43210)?";
+  return "Sorry, that doesn't look like a valid mobile number. Could you share it again, ideally with the country code (e.g. +91 98765 43210)?";
+}
+
+export function buildPendingContactAcknowledgement(
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  if (language === "HINGLISH")
+    return "Aapka swagat hai. Jab aap ready hon, apna mobile number share kar dijiye aur main travel enquiry submit kar dunga.";
+  if (language === "HINDI")
+    return "आपका स्वागत है। जब आप तैयार हों, अपना मोबाइल नंबर साझा करें और मैं यात्रा पूछताछ सबमिट कर दूँगा।";
+  return "You're welcome. Whenever you're ready, share your mobile number and I can submit the travel enquiry.";
+}
+
+export function buildStandaloneContactConfirmation(
+  entities: TravelEntities,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const route =
+    entities.originCity && entities.destinationCity
+      ? ` for your ${entities.originCity}-to-${entities.destinationCity} trip`
+      : " for your current trip";
+  if (language === "HINGLISH")
+    return `Ye mobile number lag raha hai. Kya main ise aapki current trip ke liye travel enquiry create karne ya callback arrange karne ke liye use karun?`;
+  if (language === "HINDI")
+    return "यह मोबाइल नंबर लगता है। क्या मैं इसे आपकी वर्तमान यात्रा के लिए यात्रा पूछताछ बनाने या कॉलबैक की व्यवस्था करने के लिए उपयोग करूँ?";
+  return `That looks like a mobile number. Would you like me to use it to create a travel enquiry or arrange a callback${route}?`;
+}
+
+/** Final confirmation once the lead has actually been persisted, with its reference number. */
+export function buildLeadCapturedMessage(
+  customerName: string | null,
+  reference: string,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  if (language === "HINGLISH")
+    return `Dhanyavad${customerName ? `, ${customerName}` : ""}!\n\nAapki travel request successfully submit ho gayi hai.\n\nReference Number: ${reference}\n\nHamara travel expert jald hi aapse contact karega.`;
+  if (language === "HINDI")
+    return `धन्यवाद${customerName ? `, ${customerName}` : ""}!\n\nआपका यात्रा अनुरोध सफलतापूर्वक सबमिट हो गया है।\n\nसंदर्भ संख्या: ${reference}\n\nहमारा यात्रा विशेषज्ञ जल्द ही आपसे संपर्क करेगा।`;
+  return `Thank you${customerName ? `, ${customerName}` : ""}.\n\nYour travel request has been submitted successfully.\n\nReference Number: ${reference}\n\nOur travel expert will contact you shortly.`;
+}
+
+/** Branches (see `tag`'s `branch` argument) where the traveler has just received something substantial
+ * enough — options, a budget figure, or an itinerary — for the Goal Engine and the completion offer to be
+ * relevant. Deliberately a safelist: mid-collection questions, clarifications, and error/escalation
+ * replies must never carry either. */
+const GOAL_ENGINE_ELIGIBLE_BRANCHES = new Set([
+  "execute_search",
+  "search_hotels",
+  "search_flights",
+  "search_live_options",
+  "resume_search",
+  "resume_search_indicative_after_failure",
+  "generate_indicative_recommendations",
+  "generate_itinerary",
+  "resume_generate_itinerary",
+  "calculate_budget",
+  "resume_budget_guidance",
+  "calculate_journey_budget"
+]);
+const BUDGET_OR_OPTIONS_BRANCHES = new Set([
+  "execute_search",
+  "search_hotels",
+  "search_flights",
+  "search_live_options",
+  "resume_search",
+  "resume_search_indicative_after_failure",
+  "generate_indicative_recommendations",
+  "calculate_budget",
+  "resume_budget_guidance",
+  "calculate_journey_budget"
+]);
+const BUDGET_ONLY_BRANCHES = new Set(["calculate_budget", "resume_budget_guidance", "calculate_journey_budget"]);
+const ITINERARY_BRANCHES = new Set(["generate_itinerary", "resume_generate_itinerary"]);
+
+/**
+ * The Conversation Goal Engine: context-aware "what next" suggestions computed from what was just
+ * delivered on this branch and what TripState still doesn't have — never re-suggesting something already
+ * shown. See the OBJECTIVES in the Conversation Completion & Lead Capture spec for the exact catalog.
+ */
+function computeSuggestedActions(
+  branch: string,
+  entities: TravelEntities,
+  hasItinerary: boolean
+): SuggestedAction[] {
+  const actions: SuggestedAction[] = [];
+  // Domestic trips must never suggest visa/insurance/currency-exchange — those are only ever relevant
+  // once origin and destination are positively known to be in different countries. Reuses the same
+  // conservative `isDomesticTrip` already used to gate Visa/Insurance out of the budget estimate itself,
+  // so the Goal Engine's suggestions and the budget breakdown never disagree about whether this trip is
+  // international.
+  const international = !isDomesticTrip(entities.originCity, entities.destinationCity);
+  const visaWorthAsking = international && entities.visaRequired !== false;
+  if (BUDGET_OR_OPTIONS_BRANCHES.has(branch)) {
+    if (!hasItinerary) actions.push({ label: "Create a full itinerary" });
+    if (BUDGET_ONLY_BRANCHES.has(branch)) {
+      actions.push({ label: "Recommend hotels" });
+      actions.push({ label: "Suggest flights" });
+    }
+    if (international) {
+      if (visaWorthAsking) actions.push({ label: "Estimate visa cost" });
+      actions.push({ label: "Check travel insurance options" });
+      actions.push({ label: "Currency exchange guidance" });
+    }
+    return actions.slice(0, 6);
+  }
+  if (ITINERARY_BRANCHES.has(branch)) {
+    return [
+      { label: "Recommend hotels" },
+      { label: "Restaurant suggestions" },
+      { label: "Weather for your travel dates" },
+      { label: "Packing checklist" }
+    ];
+  }
+  return actions;
+}
+
+function formatSuggestedActionsLocalized(
+  actions: readonly SuggestedAction[],
+  language: TravelResponseLanguage
+): string {
+  const heading =
+    language === "HINGLISH" ? "Aapko ye bhi useful lag sakta hai:" : language === "HINDI" ? "आपको ये भी उपयोगी लग सकता है:" : "You might also find these useful:";
+  return formatSuggestedActions(actions, heading);
+}
+
 function toolAvailable(tools: readonly AiToolDefinition[] | undefined, name: string): boolean {
   return Boolean(tools?.some((tool) => tool.name === name));
 }
+/** Used only by the BELOW_MINIMUM sales handoff (see `handleBelowMinimumFeasibility`) — a proactive,
+ * assistant-initiated escalation distinct from the consent-gated Lead Capture flow, and the one remaining
+ * place the optional CRM connector is still used directly. */
 function findCrmLeadTool(tools: readonly AiToolDefinition[] | undefined): AiToolDefinition | undefined {
   return tools?.find((tool) => tool.name.endsWith("crm.create_lead"));
 }
@@ -1058,21 +2859,240 @@ function textResult(
 }
 
 /**
+ * Adapts the deterministic provider's simpler {@link TravelSlots} into a minimal {@link TravelEntities}
+ * shell — just enough to reuse the shared `estimateBudgetRange`/`classifyBudgetFeasibility`/
+ * `buildBelowMinimumMessage` machinery for its own BELOW_MINIMUM budget-feasibility check, without
+ * duplicating that pricing logic. `TravelSlots` has no origin city or adult/child breakdown, so those stay
+ * null/unknown here exactly as they are in the slots themselves.
+ */
+function slotsToMinimalEntities(slots: TravelSlots): TravelEntities {
+  return {
+    ...EMPTY_TRAVEL_ENTITIES,
+    destinationCity: slots.destination,
+    travelMonth: slots.travelMonth,
+    days: slots.durationDays,
+    adults: slots.passengers,
+    totalTravellers: slots.passengers,
+    budget: slots.budgetAmount,
+    budgetCurrency: slots.budgetCurrency
+  };
+}
+
+/**
+ * Stage 9E: which of the two ways Travel Runtime can be run.
+ *  - `PLATFORM_MANAGED`: workflow authority (contact collection, submission, booking handoff) belongs
+ *    entirely to the Workflow Runtime. Travel Runtime ADDITIONALLY emits a typed `TravelWorkflowSignalDraft`
+ *    (see `lastWorkflowSignal` on both engines below) and lets `AgentService`/`WorkflowCoordinator` persist
+ *    and own whatever happens next — see the Stage 9E.1 audit below for exactly which legacy fields it
+ *    still writes in this mode and why. This is what `AgentService` always uses.
+ *  - `STANDALONE_COMPATIBILITY` (the default): the original, pre-Stage-9E behavior — Travel Runtime owns
+ *    its own `pendingInputAction`/`completionStage` transitions directly, exactly as before. Every direct
+ *    unit-test construction of either engine (e.g. `travel.llm.spec.ts`) is unaffected by Stage 9E because
+ *    it never passes this parameter and so keeps this default.
+ *
+ * Stage 9E.1 audit — every legacy-field mutation reachable in `PLATFORM_MANAGED` mode, classified per the
+ * charter's four categories (`required compatibility mirror` / `historical migration support` /
+ * `standalone-only behaviour` / `obsolete authority`). This is exhaustive: grep this file for
+ * `executionMode === "PLATFORM_MANAGED"` — there are exactly two call sites (the deterministic
+ * `TravelEmployeeProvider`'s and the LLM `TravelEmployeeLlmOrchestrator`'s own BELOW_MINIMUM branch), and
+ * both make the SAME two mutations:
+ *
+ *  - `completionStage = "AWAITING_CONTACT"`, `pendingInputAction = "AWAITING_LEAD_CONTACT"` — classified
+ *    **required compatibility mirror + historical migration support**, kept intentionally, NOT obsolete:
+ *    (1) it is what `WorkflowCoordinator.migrateHistoricalContactState` reads to self-heal if the signal
+ *        dispatch itself ever fails on this same turn (a real restart-safety guarantee, not decoration);
+ *    (2) removing it was tried during this stage and broke an unrelated downstream branch (`tag()`'s
+ *        Conversation-Completion-offer gate also reads `completionStage`) — proven by a dedicated
+ *        byte-for-byte response-text comparison test between `STANDALONE_COMPATIBILITY` and
+ *        `PLATFORM_MANAGED` (see `travel.llm.spec.ts`/`travel.runtime.spec.ts`'s Stage 9E describe blocks);
+ *    (3) it can never let legacy state override an active persisted workflow: `WorkflowCoordinator.
+ *        dispatchTurn` checks `findActiveWorkflowsForConversation` FIRST, every turn, before ever
+ *        consulting this legacy memory for anything — once a real `WorkflowExecution` row exists (created
+ *        the same turn this mutation runs, via the signal dispatch below), this field is provably inert
+ *        for every later turn of that conversation (see `workflow-coordinator.spec.ts`'s "Runtime
+ *        authority" tests).
+ *  - `pendingAction = null`, `providerFailure = null` — classified **standalone-only Travel Runtime
+ *    hygiene, not legacy WORKFLOW authority at all**: neither field exists on `WorkflowExecution` or is
+ *    ever read by any workflow service; they are Travel Runtime's own per-turn bookkeeping (a blocking
+ *    structured action / a live-provider failure record), orthogonal to contact/workflow state, reset here
+ *    only because BELOW_MINIMUM is switching this turn's focus to a feasibility explanation. Out of scope
+ *    for "legacy workflow-related fields" — nothing to narrow.
+ *
+ * No mutation in this audit is classified **obsolete authority** — none were removed from
+ * `PLATFORM_MANAGED`. The BELOW_MINIMUM-adjacent legacy paths from BEFORE Stage 9E (`STANDALONE_CONTACT`
+ * resolution, decline handling, the tool-result CAPTURED transition, etc.) were already established in
+ * Stage 9C/9D as provably unreachable in the integrated `AgentService` path (an active/waiting workflow, or
+ * `dispatchPendingWorkflowTurn`'s free-text signal derivation, always intercepts the turn before Travel
+ * Runtime's own `complete()` runs) — this audit does not change that; it only covers what THIS stage
+ * touches.
+ */
+export type TravelRuntimeExecutionMode = "PLATFORM_MANAGED" | "STANDALONE_COMPATIBILITY";
+
+/**
+ * Stage 9E: a minimal, workflows/-module-independent draft of a workflow-start signal. Travel Runtime emits
+ * this instead of importing `WorkflowSignal` from the Workflow Runtime (which would create a reverse
+ * dependency — several workflow services already import pure functions/types FROM this file). AgentService
+ * fills in the remaining typed fields (`sourceTurnId`, `sourceSkillExecutionId`) to build a full
+ * `WorkflowSignal` before handing it to `WorkflowCoordinator.dispatchSignal`. Currently only one Travel
+ * Runtime business result (BELOW_MINIMUM budget feasibility) emits one of these.
+ */
+export interface TravelWorkflowSignalDraft {
+  signalType: "START_TRIP_SUBMISSION";
+  trigger: "BELOW_MINIMUM_BUDGET";
+}
+
+/**
  * Deterministic, code-driven conversation engine for the Travel Employee. Runs through the same
  * AiProvider contract and tool-calling loop as any other AI employee, so dashboard chat and the
  * WhatsApp channel share this without duplication. It never claims a booking occurred.
  */
 export class TravelEmployeeProvider implements AiProvider {
-  constructor(private readonly config: TravelEmployeeRuntimeConfig) {}
+  private memory: TravelConversationMemory;
+  private priorEntities: TravelEntities;
+  private pendingWorkflowSignal: TravelWorkflowSignalDraft | null = null;
+
+  constructor(
+    private readonly config: TravelEmployeeRuntimeConfig,
+    priorMemory: TravelConversationMemory = EMPTY_TRAVEL_CONVERSATION_MEMORY,
+    priorEntities: TravelEntities = EMPTY_TRAVEL_ENTITIES,
+    private readonly executionMode: TravelRuntimeExecutionMode = "STANDALONE_COMPATIBILITY"
+  ) {
+    this.memory = { ...priorMemory };
+    this.priorEntities = priorEntities;
+  }
+
+  get lastMemory(): TravelConversationMemory {
+    return this.memory;
+  }
+
+  /** Stage 9E: non-null only the turn Travel Runtime's own business calculation (currently only the
+   *  BELOW_MINIMUM budget result) decided a workflow should start — see `TravelRuntimeExecutionMode`.
+   *  AgentService reads this once per turn and hands it to `WorkflowCoordinator.dispatchSignal`; it is
+   *  never consulted by Travel Runtime itself. Reset at the start of every `complete()` call. */
+  get lastWorkflowSignal(): TravelWorkflowSignalDraft | null {
+    return this.pendingWorkflowSignal;
+  }
 
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
+    this.pendingWorkflowSignal = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const userMessages = messages.filter((message) => message.role === "user").map((message) => message.content);
     const currentText = userMessages.at(-1) ?? "";
     const slots = extractTravelSlots(userMessages, this.config.defaultCurrency);
 
-    if (last?.role === "tool") return this.continueAfterTool(messages, last, slots, request.tools);
+    if (last?.role === "tool") {
+      const result = this.continueAfterTool(messages, last, slots, request.tools);
+      const output = safeParseJson(last.content);
+      if (typeof output.reference === "string" && typeof output.leadId === "string")
+        this.memory = {
+          ...this.memory,
+          completionStage: "CAPTURED",
+          pendingInputAction: null,
+          pendingContactValue: null,
+          conversationClosed: false,
+          capturedLeadReference: output.reference
+        };
+      return result;
+    }
+
+    const resolvedInput = resolveTravelInput(currentText, {
+      pendingInputAction: this.memory.pendingInputAction ?? null,
+      pendingContactValue: this.memory.pendingContactValue ?? null,
+      tripState: this.priorEntities,
+      lastAssistantQuestion:
+        [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null,
+      conversationClosed: this.memory.conversationClosed ?? false,
+      currentLeadState:
+        this.memory.completionStage === "CAPTURED"
+          ? "CREATED"
+          : this.memory.completionStage === "AWAITING_CONTACT"
+            ? "PENDING"
+            : "NONE"
+    });
+    if (
+      this.memory.completionStage === "CAPTURED" &&
+      this.memory.capturedLeadReference &&
+      looksLikePhoneOrContact(currentText)
+    )
+      return textResult(buildLeadAlreadyCapturedMessage(this.memory.capturedLeadReference));
+    if (resolvedInput.kind === "PENDING_CONTACT") {
+      this.memory = {
+        ...this.memory,
+        conversationClosed: false,
+        pendingAction: null,
+        providerFailure: null,
+        pendingContactValue: resolvedInput.contact
+      };
+      return toolResult(
+        "travel.create_lead",
+        this.buildDeterministicLeadPayload(
+          slots,
+          extractCustomerName(userMessages),
+          resolvedInput.contact,
+          currentText
+        )
+      );
+    }
+    if (resolvedInput.kind === "PENDING_CONTACT_NON_CONTACT")
+      return textResult(buildPendingContactAcknowledgement());
+    if (resolvedInput.kind === "PENDING_CONTACT_PAUSED") {
+      this.memory = {
+        ...this.memory,
+        completionStage: "DECLINED",
+        pendingInputAction: null,
+        pendingContactValue: null
+      };
+      return textResult(
+        buildFarewellMessage(extractCustomerName(userMessages), detectResponseLanguage(currentText))
+      );
+    }
+    if (resolvedInput.kind === "INVALID_CONTACT_ATTEMPT")
+      return textResult(buildInvalidPhoneMessage());
+    if (resolvedInput.kind === "STANDALONE_CONTACT") {
+      this.memory = {
+        ...this.memory,
+        pendingAction: null,
+        providerFailure: null,
+        pendingPassengerConflict: null,
+        pendingInputAction: "CONFIRM_STANDALONE_CONTACT_USE",
+        pendingContactValue: resolvedInput.contact
+      };
+      return textResult(
+        buildStandaloneContactConfirmation(
+          {
+            ...this.priorEntities,
+            destinationCity: slots.destination ?? this.priorEntities.destinationCity
+          },
+          detectResponseLanguage(currentText)
+        )
+      );
+    }
+    if (resolvedInput.kind === "STANDALONE_CONTACT_CONFIRMED") {
+      this.memory = { ...this.memory, pendingInputAction: null };
+      return toolResult(
+        "travel.create_lead",
+        this.buildDeterministicLeadPayload(
+          slots,
+          extractCustomerName(userMessages),
+          resolvedInput.contact,
+          currentText
+        )
+      );
+    }
+    if (isFarewellMessage(currentText)) {
+      this.memory = {
+        ...this.memory,
+        conversationClosed: true,
+        pendingAction: null,
+        pendingInputAction: null,
+        providerFailure: null,
+        pendingPassengerConflict: null
+      };
+      return textResult(
+        buildFarewellMessage(extractCustomerName(userMessages), detectResponseLanguage(currentText))
+      );
+    }
 
     if (isEscalationRequest(currentText) && !wasEscalated(messages)) {
       if (toolAvailable(request.tools, "travel.escalate"))
@@ -1080,13 +3100,115 @@ export class TravelEmployeeProvider implements AiProvider {
       return textResult(buildEscalationMessage(this.config));
     }
 
+    // Onboarding gate: the traveler's name is collected before any trip-detail question, per the
+    // GREETING -> COLLECT_NAME -> trip-discovery workflow. A message that only states trip content
+    // ("Delhi jana hai") is acknowledged but still routed back to asking for the name; a message that
+    // introduces the traveler (with or without trip content in the same message) is never re-asked.
+    const nameKnownBefore = extractCustomerName(userMessages.slice(0, -1));
+    const customerName = extractCustomerName(userMessages);
+    if (!customerName) return textResult(buildNameRequestMessage(currentText));
+    const justLearnedName = !nameKnownBefore;
+
+    // Intent Discovery: right after the name is captured, if the traveler has not stated any trip
+    // content at all yet (across the whole conversation so far — see the combined-message test where
+    // the name AND a destination arrive together, which must skip straight past this), offer the intent
+    // menu instead of assuming a trip is being planned. Shown exactly once per conversation: on every
+    // later turn `justLearnedName` is false, so normal slot collection proceeds untouched.
+    const hasStatedTripContent = Object.values(slots).some((value) => value !== null);
+    if (justLearnedName && !hasStatedTripContent)
+      return textResult(buildIntentDiscoveryMessage(customerName, detectResponseLanguage(currentText)));
+    const namePrefix = justLearnedName ? `${buildNameAcknowledgment(customerName)} ` : "";
+
+    // Idempotency / already-captured: once a lead exists for this conversation, ANY later affirmative,
+    // repeated phone number, or repeated explicit callback/submit ask re-confirms the SAME reference —
+    // never a second lead, and never a re-ask for contact details already given. This is the deterministic
+    // provider's own equivalent of `completionStage === "CAPTURED"` (it has no persisted state to check
+    // instead — everything is re-derived from the transcript every turn).
+    if (wasLeadCaptured(messages)) {
+      const reference = extractCapturedLeadReference(messages);
+      if (reference) return textResult(buildLeadAlreadyCapturedMessage(reference));
+    }
+
+    // Pending-contact continuation: the last turn asked for a phone number (either after the itinerary was
+    // confirmed, or after an explicit callback/submit-enquiry ask below) — a bare Hinglish affirmative or
+    // unrelated reply here must never be misread as a phone number, and must never silently create a lead
+    // without one. Only a message that actually contains a phone number resolves this.
+    if (wasContactInfoRequested(messages) && !wasLeadCaptured(messages)) {
+      const phone = extractPhoneNumber(currentText);
+      if (phone)
+        return toolResult("travel.create_lead", this.buildDeterministicLeadPayload(slots, customerName, phone, currentText));
+      if (!isNegativeResponse(currentText)) return textResult(buildInvalidPhoneMessage());
+      // A clear decline falls through to normal handling below rather than re-asking for a phone number.
+    }
+
+    // Explicit callback/submit-enquiry/create-lead requests are terminal, always-win lead-capture asks —
+    // never gated on trip-detail completeness (a traveler can ask to be called back mid-collection).
+    if (
+      REQUEST_CALLBACK_PATTERN.test(currentText) ||
+      SUBMIT_ENQUIRY_PATTERN.test(currentText) ||
+      CREATE_LEAD_PATTERN.test(currentText)
+    ) {
+      const phone = extractPhoneNumber(currentText);
+      if (phone)
+        return toolResult("travel.create_lead", this.buildDeterministicLeadPayload(slots, customerName, phone, currentText));
+      this.memory = {
+        ...this.memory,
+        completionStage: "AWAITING_CONTACT",
+        pendingInputAction: "AWAITING_LEAD_CONTACT",
+        pendingAction: null,
+        providerFailure: null
+      };
+      return textResult(buildContactRequestMessage());
+    }
+
     const missing = missingFields(slots);
     if (missing.length === 0) {
+      // BELOW_MINIMUM budget feasibility: explain the shortfall and invite a phone number for a sales
+      // follow-up instead of proceeding to search — mirrors the LLM orchestrator's own
+      // `handleBelowMinimumFeasibility`, and is itself CRM-independent (see the pending-contact-
+      // continuation branch above, which persists the lead once the phone number arrives).
+      if (slots.budgetAmount !== null) {
+        const estimate = estimateBudgetRange(slotsToMinimalEntities(slots), this.config);
+        const feasibility = classifyBudgetFeasibility(slots.budgetAmount, estimate);
+        if (feasibility.classification === "BELOW_MINIMUM") {
+          // Stage 9E: in PLATFORM_MANAGED mode this ALSO emits a typed signal (below) that gives
+          // WorkflowCoordinator real workflow authority over the next turn's contact reply — but the
+          // legacy memory transition here is deliberately unchanged (rather than skipped) in both modes:
+          // `dispatchPendingWorkflowTurn` always intercepts a turn once a real WorkflowExecution row
+          // exists, so this field is inert bookkeeping once the signal is dispatched, and it is what makes
+          // `WorkflowCoordinator.migrateHistoricalContactState` a safe, self-healing fallback on the rare
+          // turn the signal dispatch itself fails. It is also read by unrelated logic in this same method
+          // (the Conversation Completion "offer to submit" gate) that must not be disturbed by this stage.
+          this.memory = {
+            ...this.memory,
+            completionStage: "AWAITING_CONTACT",
+            pendingInputAction: "AWAITING_LEAD_CONTACT",
+            pendingAction: null,
+            providerFailure: null
+          };
+          if (this.executionMode === "PLATFORM_MANAGED")
+            this.pendingWorkflowSignal = { signalType: "START_TRIP_SUBMISSION", trigger: "BELOW_MINIMUM_BUDGET" };
+          return textResult(
+            `${buildBelowMinimumMessage(slotsToMinimalEntities(slots), feasibility, "ENGLISH")}\n\n${buildContactRequestMessage()}`
+          );
+        }
+      }
       if (wasItineraryPresented(messages)) {
         if (isBookingConfirmation(currentText)) {
-          const crmTool = findCrmLeadTool(request.tools);
-          if (crmTool) return toolResult(crmTool.name, buildCrmLeadPayload(slots, currentText));
-          return textResult(buildBookingConfirmedMessage(null));
+          const phone = extractPhoneNumber(currentText);
+          if (phone)
+            return toolResult(
+              "travel.create_lead",
+              this.buildDeterministicLeadPayload(slots, customerName, phone, currentText)
+            );
+          this.memory = {
+            ...this.memory,
+            completionStage: "AWAITING_CONTACT",
+            pendingInputAction: "AWAITING_LEAD_CONTACT",
+            pendingAction: null,
+            providerFailure: null
+          };
+          return textResult(buildContactRequestMessage());
         }
         return textResult(buildConfirmPrompt());
       }
@@ -1111,11 +3233,46 @@ export class TravelEmployeeProvider implements AiProvider {
       );
     }
 
-    const priorSlots = extractTravelSlots(userMessages.slice(0, -1), this.config.defaultCurrency);
-    const gainedNewInfo = JSON.stringify(priorSlots) !== JSON.stringify(slots);
-    const isFirstTurn = userMessages.length <= 1;
-    if (!gainedNewInfo && !isFirstTurn) return textResult(buildMissingInfoMessage(missing, this.config));
-    return textResult(buildAskMessage(missing[0] ?? "destination", slots, isFirstTurn, this.config));
+    // Once a greeting has already been shown as its own turn (the normal proactive-greeting flow), the
+    // welcome message must never be recited again inline — `isFirstTurn` (and the `greetingPrefix` it
+    // drives) is deliberately about "no assistant turn has happened yet at all", not "this is the
+    // traveler's first reply", to avoid a duplicate greeting on the very first substantive answer.
+    const hasAssistantHistory = messages.some((message) => message.role === "assistant");
+    const isFirstTurn = userMessages.length <= 1 && !hasAssistantHistory;
+    // Destination is discovered on its own first — a human consultant asks "where would you like to go?"
+    // before drilling into dates/travellers/budget; only once destination is known do the remaining gaps
+    // combine into one natural bulleted ask (see "Clarification strategy").
+    if (missing.includes("destination"))
+      return textResult(namePrefix + buildAskMessage("destination", slots, isFirstTurn, this.config));
+    if (missing.length > 1)
+      return textResult(namePrefix + buildMissingInfoMessage(missing, this.config, isFirstTurn));
+    return textResult(namePrefix + buildAskMessage(missing[0] ?? "destination", slots, isFirstTurn, this.config));
+  }
+
+  /**
+   * Payload for the SAME `travel.create_lead` tool call the LLM orchestrator uses — see
+   * `TravelLeadService.createInternalLead`. `TravelSlots` has no origin city or multi-leg journey concept
+   * (this simpler provider only ever tracks a single destination), so `departureCity`/`journeyId` are
+   * always null here; every other field is populated from what this provider actually knows.
+   */
+  private buildDeterministicLeadPayload(
+    slots: TravelSlots,
+    customerName: string | null,
+    phone: string,
+    notes: string
+  ): Record<string, unknown> {
+    return {
+      customerName,
+      phoneNumber: phone,
+      departureCity: this.priorEntities.originCity,
+      destination: slots.destination ?? this.priorEntities.destinationCity,
+      travelDates: slots.travelMonth,
+      passengers: slots.passengers !== null ? String(slots.passengers) : null,
+      budgetAmount: slots.budgetAmount,
+      budgetCurrency: slots.budgetCurrency,
+      displayCurrency: this.memory.displayCurrency ?? null,
+      conversationSummary: (notes || slots.destination || "Travel enquiry").slice(0, 2000)
+    };
   }
 
   private continueAfterTool(
@@ -1126,6 +3283,15 @@ export class TravelEmployeeProvider implements AiProvider {
   ): AiCompletionResult {
     const output = safeParseJson(last.content);
     if (output.escalated) return textResult(buildEscalationMessage(this.config));
+    // Every lead-capture entry point resolves the same way here — the built-in, always-available
+    // `travel.create_lead` tool call, never dependent on an external CRM connector. `leadId` is the
+    // unambiguous discriminator: no other tool result in this provider returns that field.
+    if (typeof output.leadId === "string" && typeof output.reference === "string") {
+      const customerName = extractCustomerName(
+        messages.filter((message) => message.role === "user").map((message) => message.content)
+      );
+      return textResult(buildLeadCapturedMessage(customerName, output.reference));
+    }
     if (Array.isArray(output.flightOptions)) {
       if (toolAvailable(tools, "travel.search_hotels"))
         return toolResult("travel.search_hotels", {
@@ -1169,6 +3335,7 @@ export class TravelEmployeeProvider implements AiProvider {
  * ---------------------------------------------------------------------------------------------- */
 
 const ENTITY_SCALAR_KEYS: Array<Exclude<keyof TravelEntities, "preferences">> = [
+  "customerName",
   "originCity",
   "destinationCity",
   "departureDate",
@@ -1184,7 +3351,10 @@ const ENTITY_SCALAR_KEYS: Array<Exclude<keyof TravelEntities, "preferences">> = 
   "budgetCurrency",
   "cabinClass",
   "tripType",
-  "hotelStars"
+  "hotelStars",
+  "visaRequired",
+  "passportStatus",
+  "tripPurpose"
 ];
 
 const ENTITY_MISSING_LABELS: Record<string, string> = {
@@ -1194,6 +3364,17 @@ const ENTITY_MISSING_LABELS: Record<string, string> = {
   adults: "the number of travelers",
   budget: "your approximate budget"
 };
+
+/**
+ * Combines 2+ missing-field labels into one natural bullet list, so a traveler is asked for several
+ * things together in one message ("when you're travelling, how many people, and your approximate
+ * budget") instead of one mechanical question per turn. A single missing field is returned as a plain
+ * phrase, never a one-item list.
+ */
+function combineMissingLabels(labels: readonly string[]): string {
+  if (labels.length <= 1) return labels[0] ?? "";
+  return labels.map((label) => `• ${label}`).join("\n");
+}
 
 export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   "You are an information-extraction engine for a travel-planning assistant, doing semantic interpretation:",
@@ -1206,6 +3387,7 @@ export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   "",
   "Respond with a single strictly-valid JSON object, no prose, no markdown fences, matching this shape:",
   "{",
+  '  "customerName": string|null,',
   '  "originCity": {"rawValue": string|null, "normalizedValue": string|null, "confidence": number,',
   '                 "inferred": boolean, "correctionReason": string|null} | string | null,',
   '  "destinationCity": <same shape as originCity>,',
@@ -1223,8 +3405,15 @@ export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   '  "cabinClass": string|null,',
   '  "tripType": string|null,',
   '  "hotelStars": number|null,',
+  '  "visaRequired": boolean|null,',
+  '  "passportStatus": string|null,',
+  '  "tripPurpose": "LEISURE"|"BUSINESS"|null,',
   '  "preferences": string[],',
-  '  "intent": string',
+  '  "intent": string,',
+  '  "answersPendingAction": boolean,',
+  '  "supersedesPendingAction": boolean,',
+  '  "preservePendingAction": boolean,',
+  '  "intentConfidence": number',
   "}",
   "",
   "City fields: prefer the rich object shape. `normalizedValue` is your best-guess canonical spelling",
@@ -1234,10 +3423,34 @@ export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   "A plain string or null is also accepted and is treated as full confidence.",
   "",
   "Extraction rules:",
-  "- Parse compact currency/amount shorthand: \"$5k\" = 5000 USD; \"₹2 lakh\" = 200000 INR;",
+  '- customerName: the traveler\'s own name, captured only from an actual self-introduction ("my name is X",',
+  '  "I\'m X", "call me X") or a short reply that is clearly just their name (e.g. answering literally "Krishna"',
+  "  to a \"may I know your name\" question). NEVER infer a name from a city, month, currency, or other trip",
+  "  detail, and never restate an already-confirmed name.",
+  "- NEVER invent or guess a value the user did not actually state — especially a year, a full date, or",
+  '  any part of a date. If the user says "10 December" with no year, leave departureDate null and',
+  "  populate travelMonth/day information only from what was actually said (the deterministic layer",
+  "  resolves the year); do not silently attach a year or a specific date the message never mentioned.",
+  "  A missing value must stay null — it is never acceptable to fabricate a plausible-looking one.",
+  '- Parse compact currency/amount shorthand: "$5k" = 5000 USD; "₹2 lakh" = 200000 INR;',
   '  "INR 1,50,000" = 150000 INR; "budget 10000 USD" = 10000 USD.',
   '- budgetCurrency is a 3-letter ISO 4217 code (USD, INR, EUR, ...).',
-  '- "5 days 4 nights" => days=5, nights=4.',
+  '- visaRequired: only set from an explicit statement either way ("I need a visa", "I don\'t need a visa",',
+  '  "visa nahi chahiye"). NEVER infer it merely from the trip being international — that is a generic',
+  "  caveat the assistant already gives separately, not a fact about this specific traveler.",
+  '- passportStatus: only set from an explicit statement about the traveler\'s own passport ("my passport is',
+  '  valid", "passport expired", "passport is expiring next month", "getting my passport renewed"). Capture',
+  "  it close to the traveler's own wording rather than forcing it into a fixed category.",
+  '- tripPurpose: "LEISURE" for a personal/vacation/holiday trip, "BUSINESS" for work/official travel — only',
+  "  from an explicit statement (usually the traveler's answer to being asked). Never guessed from the",
+  "  destination or any other trip detail.",
+  '- "5 days 4 nights" => days=5, nights=4. "rat"/"raat"/"रात" is the Hindi/Hinglish word for NIGHT(S):',
+  '  "5 days 3 rat" => days=5, nights=3 — NEVER a 3-star hotel. hotelStars is set only from explicit star/',
+  '  hotel-tier wording (see the hotelStars rule below), never from a night count.',
+  '- An abbreviated or two-digit year IS a real year: "17 jan 27" / "17/01/27" / "Jan 17 27" => a full date',
+  '  in 2027 (a 2-digit YY means 20YY). A standalone four-digit year the user gives to clarify the date',
+  '  ("2027", "2027 me", "year is 2027") sets the departure YEAR — it is NEVER a budget amount, and must not',
+  '  populate budget/budgetCurrency. The deterministic layer also enforces this.',
   '- Traveler count is ambiguous unless a breakdown is given — NEVER assume a raw headcount means "N adults".',
   '  "5 log", "hum 5 log hain", "5 people", "total 5", "family of 5" => totalTravellers=5, adults/children/',
   '  infants stay null (composition unknown). Only set adults/children/infants when the message actually',
@@ -1245,6 +3458,12 @@ export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   "  totalTravellers null — the deterministic layer reconciles it against any previously stated total).",
   "- Interpret natural dates: \"today\", \"tomorrow\", \"next Friday\", \"August 15\", \"mid-September\",",
   '  "for one week" (=> a 7-day duration). Populate departureDate/travelMonth/days accordingly.',
+  "- departureDate vs returnDate: a message that states exactly ONE date is ALWAYS the departure date —",
+  '  NEVER assume a lone date is a return date. Only ever populate returnDate when the traveler explicitly',
+  '  signals a return/back date — "back on the 20th", "returning 20 Dec", "till the 20th", or two distinct',
+  '  dates in one message ("15 Aug to 20 Aug", "from the 15th, back by the 20th"), where the first is',
+  '  departureDate and the second is returnDate. A duration phrase ("for 5 days", "one week trip") is',
+  "  never itself a date — extract it into days/nights, not into returnDate.",
   "- A bare short answer (e.g. just \"5\") must be interpreted using which field was last asked about —",
   "  a number after a travelers question is totalTravellers (an ambiguous headcount, not adults); the same",
   "  number after a duration question is days.",
@@ -1273,8 +3492,51 @@ export const TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT = [
   '- "start_new_trip": wants to discard the current trip and plan a different one from scratch.',
   '- "casual_conversation": greetings, thanks, or small talk with no trip content.',
   "When in doubt between provide_trip_details and another intent, prefer provide_trip_details only if the",
-  "message contains no question or request beyond stating facts."
+  "message contains no question or request beyond stating facts.",
+  "A pending action is context, not a lock. Set answersPendingAction=true only when the latest message",
+  "actually supplies or declines what that typed action requested. A new budget, itinerary, correction,",
+  "or travel question must use answersPendingAction=false and preservePendingAction=true unless it clearly",
+  "replaces that workflow. Confidence must be between 0 and 1."
 ].join("\n");
+
+type SemanticTurnProposal = {
+  answersPendingAction: boolean;
+  supersedesPendingAction: boolean;
+  preservePendingAction: boolean;
+  confidence: number;
+};
+
+function parseSemanticTurnProposal(raw: string): SemanticTurnProposal {
+  const jsonText = extractJsonObject(raw);
+  if (!jsonText)
+    return {
+      answersPendingAction: false,
+      supersedesPendingAction: false,
+      preservePendingAction: true,
+      confidence: 0
+    };
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    return {
+      answersPendingAction: parsed.answersPendingAction === true,
+      supersedesPendingAction: parsed.supersedesPendingAction === true,
+      preservePendingAction: parsed.preservePendingAction !== false,
+      confidence:
+        typeof parsed.intentConfidence === "number" &&
+        parsed.intentConfidence >= 0 &&
+        parsed.intentConfidence <= 1
+          ? parsed.intentConfidence
+          : 0
+    };
+  } catch {
+    return {
+      answersPendingAction: false,
+      supersedesPendingAction: false,
+      preservePendingAction: true,
+      confidence: 0
+    };
+  }
+}
 
 /** Reads the "intent" field from a raw extraction+classification LLM response, defaulting safely. */
 export function parseIntent(raw: string): TravelIntent {
@@ -1295,12 +3557,23 @@ export function parseIntent(raw: string): TravelIntent {
 export function buildTravelExtractionUserPrompt(
   known: TravelEntities,
   message: string,
-  context?: { workflowPhase?: TravelWorkflowPhase; lastAskedField?: string | null }
+  context?: {
+    workflowPhase?: TravelWorkflowPhase;
+    lastAskedField?: string | null;
+    pendingInputAction?: TravelPendingInputAction;
+    lastAssistantQuestion?: string | null;
+  }
 ): string {
   return [
     `Confirmed trip state so far (JSON): ${JSON.stringify(known)}`,
     context?.workflowPhase ? `Current workflow phase: ${context.workflowPhase}` : null,
     context?.lastAskedField ? `Field last asked about (use this to disambiguate a bare short answer): ${context.lastAskedField}` : null,
+    context?.pendingInputAction
+      ? `Typed pending action (context only, not a lock): ${context.pendingInputAction}`
+      : null,
+    context?.lastAssistantQuestion
+      ? `Last assistant question: ${context.lastAssistantQuestion.slice(0, 500)}`
+      : null,
     "",
     `Latest user message: """${message.replace(/"""/g, '\\"\\"\\"').slice(0, 4000)}"""`,
     "",
@@ -1358,8 +3631,16 @@ export function parseExtractedEntities(raw: string): Partial<TravelEntities> {
     }
     return null;
   };
+  const bool = (key: string): boolean | null => {
+    const value = record[key];
+    return typeof value === "boolean" ? value : null;
+  };
+  const tripPurposeRaw = str("tripPurpose")?.toUpperCase();
+  const tripPurpose: "LEISURE" | "BUSINESS" | null =
+    tripPurposeRaw === "LEISURE" || tripPurposeRaw === "BUSINESS" ? tripPurposeRaw : null;
   const currency = str("budgetCurrency");
   return {
+    customerName: str("customerName") ? titleCase(str("customerName") as string) : null,
     originCity: normalizeCityName(readCityRaw(record, "originCity")),
     destinationCity: normalizeCityName(readCityRaw(record, "destinationCity")),
     departureDate: str("departureDate"),
@@ -1376,6 +3657,9 @@ export function parseExtractedEntities(raw: string): Partial<TravelEntities> {
     cabinClass: str("cabinClass"),
     tripType: str("tripType"),
     hotelStars: num("hotelStars"),
+    visaRequired: bool("visaRequired"),
+    passportStatus: str("passportStatus"),
+    tripPurpose,
     preferences: Array.isArray(record.preferences)
       ? record.preferences.filter((x): x is string => typeof x === "string").slice(0, 10)
       : []
@@ -1531,7 +3815,7 @@ export function mergeTravelEntities(
     if (CITY_ENTITY_FIELDS.has(key) && typeof value === "string") {
       (merged[key] as string) = reconcileCityValue(prior[key] as string | null, value);
     } else {
-      (merged[key] as string | number) = value;
+      (merged[key] as string | number | boolean) = value;
     }
   }
   if (Array.isArray(extracted.preferences) && extracted.preferences.length)
@@ -1707,6 +3991,7 @@ function stageForMissingEntityField(field: string): TravelStage {
 
 function summarizeKnownEntities(entities: TravelEntities): string[] {
   const parts: string[] = [];
+  if (entities.customerName) parts.push(`traveler's name is ${entities.customerName}`);
   if (entities.originCity) parts.push(`origin ${entities.originCity}`);
   if (entities.destinationCity) parts.push(`destination ${entities.destinationCity}`);
   if (entities.travelMonth) parts.push(`travel month ${entities.travelMonth}`);
@@ -1755,7 +4040,7 @@ function buildGenerationSystemPrompt(
   const firstTurnCapturedSomething = isFirstTurn && changed.length > 0;
   return [
     `You are ${config.persona}`,
-    `Tone: ${config.brandTone}. Speak like an experienced, warm human travel consultant — concise and conversational, never like a form. Reply in under 60 words, plain text, no markdown, no lists.`,
+    `Tone: ${config.brandTone}. Speak like an experienced, warm human travel consultant — concise and conversational, never like a form. Vary your opening words turn to turn — do not start every reply with "Great!", "Sure!", or "Got it!"; use natural, diverse phrasing a real consultant would use. Reply in under 60 words, plain text, no markdown, no lists.`,
     isFirstTurn && !startingNewTrip && !firstTurnCapturedSomething
       ? `This is the first message of the conversation — begin the reply with: "${config.welcomeMessage}"`
       : isFirstTurn && !startingNewTrip && firstTurnCapturedSomething
@@ -1769,12 +4054,19 @@ function buildGenerationSystemPrompt(
     known.length
       ? `Already known about this trip: ${known.join(", ")}. Never ask for any of these again.`
       : "Nothing about the trip is known yet.",
-    missingLabels.length
-      ? `Ask ONLY for this one next missing detail: ${missingLabels[0]}. Do not ask about anything else.`
-      : "All required details are known — do not ask any further questions.",
-    "Only use the confirmed trip facts listed above — never invent or assume a duration, traveler count,",
-    "price, or option that isn't explicitly listed.",
+    missingLabels.length === 1
+      ? `Ask for this one missing detail: ${missingLabels[0]}.`
+      : missingLabels.length > 1
+        ? `Ask for these missing details together, in ONE natural message (a short lead-in sentence, then each item on its own line) — not one question per turn: ${missingLabels.slice(0, 3).join("; ")}. Do not ask about anything not listed here.`
+        : "All required details are known — do not ask any further questions.",
+    "Only use the confirmed trip facts listed above — never invent or assume a date, year, duration,",
+    "traveler count, price, or option that isn't explicitly listed. A date changing (e.g. a new origin or",
+    "destination replacing an old one) never implies the old date, or any date, is still valid — if no date",
+    "is listed above, none is known, and none may be stated.",
     "Never claim a booking was made, a payment was taken, or that prices are live/final.",
+    "Recording a date, a passenger count, or any other captured detail is never a booking — use neutral",
+    "wording like \"departure date noted\" or \"got it, noted\"; never say a flight, hotel, or booking is",
+    "\"confirmed\" or \"booked\" unless a real booking was actually made (it never is here).",
     "Do not expose internal stage names or tool/system language — write like a person, not a chatbot script.",
     languageInstruction(language)
   ].join("\n");
@@ -1794,23 +4086,28 @@ function buildContextualSystemPrompt(
 ): string {
   const known = summarizeKnownEntities(entities);
   const missingLabels = missing.map((field) => ENTITY_MISSING_LABELS[field] ?? field);
-  const nextStep = missingLabels.length
-    ? `If it flows naturally, gently ask for ${missingLabels[0]} next — but do not force it if it would feel abrupt.`
-    : itineraryAlreadyPresented
-      ? "If it flows naturally, invite them to confirm the plan or say what they'd like changed — but do not mechanically repeat 'reply confirm'."
-      : "If it flows naturally, invite them to continue planning.";
+  const nextStep =
+    missingLabels.length === 1
+      ? `If it flows naturally, gently ask for ${missingLabels[0]} next — but do not force it if it would feel abrupt.`
+      : missingLabels.length > 1
+        ? `If it flows naturally, gently ask for these together (not one at a time): ${missingLabels.slice(0, 3).join("; ")} — but do not force it if it would feel abrupt.`
+        : itineraryAlreadyPresented
+          ? "If it flows naturally, invite them to confirm the plan or say what they'd like changed — but do not mechanically repeat 'reply confirm'."
+          : "If it flows naturally, invite them to continue planning.";
   return [
     `You are ${config.persona}`,
-    `Tone: ${config.brandTone}. Speak like an experienced, warm human travel consultant — concise, natural, conversational. Reply in under 80 words, plain text, no markdown, no lists.`,
+    `Tone: ${config.brandTone}. Speak like an experienced, warm human travel consultant — concise, natural, conversational. Vary your opening words — avoid starting every reply with "Great!", "Sure!", or "Got it!". Reply in under 80 words, plain text, no markdown, no lists.`,
     "The traveler just asked a question or made a comment. Answer it directly and helpfully first, using only the trip context given below — never invent specific prices, flight numbers, or hotel names.",
     known.length
       ? `Already known about this trip: ${known.join(", ")}. Never ask for any of these again.`
       : "Nothing about the trip is known yet.",
     nextStep,
     "Never say \"Just checking\", and never repeat \"Reply confirm\" unless the user is actually confirming.",
-    "Only use the confirmed trip facts listed above — never invent or assume a duration, traveler count,",
-    "price, or option that isn't explicitly listed.",
-    "Never claim a booking was made, a payment was taken, or that prices are live/final.",
+    "Only use the confirmed trip facts listed above — never invent or assume a date, year, duration,",
+    "traveler count, price, or option that isn't explicitly listed. If a date or year is not listed above,",
+    "it is not known — do not state one anyway.",
+    "Never claim a booking was made, a payment was taken, or that prices are live/final. Recording a date or",
+    "detail is never a booking — never say a flight, hotel, or booking is \"confirmed\"/\"booked\" here.",
     "Do not expose internal stage names or tool/system language — write like a person, not a chatbot script.",
     languageInstruction(language)
   ].join("\n");
@@ -1840,15 +4137,34 @@ function buildItinerarySystemPrompt(
       : (entities.children ?? 0) > 0
         ? "Children are traveling — favor kid-friendly stops and pacing, with a lighter afternoon."
         : null;
+  const preferenceFlags = detectTravellerPreferenceFlags(entities.preferences);
+  const vegetarianNote = preferenceFlags.vegetarian
+    ? "The traveler is vegetarian/vegan — every meal/restaurant suggestion must accommodate this; never suggest a meat-only venue."
+    : null;
+  const accessibilityNote = preferenceFlags.accessibility
+    ? "The traveler has a stated accessibility/mobility need — favor step-free, wheelchair-friendly venues and avoid long unassisted walks or stairs-only access points."
+    : null;
+  const elderlyNote = preferenceFlags.elderly
+    ? "A senior/elderly traveler is in the group — keep a gentler pace with seated rest points, similar to the infant pacing guidance."
+    : null;
   return [
     `You are ${config.persona}`,
     `Tone: ${config.brandTone}. Produce a concrete, practical day-by-day itinerary for ${destination}, ${days} day(s), for ${travelers}.`,
     'Format strictly as "Day N" on its own line, followed by lines of "HH:MM Activity" (24-hour time), one activity per line, using well-known real attractions/areas for the destination where you can name them confidently.',
     "Include a short duration note where it helps (e.g. \"2 hours\") but keep each line brief. Plain text, no markdown, no numbered lists beyond the day/time structure itself.",
+    "Treat the arrival day and departure day differently from full days in between: the arrival day starts",
+    "later/lighter (allow for check-in and travel fatigue) and the departure day ends early with a clear",
+    "buffer before a flight (transit time to the airport plus a safety margin) — never schedule an activity",
+    "that would plausibly make the traveler miss a flight.",
+    "Leave a realistic transit/rest buffer between distant activities — never chain two far-apart stops",
+    "back-to-back with no travel time accounted for.",
     dateNote,
     infantNote,
-    "Personalize activity choices to the traveler mix above — do not invent prices or bookings while doing so.",
-    "Mention once, briefly, that some attractions' opening hours vary by season and should be verified locally closer to the travel date.",
+    vegetarianNote,
+    accessibilityNote,
+    elderlyNote,
+    "Personalize activity choices to the traveler mix and preferences above — do not invent prices or bookings while doing so.",
+    "Mention once, briefly, that some attractions' opening hours vary by season and should be verified locally closer to the travel date (this engine has no live operating-hours data).",
     "Do not mention prices, hotel names, flight numbers, airfare, or whether the budget is sufficient — itinerary timing and sightseeing are independent of budget feasibility, which is handled elsewhere.",
     "Never claim a booking was made or that this is a live/confirmed reservation.",
     languageInstruction(language)
@@ -1910,6 +4226,220 @@ function buildFallbackItineraryMessage(entities: TravelEntities, language: Trave
         ? "कुछ स्थानों के खुलने का समय मौसम के अनुसार बदल सकता है — यात्रा तिथि के करीब पुष्टि कर लें।"
         : "Some attractions' opening hours vary by season — worth confirming closer to your travel date.";
   return [`${intro}`, "", lines.join("\n").trim(), "", paceNote, seasonalNote].filter(Boolean).join("\n");
+}
+
+// ---- Deterministic itinerary safety validation (Sprint 4.2) ----
+// A lightweight, purely structural check on the GENERATED itinerary text — never a claim about real
+// opening hours, live traffic, or actual flight times (this engine has none of that data; see the
+// system prompt's own "opening hours vary by season" disclaimer, unchanged). Catches the failure modes an
+// LLM-generated schedule can actually produce: overlapping/non-increasing times, a repeated named
+// attraction, an overloaded arrival day when the arrival time is unknown (always true here — this engine
+// never tracks a literal arrival time), a departure day with no airport buffer, a missing rest/meal break
+// for a child/infant traveler, and a day whose total scheduled span exceeds a configured limit.
+
+export interface ParsedItineraryActivity {
+  day: number;
+  time: string;
+  minutes: number;
+  activity: string;
+}
+
+const ITINERARY_DAY_HEADER_PATTERN = /^(?:Day|Din|दिन)\s+(\d+)\s*$/i;
+const ITINERARY_ACTIVITY_LINE_PATTERN = /^(\d{1,2}):(\d{2})\s+(.+)$/;
+
+/** Parses the "Day N" / "HH:MM Activity" format both the LLM prompt and the deterministic fallback use. */
+export function parseItineraryText(text: string): ParsedItineraryActivity[] {
+  const activities: ParsedItineraryActivity[] = [];
+  let currentDay = 0;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const dayMatch = ITINERARY_DAY_HEADER_PATTERN.exec(line);
+    if (dayMatch && dayMatch[1]) {
+      currentDay = Number(dayMatch[1]);
+      continue;
+    }
+    const timeMatch = ITINERARY_ACTIVITY_LINE_PATTERN.exec(line);
+    if (timeMatch && currentDay > 0 && timeMatch[1] && timeMatch[2] && timeMatch[3]) {
+      const hours = Number(timeMatch[1]);
+      const mins = Number(timeMatch[2]);
+      activities.push({
+        day: currentDay,
+        time: `${timeMatch[1]}:${timeMatch[2]}`,
+        minutes: hours * 60 + mins,
+        activity: timeMatch[3].trim()
+      });
+    }
+  }
+  return activities;
+}
+
+export type ItineraryValidationIssueCode =
+  | "UNPARSEABLE"
+  | "OVERLAPPING_TIME_SLOTS"
+  | "NON_POSITIVE_DURATION"
+  | "DUPLICATE_ATTRACTION"
+  | "ARRIVAL_DAY_TOO_HEAVY"
+  | "DEPARTURE_DAY_NO_AIRPORT_BUFFER"
+  | "MISSING_CHILD_INFANT_BREAK"
+  | "DAILY_DURATION_EXCEEDS_LIMIT";
+
+export interface ItineraryValidationIssue {
+  code: ItineraryValidationIssueCode;
+  day: number | null;
+  detail: string;
+}
+
+export interface ItineraryValidationResult {
+  valid: boolean;
+  issues: ItineraryValidationIssue[];
+}
+
+export interface ItineraryValidationOptions {
+  hasChildren: boolean;
+  hasInfants: boolean;
+  /** Longest allowed span (minutes) from a day's first to last activity — a configured limit, not a live constraint. */
+  maxDailyActivityMinutes?: number;
+}
+
+/** 12 hours, first activity to last — generous enough for a full sightseeing day without being unbounded. */
+export const DEFAULT_MAX_DAILY_ACTIVITY_MINUTES = 12 * 60;
+const ARRIVAL_DAY_MIN_START_MINUTES = 13 * 60;
+const ARRIVAL_DAY_MAX_ACTIVITIES = 3;
+const DEPARTURE_DAY_LATEST_ACTIVITY_MINUTES = 17 * 60;
+const GENERIC_REPEATABLE_ACTIVITY_TERMS = [
+  "breakfast",
+  "lunch",
+  "dinner",
+  "meal",
+  "check-in",
+  "check in",
+  "check-out",
+  "check out",
+  "rest",
+  "nap",
+  "free time",
+  "transfer",
+  "departure",
+  "arrival",
+  "hotel"
+];
+
+function isGenericRepeatableActivity(activity: string): boolean {
+  const lower = activity.toLowerCase();
+  return GENERIC_REPEATABLE_ACTIVITY_TERMS.some((term) => lower.includes(term));
+}
+
+/**
+ * Structural-only validation of a generated itinerary. Returns `{valid:false, issues:[...]}` rather than
+ * throwing — the caller (`safeGenerateItinerary`) decides what to do (fall back to the deterministic
+ * template); this function never claims to know real opening hours, live traffic, or actual flight times.
+ */
+export function validateItineraryText(text: string, options: ItineraryValidationOptions): ItineraryValidationResult {
+  const activities = parseItineraryText(text);
+  const issues: ItineraryValidationIssue[] = [];
+  if (activities.length === 0) {
+    return { valid: false, issues: [{ code: "UNPARSEABLE", day: null, detail: "No day/time-formatted activities could be parsed from the itinerary text." }] };
+  }
+  const days = Array.from(new Set(activities.map((activity) => activity.day))).sort((a, b) => a - b);
+  const firstDay = days[0] ?? 1;
+  const lastDay = days[days.length - 1] ?? firstDay;
+  const seenNamedOnDay = new Map<string, number>();
+
+  for (const day of days) {
+    const dayActivities = activities.filter((activity) => activity.day === day).sort((a, b) => a.minutes - b.minutes);
+    for (let index = 0; index < dayActivities.length; index++) {
+      const current = dayActivities[index];
+      if (!current) continue;
+      if (!isGenericRepeatableActivity(current.activity)) {
+        const key = current.activity.trim().toLowerCase();
+        const priorDay = seenNamedOnDay.get(key);
+        if (priorDay !== undefined) {
+          issues.push({
+            code: "DUPLICATE_ATTRACTION",
+            day,
+            detail: `"${current.activity}" on Day ${day} already appeared on Day ${priorDay}.`
+          });
+        } else {
+          seenNamedOnDay.set(key, day);
+        }
+      }
+      const next = dayActivities[index + 1];
+      if (next) {
+        const gapMinutes = next.minutes - current.minutes;
+        if (gapMinutes < 0) {
+          issues.push({
+            code: "OVERLAPPING_TIME_SLOTS",
+            day,
+            detail: `"${next.activity}" at ${next.time} starts before "${current.activity}" at ${current.time} on Day ${day}.`
+          });
+        } else if (gapMinutes === 0) {
+          issues.push({
+            code: "NON_POSITIVE_DURATION",
+            day,
+            detail: `"${current.activity}" and "${next.activity}" are both scheduled at ${current.time} on Day ${day}.`
+          });
+        }
+      }
+    }
+    const dayStart = dayActivities[0]?.minutes ?? 0;
+    const dayEnd = dayActivities[dayActivities.length - 1]?.minutes ?? dayStart;
+    const maxMinutes = options.maxDailyActivityMinutes ?? DEFAULT_MAX_DAILY_ACTIVITY_MINUTES;
+    if (dayEnd - dayStart > maxMinutes) {
+      issues.push({
+        code: "DAILY_DURATION_EXCEEDS_LIMIT",
+        day,
+        detail: `Day ${day} spans ${dayEnd - dayStart} minutes (first activity to last), exceeding the ${maxMinutes}-minute configured limit.`
+      });
+    }
+    if (options.hasChildren || options.hasInfants) {
+      const hasMeal = dayActivities.some((activity) => /breakfast|lunch|dinner|meal/i.test(activity.activity));
+      if (!hasMeal) {
+        issues.push({ code: "MISSING_CHILD_INFANT_BREAK", day, detail: `Day ${day} has no meal break scheduled for a traveling child/infant.` });
+      }
+      if (options.hasInfants) {
+        const hasRest = dayActivities.some((activity) => /\brest\b|\bnap\b/i.test(activity.activity));
+        if (!hasRest) {
+          issues.push({ code: "MISSING_CHILD_INFANT_BREAK", day, detail: `Day ${day} has no rest/nap break scheduled for a traveling infant.` });
+        }
+      }
+    }
+  }
+
+  // Arrival day must stay light — this engine never tracks a literal arrival TIME, so the arrival time is
+  // always effectively unknown, and the first day must never be scheduled as if it were a full day. The
+  // arrival/check-in/transfer activity itself is excluded from the count/start-time check below — noting
+  // arrival is exactly what a light arrival day looks like, never something to flag on its own.
+  const arrivalDayActivities = activities.filter((activity) => activity.day === firstDay).sort((a, b) => a.minutes - b.minutes);
+  const substantiveArrivalDayActivities = arrivalDayActivities.filter(
+    (activity) => !/\b(arrival|check-?in|transfer)\b/i.test(activity.activity)
+  );
+  const substantiveFirstStart = substantiveArrivalDayActivities[0]?.minutes ?? Infinity;
+  if (
+    substantiveArrivalDayActivities.length > ARRIVAL_DAY_MAX_ACTIVITIES ||
+    (substantiveArrivalDayActivities.length > 0 && substantiveFirstStart < ARRIVAL_DAY_MIN_START_MINUTES)
+  ) {
+    issues.push({
+      code: "ARRIVAL_DAY_TOO_HEAVY",
+      day: firstDay,
+      detail: `Arrival day (Day ${firstDay}) has ${substantiveArrivalDayActivities.length} non-arrival activities, the earliest at ${substantiveArrivalDayActivities[0]?.time ?? "?"} — with the arrival time unknown, substantive activities must start no earlier than 13:00 and number at most ${ARRIVAL_DAY_MAX_ACTIVITIES}.`
+    });
+  }
+
+  // Departure day (only meaningful for a multi-day trip) needs a clear airport-transit buffer.
+  if (lastDay !== firstDay) {
+    const departureDayActivities = activities.filter((activity) => activity.day === lastDay).sort((a, b) => a.minutes - b.minutes);
+    const lastActivity = departureDayActivities[departureDayActivities.length - 1];
+    if (lastActivity && lastActivity.minutes > DEPARTURE_DAY_LATEST_ACTIVITY_MINUTES) {
+      issues.push({
+        code: "DEPARTURE_DAY_NO_AIRPORT_BUFFER",
+        day: lastDay,
+        detail: `Departure day (Day ${lastDay})'s last activity "${lastActivity.activity}" starts at ${lastActivity.time}, leaving no clear buffer for airport transit before a typical international flight.`
+      });
+    }
+  }
+
+  return { valid: issues.length === 0, issues };
 }
 
 function buildRejectPlanMessage(language: TravelResponseLanguage = "ENGLISH"): string {
@@ -2058,6 +4588,18 @@ export interface TravelTurnDiagnostics {
   planningAction: TravelPlanningAction;
   /** Whether the BELOW_MINIMUM explanation had already been shown before this turn began. */
   budgetDiscussionCompletedBefore: boolean;
+  /** The active journey's id, if one exists yet — correlates every log line for a multi-leg trip together. */
+  journeyId: string | null;
+  /** Number of finalized legs in the journey at the START of this turn (before anything this turn changes). */
+  journeyLegCountBefore: number;
+  /** Whether a live-provider failure was already on record at the START of this turn. */
+  providerFailureActiveBefore: boolean;
+  /** Whether the recovery menu's numeric-shortcut window was still open at the START of this turn. */
+  recoveryMenuActiveBefore: boolean;
+  /** True if ANY itinerary generated this turn (single-leg or any journey leg) failed validation and fell back. */
+  itineraryFallbackUsed: boolean;
+  /** Issue codes from every failed itinerary validation this turn — see {@link ItineraryValidationIssueCode}. */
+  itineraryValidationIssues: ItineraryValidationIssueCode[];
 }
 
 /**
@@ -2075,12 +4617,23 @@ export function isExecutionRequest(text: string): boolean {
  * Phrases that mean "let the assistant pick the number" or "I have no fixed number in mind" — mapped
  * deterministically to a {@link TravelBudgetMode}, independent of how the LLM classifies intent, per the
  * required mapping: "you suggest your budget" / "recommend a budget" / "you suggest" / "I need budget
- * advice" -> AGENT_RECOMMENDED; "no budget" / "no fixed budget" / "flexible budget" -> FLEXIBLE.
+ * advice" / "you estimate (the budget)" / "give me your estimate" -> AGENT_RECOMMENDED; "no budget" /
+ * "no fixed budget" / "flexible budget" / "budget is open" (and typo/garbled variants like "budget is
+ * openb" or "budget is open boss") -> FLEXIBLE. Stage 9F: both modes are this codebase's existing
+ * representation of an "OPEN" budget constraint (see `computeMissingEntityFields`'s
+ * `budgetIsAgentDriven` check) — no new parallel type was introduced; these phrases now just reach the
+ * mode they always should have.
  */
+// "you estimate (the/my/your budget)" and "give me (your/an) estimate" both signal an open/recommended
+// budget. "give me your estimate" was deliberately excluded in Stage 9F (too generic, risked downgrading
+// an already-fixed budget), but is now required explicitly by UAT — gated here so it becomes actionable.
 const AGENT_RECOMMENDED_BUDGET_PATTERN =
-  /\b(you suggest(?:\s+(?:a|the|your)\s+budget)?|(?:can\s+)?you\s+recommend(?:\s+(?:a|the)\s+budget)?|recommend(?:ed)?\s+a\s+budget|suggest\s+a\s+budget|i\s+need\s+budget\s+advice|budget\s+advice|guide\s+me\s+(?:about|on)\s+budget|what(?:'s| is) a good budget)\b/i;
+  /\b(you suggest(?:\s+(?:a|the|your)\s+budget)?|(?:can\s+)?you\s+recommend(?:\s+(?:a|the)\s+budget)?|recommend(?:ed)?\s+a\s+budget|suggest\s+a\s+budget|i\s+need\s+budget\s+advice|budget\s+advice|guide\s+me\s+(?:about|on)\s+budget|what(?:'s| is) a good budget|you\s+estimate(?:\s+(?:the|my|your)?\s*budget)?|give\s+(?:me|us)\s+(?:your|an?\s+)\s*estimate)\b/i;
+// `open\w*` (not a bare `open\b`) deliberately absorbs a trailing-typo suffix like "openb" as one token,
+// while a `\b` boundary right after still matches "budget is open" as a prefix of "budget is open boss" —
+// covering the exact "openb"/"open boss" UAT variants without a separate typo-correction pass.
 const FLEXIBLE_BUDGET_PATTERN =
-  /\b(no\s+(?:fixed\s+)?budget|flexible\s+budget|budget\s+is\s+flexible|no\s+budget\s+in\s+mind|not\s+sure\s+(?:about|on)\s+(?:the\s+)?budget)\b/i;
+  /\b(no\s+(?:fixed\s+)?budget|flexible\s+budget|budget\s+is\s+flexible|no\s+budget\s+in\s+mind|not\s+sure\s+(?:about|on)\s+(?:the\s+)?budget|budget(?:\s+is)?\s+open\w*|open\s+budget)\b/i;
 
 /**
  * Deterministic, phrase-based budget-mode signal for the current message. Returns null when the message
@@ -2110,17 +4663,20 @@ export function deterministicExtractFallback(message: string): Partial<TravelEnt
   const destination = normalizeCityName(extractDestination(message));
   const travelMonth = extractTravelMonth(message);
   const days = extractDurationDays(message);
+  const nightsMatch = NIGHTS_SIGNAL_PATTERN.exec(message);
+  const composition = extractPassengerComposition(message);
   // extractPassengers only ever recognizes an ambiguous headcount ("5 people", "family of 5") — it can
   // never tell adults/children/infants apart, so it must never be assigned to `adults` directly.
-  const totalTravellers = extractPassengers(message);
   const budget = extractBudget(message);
   const dateGuess = interpretDatePhrase(message);
   return {
+    customerName: extractCustomerName([message]),
     destinationCity: destination,
     travelMonth: travelMonth ?? dateGuess.travelMonth,
     departureDate: dateGuess.normalizedDate,
     days: days ?? dateGuess.durationDays,
-    totalTravellers,
+    nights: nightsMatch?.[1] ? Number(nightsMatch[1]) : null,
+    ...composition,
     budget: budget?.amount ?? null,
     budgetCurrency: budget?.currency ?? null
   };
@@ -2207,6 +4763,134 @@ export function interpretDatePhrase(raw: string, referenceDate: Date = new Date(
   return empty;
 }
 
+const MONTH_ABBREVIATIONS: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  sept: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11
+};
+
+/** Resolves a month name or 3-4 letter abbreviation to a 0-based month index, or null. */
+function monthIndexOf(token: string): number | null {
+  const lower = token.trim().toLowerCase();
+  const full = MONTHS.indexOf(lower);
+  if (full >= 0) return full;
+  if (lower in MONTH_ABBREVIATIONS) return MONTH_ABBREVIATIONS[lower] ?? null;
+  return null;
+}
+
+/** Parses day+month without inventing a year. Month is stored 1-based for a user-facing date record. */
+export function parsePendingDepartureDate(raw: string): PendingDepartureDate | null {
+  const monthAlt =
+    "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
+  const text = raw.trim().toLowerCase();
+  const dayMonth = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthAlt})\\.?\\b`, "i").exec(text);
+  const monthDay = new RegExp(`\\b(${monthAlt})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`, "i").exec(text);
+  const numeric = /\b(\d{1,2})\/(\d{1,2})\b(?!\/)/.exec(text);
+  let day: number | null = null;
+  let month: number | null = null;
+  if (dayMonth) {
+    day = Number(dayMonth[1]);
+    const index = monthIndexOf(dayMonth[2] ?? "");
+    month = index === null ? null : index + 1;
+  } else if (monthDay) {
+    day = Number(monthDay[2]);
+    const index = monthIndexOf(monthDay[1] ?? "");
+    month = index === null ? null : index + 1;
+  } else if (numeric) {
+    day = Number(numeric[1]);
+    month = Number(numeric[2]);
+  }
+  if (day === null || month === null || day < 1 || day > 31 || month < 1 || month > 12) return null;
+  return { day, month, year: null, source: "USER_EXPLICIT" };
+}
+
+/**
+ * Deterministic century-resolution policy for a 1-2 digit year: `YY` maps to `20YY` (2000-2099). Kept
+ * simple and forward-looking on purpose — travel dates are near-future, so "27" is 2027, "30" is 2030.
+ * A already-4-digit year is returned unchanged.
+ */
+export function resolveTravelYear(raw: number): number {
+  if (raw >= 1000) return raw;
+  return 2000 + raw;
+}
+
+/**
+ * Deterministic parser for an EXPLICIT calendar date that includes a year — including the common
+ * abbreviated-year forms the natural-language interpreter and the LLM both tended to drop: "17 jan 27",
+ * "17 january '27", "17 jan 2027", "Jan 17 27", "17/01/27", "17-01-27". Returns a full ISO date and the
+ * month name, or null. Numeric forms are read day-first (Indian convention); an unambiguous month/day
+ * ordering (one component > 12) overrides that. This is the fix for the "year was silently dropped" defect.
+ */
+export function parseExplicitTravelDate(raw: string): { normalizedDate: string; travelMonth: string } | null {
+  const text = raw.trim().toLowerCase();
+  const monthAlt = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december";
+
+  // Form 1: "17 jan 27" / "17 january '27" / "17 jan 2027"  (day month year)
+  const dayMonthYear = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthAlt})\\.?\\s+'?(\\d{2,4})\\b`, "i").exec(text);
+  if (dayMonthYear) {
+    const day = Number(dayMonthYear[1]);
+    const month = monthIndexOf(dayMonthYear[2] ?? "");
+    const year = resolveTravelYear(Number(dayMonthYear[3]));
+    if (month !== null && day >= 1 && day <= 31) return buildIsoDate(year, month, day);
+  }
+
+  // Form 2: "jan 17 27" / "january 17th 2027"  (month day year)
+  const monthDayYear = new RegExp(`\\b(${monthAlt})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+'?(\\d{2,4})\\b`, "i").exec(text);
+  if (monthDayYear) {
+    const month = monthIndexOf(monthDayYear[1] ?? "");
+    const day = Number(monthDayYear[2]);
+    const year = resolveTravelYear(Number(monthDayYear[3]));
+    if (month !== null && day >= 1 && day <= 31) return buildIsoDate(year, month, day);
+  }
+
+  // Form 3: "17/01/27" / "17-01-27" / "17.01.2027"  (numeric, day-first unless a component forces MM/DD)
+  const numeric = /\b(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})\b/.exec(text);
+  if (numeric) {
+    let day = Number(numeric[1]);
+    let month1 = Number(numeric[2]);
+    const year = resolveTravelYear(Number(numeric[3]));
+    // Day-first by default; flip only when the first component can't be a day-as-month situation.
+    if (day <= 12 && month1 > 12) {
+      // First is month, second is day (MM/DD).
+      const tmp = day;
+      day = month1;
+      month1 = tmp;
+    }
+    const monthIndex = month1 - 1;
+    if (monthIndex >= 0 && monthIndex <= 11 && day >= 1 && day <= 31) return buildIsoDate(year, monthIndex, day);
+  }
+
+  return null;
+}
+
+function buildIsoDate(year: number, monthIndex: number, day: number): { normalizedDate: string; travelMonth: string } {
+  const date = new Date(Date.UTC(year, monthIndex, day));
+  return { normalizedDate: date.toISOString().slice(0, 10), travelMonth: titleCase(MONTHS[monthIndex] ?? "") };
+}
+
+/**
+ * Deterministic pass: an EXPLICIT full date (with a year) always wins — it is applied to `departureDate`
+ * (and `travelMonth`) even when the LLM already reported a bare month, because a fully-specified date is
+ * strictly more informative than a month alone. This guarantees a stated year survives extraction.
+ */
+export function augmentWithExplicitDate(message: string, extracted: Partial<TravelEntities>): Partial<TravelEntities> {
+  const explicit = parseExplicitTravelDate(message);
+  if (!explicit) return extracted;
+  // If the model already produced this exact departure date, don't churn it.
+  if (extracted.departureDate === explicit.normalizedDate) return extracted;
+  return { ...extracted, departureDate: explicit.normalizedDate, travelMonth: explicit.travelMonth };
+}
+
 /**
  * Deterministic augmentation pass applied after LLM extraction: if the model didn't confidently populate
  * any date field, try the natural-date interpreter directly against the raw message so "today"/"next
@@ -2223,6 +4907,192 @@ export function augmentWithDatePhrase(message: string, extracted: Partial<Travel
       : {}),
     ...(interpretation.durationDays ? { days: interpretation.durationDays } : {})
   };
+}
+
+// Matches an explicit return/back signal in the traveler's own words — the ONLY thing allowed to
+// legitimize a `returnDate` extraction. Deliberately narrow (not just "return" alone, which also appears
+// in unrelated phrasing like "return the deposit") isn't a real risk here since this only ever gates an
+// already-proposed returnDate value, never invents one.
+const RETURN_DATE_SIGNAL_PATTERN = /\b(return(?:ing)?|back|coming back|arrive back|come back|till|until)\b/i;
+
+/**
+ * Defensive backstop against the extraction model populating `returnDate` for what is actually the only
+ * date the traveler gave — regardless of prompt compliance, a `returnDate` with no `departureDate` and no
+ * explicit return/back signal in the raw message is reinterpreted as the departure date, never silently
+ * trusted. A message with both fields already populated, or with a genuine return signal, is untouched.
+ */
+export function guardReturnDateAssumption(message: string, extracted: Partial<TravelEntities>): Partial<TravelEntities> {
+  if (!extracted.returnDate || extracted.departureDate) return extracted;
+  if (RETURN_DATE_SIGNAL_PATTERN.test(message)) return extracted;
+  return { ...extracted, departureDate: extracted.returnDate, returnDate: null };
+}
+
+// Nights ("3 nights", "3 raat", "3 rat", "3 रात") — multilingual, deliberately NOT the same as a hotel
+// star tier. "rat"/"raat" is the Hinglish/Hindi word for night; it must never be read as "star".
+const NIGHTS_SIGNAL_PATTERN = /\b(\d{1,2})\s*(?:nights?|raat(?:ein|en)?|rat|रात(?:ें)?|raaten)\b/i;
+// An explicit hotel-tier cue — the ONLY thing that legitimizes a `hotelStars` value. Stage 9F: `luxary`
+// (a common typo for "luxury" seen in UAT) is tolerated here alongside the correct spelling — this cue
+// never touches `budget`/`cabinClass`, so recognizing it can never reopen the budget slot or mislabel it
+// as a cabin-class preference.
+const HOTEL_TIER_CUE_PATTERN =
+  /\b(\d\s*star|\d-star|star\s+hotel|stars?\b|deluxe|lux(?:ury|ary)|premium|standard|budget\s+hotel|five[-\s]?star|four[-\s]?star|three[-\s]?star|two[-\s]?star)\b/i;
+
+/**
+ * "N rat"/"N raat"/"N रात"/"N nights" is a NIGHT COUNT, never a hotel star tier. Regardless of how the
+ * extraction model read it, this pass sets `nights` from that signal and — when the model mistakenly set
+ * `hotelStars` to the same number with NO explicit star/tier wording present — drops the false star tier.
+ * This is the fix for the "5 days 3 rat" -> "3-star hotel" parsing defect.
+ */
+export function guardNightsVsHotelStars(message: string, extracted: Partial<TravelEntities>): Partial<TravelEntities> {
+  const nightsMatch = NIGHTS_SIGNAL_PATTERN.exec(message);
+  if (!nightsMatch?.[1]) return extracted;
+  const nights = Number(nightsMatch[1]);
+  let result: Partial<TravelEntities> = { ...extracted, nights };
+  if (result.hotelStars === nights && !HOTEL_TIER_CUE_PATTERN.test(message)) {
+    result = { ...result, hotelStars: null };
+  }
+  return result;
+}
+
+// Any wording that gives a bare number a MONETARY meaning — a currency symbol/code/name, or a budget/cost
+// word (English + Hinglish). Used so a four-digit year is never mistaken for a budget amount.
+const MONETARY_CONTEXT_PATTERN =
+  /[$₹€£¥]|\b(usd|inr|eur|gbp|aed|thb|sgd|cad|aud|jpy|dollars?|rupees?|euros?|pounds?|dirhams?|baht|yen|budget|cost|kharch\w*|price|paisa|paise|lakh|thousand)\b/i;
+
+/** True when the message gives a number a monetary reading (currency or budget/cost wording). */
+export function hasMonetaryContext(text: string): boolean {
+  return MONETARY_CONTEXT_PATTERN.test(text);
+}
+
+// A four-digit near-future year (2020-2099), used to recognize a year answer/clarification.
+const FOUR_DIGIT_YEAR_PATTERN = /\b(20[2-9]\d)\b/;
+
+/**
+ * Detects that a message is answering/clarifying a YEAR — either the whole message is essentially just a
+ * year ("2027", "2027 me", "2027 mein", "'27" is handled by the date parser), or it explicitly frames the
+ * number as a year ("year is 2027", "2027 is the year", "saal 2027"). Returns null when the number has any
+ * monetary context (so "budget 2027 USD" stays money) or no year is present. This is what stops a bare
+ * four-digit year from being misclassified as a budget amount.
+ */
+export function detectYearClarification(text: string): number | null {
+  if (hasMonetaryContext(text)) return null;
+  const match = FOUR_DIGIT_YEAR_PATTERN.exec(text);
+  if (!match?.[1]) return null;
+  const year = Number(match[1]);
+  const trimmed = text.trim();
+  const bare = /^\s*'?20[2-9]\d\s*(?:me|mein|hai|is)?\s*(?:year|saal)?\.?\s*$/i.test(trimmed);
+  const cued = /\byear\b|\bsaal\b|\bis\s+the\s+year\b/i.test(trimmed);
+  return bare || cued ? year : null;
+}
+
+/**
+ * A bare/clarified year must never be extracted as a budget amount. When the message reads as a year
+ * clarification (see {@link detectYearClarification}) and the extraction model turned that same number into
+ * a `budget`, this drops the false budget (and its currency). This is the fix for the "2027 ME" ->
+ * "USD 2,027 budget" defect.
+ */
+export function guardYearNotBudget(message: string, extracted: Partial<TravelEntities>): Partial<TravelEntities> {
+  const year = detectYearClarification(message);
+  if (year === null) return extracted;
+  if (extracted.budget === year) return { ...extracted, budget: null, budgetCurrency: null };
+  return extracted;
+}
+
+/** Replaces the year component of an ISO date string, keeping month/day. Returns null if unparseable. */
+function withYear(dateString: string, year: number): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+  if (!match) return null;
+  return `${String(year).padStart(4, "0")}-${match[2]}-${match[3]}`;
+}
+
+/**
+ * When both a departure and return date are known but no day/night count was ever explicitly given,
+ * derives it from the date range — so a traveler who states both dates is never asked the redundant
+ * "how many days" question the two dates already answer. Never overwrites an explicitly stated duration.
+ */
+export function deriveDurationFromDateRange(entities: TravelEntities): TravelEntities {
+  if (entities.days !== null || entities.nights !== null) return entities;
+  if (!entities.departureDate || !entities.returnDate) return entities;
+  const start = Date.parse(entities.departureDate);
+  const end = Date.parse(entities.returnDate);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return entities;
+  const nights = Math.round((end - start) / 86_400_000);
+  return { ...entities, nights, days: nights + 1 };
+}
+
+/**
+ * A stricter, connector-aware pairing than {@link parseJourneyLegChain}: only treats two known-city
+ * mentions as an origin->destination pair when an explicit "se"/"to" connector sits directly between
+ * them ("Mumbai se London", "delhi to mumbai"). `parseJourneyLegChain` is deliberately looser — built for
+ * chaining an open-ended sequence of leg mentions ("aur fir") — which is exactly wrong for this purpose:
+ * a bare juxtaposition of two cities with no connector ("not London, Paris" — a correction, not a route)
+ * must never be read as a route.
+ */
+function findConnectedRoutePair(text: string): { origin: string; destination: string } | null {
+  const mentions = findKnownCityMentions(text);
+  for (let index = 0; index < mentions.length - 1; index++) {
+    const first = mentions[index];
+    const second = mentions[index + 1];
+    if (!first || !second) continue;
+    if (first.name.toLowerCase() === second.name.toLowerCase()) continue;
+    const between = text.slice(first.index + first.length, second.index);
+    if (/^\s*(?:se|to)\s*$/i.test(between)) return { origin: first.name, destination: second.name };
+  }
+  return null;
+}
+
+// "mujhe X jana hai" / "want to travel to X" / "trip to X" — an explicit first-person "I want to GO
+// somewhere" statement. Deliberately narrower than a bare city mention: this is what distinguishes a
+// genuine destination statement from an unrelated mention of the same city (a correction like "not
+// London, Paris", or a bare one-word reply to "which city are you departing from?").
+const DESTINATION_VERB_PATTERN =
+  /\b(?:jana\s+hai|jaana\s+hai|jana\s+chahta|jana\s+chahti|want\s+to\s+(?:travel|go)|travel(?:ling)?\s+to|trip\s+to|planning\s+to\s+(?:go|travel)|going\s+to)\b/i;
+
+/**
+ * Deterministic origin/destination correction applied after extraction (LLM or fallback) — the current
+ * message is the most reliable signal for which city is origin vs. destination and must never be
+ * second-guessed against stale prior state.
+ *
+ * - An explicit connector-based route ("Mumbai se London jana hai", "delhi to mumbai") -> that
+ *   origin/destination pair is authoritative, overriding whatever the LLM proposed.
+ * - An explicit destination statement naming exactly one known city with no connector ("mujhe mumbai
+ *   jana hai") -> that city is ALWAYS the destination, never inferred as the origin — this is what stops
+ *   a second, unrelated destination statement from being misread as supplying the origin for an
+ *   already-known destination (the LLM has been observed to guess the new city must be the origin once a
+ *   destination is already confirmed). Only clears a proposed `originCity` when it duplicates this same
+ *   city (the specific error mode); a distinct origin the model separately identified is left untouched.
+ * - A bare city mention with no "jana hai"/"want to go"/"trip to" verb at all (e.g. a one-word reply
+ *   "Delhi" to "which city are you departing from?") is left entirely to the extraction result — this
+ *   function only ever corrects an explicit destination statement, never guesses at a bare noun-phrase
+ *   reply, which context (`lastAskedField`) already disambiguates upstream.
+ * - Skipped when the assistant just asked for the origin (`lastAskedField === "originCity"`) even if a
+ *   destination-verb phrase is present, since that context takes priority.
+ */
+export function reconcileRouteFromMessage(
+  message: string,
+  extracted: Partial<TravelEntities>,
+  lastAskedField: string | null
+): Partial<TravelEntities> {
+  const routePair = findConnectedRoutePair(message);
+  if (routePair) {
+    return {
+      ...extracted,
+      originCity: normalizeCityName(routePair.origin),
+      destinationCity: normalizeCityName(routePair.destination)
+    };
+  }
+  if (lastAskedField !== "originCity" && DESTINATION_VERB_PATTERN.test(message)) {
+    const singleCity = normalizeCityName(extractDestination(message));
+    if (singleCity) {
+      const proposedOrigin = extracted.originCity ? normalizeCityName(extracted.originCity) : null;
+      return {
+        ...extracted,
+        destinationCity: singleCity,
+        originCity: proposedOrigin === singleCity ? null : (extracted.originCity ?? null)
+      };
+    }
+  }
+  return extracted;
 }
 
 /**
@@ -2313,13 +5183,77 @@ export interface BudgetEstimateLine {
   label: string;
   low: number;
   high: number;
+  /** Per-traveller share of low/high, for lines priced per head (Flights, Visa, Insurance) — makes the
+   *  distinction between "cost per traveller" and "cost for the whole party" explicit rather than only
+   *  ever showing the party total. Omitted for lines that aren't priced per head. */
+  perTraveller?: { low: number; high: number };
+  /** Per-night share, Hotel line only. */
+  perNight?: { low: number; high: number };
+  /** Per-room share, Hotel line only. */
+  perRoom?: { low: number; high: number };
 }
+
+/**
+ * Stage 9B: explicit scope for a formatted amount range — never let a message imply the wrong one (the
+ * fix for a real defect: a TOTAL_PARTY flight amount was previously shown labeled "per traveler").
+ */
+export type AmountScope = "PER_TRAVELLER" | "TOTAL_PARTY" | "PER_NIGHT" | "TOTAL_STAY";
+
+/**
+ * Formats a low–high range together with a label naming its scope, so a caller can never present one
+ * scope's number under another scope's label. `travellerCount` only affects the TOTAL_PARTY label.
+ */
+export function formatScopedAmount(
+  range: { low: number; high: number },
+  currency: string,
+  scope: AmountScope,
+  language: TravelResponseLanguage = "ENGLISH",
+  travellerCount: number | null = null
+): string {
+  const amount = `${currency} ${formatAmount(range.low)}–${formatAmount(range.high)}`;
+  if (scope === "PER_TRAVELLER") {
+    if (language === "HINGLISH") return `${amount} per traveller`;
+    if (language === "HINDI") return `${amount} प्रति यात्री`;
+    return `${amount} per traveler`;
+  }
+  if (scope === "TOTAL_PARTY") {
+    if (language === "HINGLISH")
+      return travellerCount ? `${amount} total (${travellerCount} travellers ke liye)` : `${amount} total`;
+    if (language === "HINDI")
+      return travellerCount ? `${amount} कुल (${travellerCount} यात्रियों के लिए)` : `${amount} कुल`;
+    return travellerCount ? `${amount} total for ${travellerCount} travellers` : `${amount} total`;
+  }
+  if (scope === "PER_NIGHT") {
+    if (language === "HINGLISH") return `${amount} per night`;
+    if (language === "HINDI") return `${amount} प्रति रात`;
+    return `${amount} per night`;
+  }
+  // TOTAL_STAY
+  if (language === "HINGLISH") return `${amount} poore stay ke liye`;
+  if (language === "HINDI") return `${amount} पूरे ठहराव के लिए`;
+  return `${amount} for the full stay`;
+}
+
 export interface BudgetEstimate {
+  /** Currency the amounts below are DISPLAYED in (the traveler's budget/display currency). */
   currency: string;
+  /** Currency the amounts were natively COMPUTED in before conversion — always the placeholder pricing
+   * engine's currency ({@link PRICING_SOURCE_CURRENCY}). Tracked so a conversion is always applied exactly
+   * once, from a single known source, and so an estimate can never silently mislabel USD numbers as another
+   * currency. Optional so older callers/snapshots stay valid. */
+  sourceCurrency?: string;
   low: number;
   high: number;
   breakdown: BudgetEstimateLine[];
 }
+
+/**
+ * The currency the placeholder pricing engine ({@link generatePlaceholderFlights}/
+ * {@link generatePlaceholderHotels} and the per-day cost constants) is natively denominated in. Every
+ * estimate is computed in this currency and then converted exactly once to the traveler's display currency
+ * — never relabeled. This is the fix for the "USD amounts shown as INR" implausibility defect.
+ */
+export const PRICING_SOURCE_CURRENCY = "USD";
 
 /**
  * A snapshot of the last budget estimate actually shown to the traveler — source currency, every category
@@ -2328,37 +5262,100 @@ export interface BudgetEstimate {
  * silently recomputing (which could disagree) or merely relabeling the currency without converting.
  */
 export interface StoredBudgetEstimate {
+  /** Currency the amounts below are denominated in. Snapshots produced by this engine are always stored in
+   * their canonical {@link PRICING_SOURCE_CURRENCY} so a later currency request converts from one stable
+   * source exactly once (no cumulative rounding drift). */
   currency: string;
   low: number;
   high: number;
   breakdown: BudgetEstimateLine[];
   assumptions: string;
   computedAt: string;
+  /** Currency the estimate should be rendered to the traveler in — the persisted display preference at the
+   * time it was shown. Optional so older persisted snapshots stay valid (they default to `currency`). */
+  displayCurrency?: string;
+  /** Whether these numbers came from a live provider search or an indicative placeholder estimate. */
+  availabilityType?: "LIVE" | "INDICATIVE";
 }
 
 /**
- * Fixed, documented FX rates (units of currency per 1 USD) — deterministic placeholder data, not a live
- * feed, consistent with the rest of this engine's placeholder pricing. Used only to convert an already
- * computed estimate's numbers between currencies; never to invent new prices.
+ * Converts one amount from `from` to `to` using one consistent exchange rate — never a partial/mixed
+ * conversion, and never a relabel-only "conversion" that leaves the number unchanged. Thin delegation to
+ * the standalone {@link CurrencyService} (see `currency.service.ts`); an unrecognized currency code on
+ * either side is left unconverted (rounded, not re-derived) rather than guessing at a rate.
  */
-const FX_RATE_PER_USD: Record<string, number> = {
-  USD: 1,
-  INR: 83,
-  EUR: 0.92,
-  GBP: 0.79
-};
-
-/** Converts one amount from `from` to `to` using a single fixed rate — never a partial/mixed conversion. */
 export function convertCurrencyAmount(amount: number, from: string, to: string): number {
-  const fromRate = FX_RATE_PER_USD[from.toUpperCase()] ?? 1;
-  const toRate = FX_RATE_PER_USD[to.toUpperCase()] ?? 1;
-  return Math.round((amount / fromRate) * toRate);
+  if (!isSupportedCurrency(from) || !isSupportedCurrency(to)) return Math.round(amount);
+  return currencyService.convert(amount, from.toUpperCase() as CurrencyCode, to.toUpperCase() as CurrencyCode);
+}
+
+/**
+ * FX-failure-safe amount conversion: returns null (never a fabricated or mislabeled number) when either
+ * currency is unsupported or the exchange-rate provider is unavailable/invalid. See
+ * {@link convertStoredBudgetEstimateSafe}.
+ */
+export function tryConvertCurrencyAmount(amount: number, from: string, to: string): number | null {
+  if (!isSupportedCurrency(from) || !isSupportedCurrency(to)) return null;
+  return currencyService.tryConvert(amount, from.toUpperCase() as CurrencyCode, to.toUpperCase() as CurrencyCode);
+}
+
+/**
+ * FX-failure-safe version of {@link convertStoredBudgetEstimate}: returns null when the conversion can't be
+ * performed (provider unavailable/invalid, or an unsupported currency), so the caller can respond safely
+ * (persist the display preference, offer the original currency) instead of showing a fabricated or
+ * mislabeled figure. A same-currency target is always safe.
+ */
+export function convertStoredBudgetEstimateSafe(
+  estimate: StoredBudgetEstimate,
+  targetCurrency: string
+): StoredBudgetEstimate | null {
+  const target = targetCurrency.toUpperCase();
+  if (estimate.currency.toUpperCase() === target) return estimate;
+  const amounts: number[] = [estimate.low, estimate.high];
+  for (const line of estimate.breakdown) amounts.push(line.low, line.high);
+  for (const amount of amounts) {
+    if (tryConvertCurrencyAmount(amount, estimate.currency, target) === null) return null;
+  }
+  return convertStoredBudgetEstimate(estimate, target);
+}
+
+/** Converts a single breakdown line (including any per-traveller/per-night/per-room sub-ranges) to `target`. */
+function convertBudgetEstimateLine(line: BudgetEstimateLine, from: string, target: string): BudgetEstimateLine {
+  const conv = (value: number): number => convertCurrencyAmount(value, from, target);
+  return {
+    ...line,
+    low: conv(line.low),
+    high: conv(line.high),
+    ...(line.perTraveller ? { perTraveller: { low: conv(line.perTraveller.low), high: conv(line.perTraveller.high) } } : {}),
+    ...(line.perNight ? { perNight: { low: conv(line.perNight.low), high: conv(line.perNight.high) } } : {}),
+    ...(line.perRoom ? { perRoom: { low: conv(line.perRoom.low), high: conv(line.perRoom.high) } } : {})
+  };
+}
+
+/**
+ * Converts a computed {@link BudgetEstimate} to `targetCurrency` exactly once, from its `sourceCurrency`.
+ * The top-level total is recomputed as the sum of the converted lines (never converted independently) so
+ * the "total equals the sum of its breakdown" invariant (see {@link reconcileBudgetEstimate}) always holds
+ * after conversion. A same-currency target is a no-op relabel, never a re-derivation.
+ */
+export function convertBudgetEstimate(estimate: BudgetEstimate, targetCurrency: string): BudgetEstimate {
+  const target = targetCurrency.toUpperCase();
+  if (estimate.currency.toUpperCase() === target) return estimate;
+  const breakdown = estimate.breakdown.map((line) => convertBudgetEstimateLine(line, estimate.currency, target));
+  return {
+    currency: target,
+    ...(estimate.sourceCurrency ? { sourceCurrency: estimate.sourceCurrency } : {}),
+    low: breakdown.reduce((sum, line) => sum + line.low, 0),
+    high: breakdown.reduce((sum, line) => sum + line.high, 0),
+    breakdown
+  };
 }
 
 /**
  * Converts every number in a stored estimate to `targetCurrency` using one consistent FX rate. Never
  * relabels unchanged amounts: if the target currency is the same as the source, the estimate (numbers and
- * all) is returned unchanged rather than merely re-stamped.
+ * all) is returned unchanged rather than merely re-stamped. The `displayCurrency` is always updated to the
+ * target so the snapshot records what it is now shown in.
  */
 export function convertStoredBudgetEstimate(estimate: StoredBudgetEstimate, targetCurrency: string): StoredBudgetEstimate {
   const target = targetCurrency.toUpperCase();
@@ -2366,18 +5363,26 @@ export function convertStoredBudgetEstimate(estimate: StoredBudgetEstimate, targ
   return {
     ...estimate,
     currency: target,
+    displayCurrency: target,
     low: convertCurrencyAmount(estimate.low, estimate.currency, target),
     high: convertCurrencyAmount(estimate.high, estimate.currency, target),
-    breakdown: estimate.breakdown.map((line) => ({
-      ...line,
-      low: convertCurrencyAmount(line.low, estimate.currency, target),
-      high: convertCurrencyAmount(line.high, estimate.currency, target)
-    }))
+    breakdown: estimate.breakdown.map((line) => convertBudgetEstimateLine(line, estimate.currency, target))
   };
 }
 
-/** Builds the persisted snapshot of an estimate right after it was computed and shown to the traveler. */
-function toStoredBudgetEstimate(estimate: BudgetEstimate, entities: TravelEntities, now: string): StoredBudgetEstimate {
+/**
+ * Builds the persisted snapshot of an estimate right after it was computed and shown to the traveler.
+ * `estimate` is the CANONICAL source-currency ({@link PRICING_SOURCE_CURRENCY}) estimate — the snapshot is
+ * deliberately stored in that canonical currency, with the display preference tracked separately, so a
+ * later "share in USD"/"give in INR" converts from a single stable source exactly once.
+ */
+function toStoredBudgetEstimate(
+  estimate: BudgetEstimate,
+  entities: TravelEntities,
+  now: string,
+  displayCurrency: string,
+  availabilityType: "LIVE" | "INDICATIVE"
+): StoredBudgetEstimate {
   const travelers = describeTravelerMix(entities.adults, entities.children, entities.infants, entities.totalTravellers);
   const days = entities.days ?? entities.nights ?? 5;
   const destination = entities.destinationCity ?? "the destination";
@@ -2387,7 +5392,9 @@ function toStoredBudgetEstimate(estimate: BudgetEstimate, entities: TravelEntiti
     high: estimate.high,
     breakdown: estimate.breakdown,
     assumptions: `${travelers}, ${days} day(s) to ${destination}, economy class`,
-    computedAt: now
+    computedAt: now,
+    displayCurrency,
+    availabilityType
   };
 }
 
@@ -2425,6 +5432,60 @@ export function buildNoEstimateToConvertMessage(language: TravelResponseLanguage
   return "There's no budget estimate yet to convert — ask about the budget or cost first.";
 }
 
+/** Acknowledges a display-currency change when there is no estimate to show yet — the journey simply
+ * continues from its current state (never triggers a search). */
+export function buildDisplayCurrencySetMessage(currency: string, language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH") return `Theek hai — ab se saare estimates ${currency} mein dikhaunga.`;
+  if (language === "HINDI") return `ठीक है — अब से सभी अनुमान ${currency} में दिखाऊँगा।`;
+  return `Sure — I'll show future estimates in ${currency}.`;
+}
+
+/** Acknowledges the display currency AND preserves a still-pending search confirmation, asking it once
+ * more with the currency context — only used when no recommendation has been generated yet. */
+export function buildCurrencyAckWithSearchPromptMessage(
+  currency: string,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  if (language === "HINGLISH")
+    return `Theek hai — results ${currency} mein dikhaunga. Kya main abhi flight aur hotel options dhoondh loon?`;
+  if (language === "HINDI")
+    return `ठीक है — परिणाम ${currency} में दिखाऊँगा। क्या मैं अभी फ्लाइट और होटल विकल्प खोजूँ?`;
+  return `Sure — I'll show the results in ${currency}. Would you like me to run the flight and hotel search now?`;
+}
+
+/** Short preface used when the estimate is already displayed in the requested currency (idempotent). */
+export function buildAlreadyInCurrencyMessage(currency: string, language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH") return `Estimate pehle se hi ${currency} mein dikhaya gaya hai.`;
+  if (language === "HINDI") return `अनुमान पहले से ही ${currency} में दिखाया गया है।`;
+  return `The estimate is already shown in ${currency}.`;
+}
+
+/** A clear, non-looping response for a currency we don't support — names the ones we do, never triggers a
+ * search or slot collection. */
+export function buildUnsupportedCurrencyMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  const list = SUPPORTED_CURRENCIES.join(", ");
+  if (language === "HINGLISH")
+    return `Maaf kijiye, main abhi sirf ${list} mein amounts dikha sakta hoon. Inमें से kaunsi currency chahiye?`;
+  if (language === "HINDI")
+    return `क्षमा करें, मैं अभी केवल ${list} में राशि दिखा सकता हूँ। इनमें से कौन सी मुद्रा चाहिए?`;
+  return `I can show amounts in ${list}. Which of these would you like?`;
+}
+
+/** FX-failure-safe response: the display preference is still recorded, but live conversion isn't available
+ * right now, so the estimate is offered in its original currency rather than a fabricated one. */
+export function buildConversionUnavailableMessage(
+  targetCurrency: string,
+  estimate: StoredBudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const original = buildConvertedEstimateMessage(estimate, language);
+  if (language === "HINGLISH")
+    return `Abhi ${targetCurrency} ka live conversion available nahi hai. Yahan wahi estimate uski original currency mein hai:\n\n${original}`;
+  if (language === "HINDI")
+    return `अभी ${targetCurrency} का लाइव रूपांतरण उपलब्ध नहीं है। यहाँ वही अनुमान उसकी मूल मुद्रा में है:\n\n${original}`;
+  return `I can't convert to ${targetCurrency} right now, but here's the same estimate in its original currency:\n\n${original}`;
+}
+
 /**
  * Deterministic budget-range estimator. Sources its flight and hotel numbers from the exact same
  * {@link generatePlaceholderFlights} / {@link generatePlaceholderHotels} functions used to build the
@@ -2442,19 +5503,174 @@ function resolveFarePayers(entities: TravelEntities): number {
   return 1;
 }
 
-export function estimateBudgetRange(
+// Sprint 4.2 pricing-consistency fix (option B): this engine has no provider-backed passenger-tier
+// pricing, so it must never DISPLAY a numerical child/infant discount factor that the headline total does
+// not actually apply — a prior version showed "children ~75%, infants ~10%" while `resolveFarePayers`
+// silently counted children at full fare and infants at zero, a real reconciliation bug (the displayed
+// formula and the computed total disagreed). Rather than inventing a live-feeling per-passenger pricing
+// model (option A) — which would require a real fare-class/provider rate card to be honest, and would
+// silently re-open every hardcoded budget-total test in this file — this engine now states only the
+// QUALITATIVE fact, worded to exactly match what `resolveFarePayers` actually does, so the note always
+// reconciles with the number displayed next to it.
+export interface TravellerCostBreakdown {
+  adults: { count: number };
+  children: { count: number };
+  infants: { count: number };
+}
+
+/** Computed purely for the transparency note — never a numeric input to the headline low/high total. */
+export function describeTravellerCostBreakdown(entities: {
+  adults: number | null;
+  children: number | null;
+  infants: number | null;
+  totalTravellers: number | null;
+}): TravellerCostBreakdown {
+  const adults = entities.adults ?? entities.totalTravellers ?? 1;
+  const children = entities.adults !== null ? (entities.children ?? 0) : 0;
+  const infants = entities.adults !== null ? (entities.infants ?? 0) : 0;
+  return { adults: { count: adults }, children: { count: children }, infants: { count: infants } };
+}
+
+/**
+ * Deterministic transparency note — omitted entirely for an adults-only trip (nothing to differentiate).
+ * Deliberately carries NO percentage or numeric formula: the wording states exactly what `resolveFarePayers`
+ * does (every child costed at the full adult fare, infants not added), so it can never drift out of sync
+ * with the headline total the way a separate invented factor could.
+ */
+export function buildTravellerCostFactorNote(
+  breakdown: TravellerCostBreakdown,
+  language: TravelResponseLanguage = "ENGLISH"
+): string | null {
+  if (breakdown.children.count === 0 && breakdown.infants.count === 0) return null;
+  if (language === "HINGLISH")
+    return "Bachon aur infants ka asli fare airline/route ke hisaab se alag hota hai — koi guaranteed discount is indicative estimate mein nahi maana gaya hai. Upar ka total har bachche ko poore adult fare par count karta hai (kabhi under-estimate nahi karta), aur infant ka fare alag se add nahi kiya gaya hai.";
+  if (language === "HINDI")
+    return "बच्चों और शिशुओं का वास्तविक किराया एयरलाइन/मार्ग के अनुसार अलग होता है — इस संकेतात्मक अनुमान में किसी गारंटीड छूट को नहीं माना गया है। ऊपर का कुल हर बच्चे को पूर्ण वयस्क किराए पर गिनता है (कभी कम नहीं आँकता), और शिशु का किराया अलग से नहीं जोड़ा गया है।";
+  return "Child and infant airfares vary by airline and route — this indicative estimate does not assume any guaranteed discount. The total above counts every child at the full adult fare (so it's never understated) and does not add infant airfare separately.";
+}
+
+export interface TravellerPreferenceFlags {
+  vegetarian: boolean;
+  accessibility: boolean;
+  elderly: boolean;
+}
+
+/** Scans free-text preferences for a small set of known, actionable flags — never invents ones not stated. */
+export function detectTravellerPreferenceFlags(preferences: readonly string[]): TravellerPreferenceFlags {
+  const joined = preferences.join(" ").toLowerCase();
+  return {
+    vegetarian: /vegetarian|vegan/.test(joined),
+    accessibility: /wheelchair|accessib|mobility[\s-]?(?:issue|need|assist)/.test(joined),
+    elderly: /elderly|senior citizen|senior traveller|senior travel(?:l)?er/.test(joined)
+  };
+}
+
+/**
+ * A single visible note confirming which stated preferences are being applied — required so vegetarian,
+ * accessibility, and elderly/pacing preferences are never silently dropped once mentioned. Returns null
+ * when nothing recognizable was stated (never fabricates a preference the traveler didn't give).
+ */
+export function buildPreferenceApplicationNote(
+  preferences: readonly string[],
+  hasChildren: boolean,
+  hasInfants: boolean,
+  language: TravelResponseLanguage = "ENGLISH"
+): string | null {
+  const flags = detectTravellerPreferenceFlags(preferences);
+  const parts: string[] = [];
+  if (language === "HINGLISH") {
+    if (flags.vegetarian) parts.push("vegetarian/vegan dining");
+    if (flags.accessibility) parts.push("wheelchair/accessibility needs");
+    if (flags.elderly) parts.push("senior-friendly, slower pace");
+    if (hasInfants) parts.push("infant pacing (extra rest breaks)");
+    else if (hasChildren) parts.push("kid-friendly pacing");
+    if (!parts.length) return null;
+    return `Preferences applied: ${parts.join(", ")}.`;
+  }
+  if (language === "HINDI") {
+    if (flags.vegetarian) parts.push("शाकाहारी/वीगन भोजन");
+    if (flags.accessibility) parts.push("व्हीलचेयर/सुगम्यता आवश्यकताएं");
+    if (flags.elderly) parts.push("वरिष्ठ-अनुकूल, धीमी गति");
+    if (hasInfants) parts.push("शिशु गति (अतिरिक्त आराम विराम)");
+    else if (hasChildren) parts.push("बच्चों के अनुकूल गति");
+    if (!parts.length) return null;
+    return `लागू प्राथमिकताएं: ${parts.join(", ")}।`;
+  }
+  if (flags.vegetarian) parts.push("vegetarian/vegan dining");
+  if (flags.accessibility) parts.push("wheelchair/accessibility needs");
+  if (flags.elderly) parts.push("senior-friendly, slower pace");
+  if (hasInfants) parts.push("infant pacing (extra rest breaks)");
+  else if (hasChildren) parts.push("kid-friendly pacing");
+  if (!parts.length) return null;
+  return `Preferences applied: ${parts.join(", ")}.`;
+}
+
+/** Duration-tracking: which of days/nights the traveler actually stated — never silently relabeled as the other. */
+export type DurationSource = "EXPLICIT_DAYS" | "EXPLICIT_NIGHTS" | "BOTH_STATED" | "UNKNOWN";
+export function resolveDurationSource(entities: { days: number | null; nights: number | null }): DurationSource {
+  if (entities.days !== null && entities.nights !== null) return "BOTH_STATED";
+  if (entities.days !== null) return "EXPLICIT_DAYS";
+  if (entities.nights !== null) return "EXPLICIT_NIGHTS";
+  return "UNKNOWN";
+}
+
+/** Renders exactly what's known — "N day(s)"/"N night(s)"/both — never mislabeling one as the other. */
+export function buildDurationPhrase(
+  entities: { days: number | null; nights: number | null },
+  language: TravelResponseLanguage = "ENGLISH"
+): string | null {
+  const dayWord = language === "ENGLISH" ? "day(s)" : "din";
+  const nightWord = language === "ENGLISH" ? "night(s)" : language === "HINDI" ? "रात" : "raat";
+  const source = resolveDurationSource(entities);
+  if (source === "BOTH_STATED") return `${entities.days} ${dayWord} / ${entities.nights} ${nightWord}`;
+  if (source === "EXPLICIT_DAYS") return `${entities.days} ${dayWord}`;
+  if (source === "EXPLICIT_NIGHTS") return `${entities.nights} ${nightWord}`;
+  return null;
+}
+
+/**
+ * States the assumption BEFORE hotel costing whenever nights had to be derived from days (or vice versa) —
+ * required so a "3 days" statement never silently becomes "3 nights" of hotel cost without saying so.
+ * Returns null when nights are already explicitly known (nothing was assumed) or duration is unknown
+ * entirely (a different, generic missing-field ask handles that case).
+ */
+export function buildDurationAssumptionNote(
+  entities: { days: number | null; nights: number | null },
+  language: TravelResponseLanguage = "ENGLISH"
+): string | null {
+  const source = resolveDurationSource(entities);
+  if (source !== "EXPLICIT_DAYS") return null;
+  const assumedNights = Math.max((entities.days ?? 1) - 1, 1);
+  if (language === "HINGLISH")
+    return `Assumption: ${entities.days} din ke liye hotel cost ${assumedNights} raaton ke hisaab se lagayi gayi hai.`;
+  if (language === "HINDI")
+    return `मान्यता: ${entities.days} दिनों के लिए होटल लागत ${assumedNights} रातों के आधार पर लगाई गई है।`;
+  return `Assumption: hotel cost is calculated for ${assumedNights} night(s), derived from the ${entities.days} day(s) stated.`;
+}
+
+/**
+ * Computes the estimate in the pricing engine's native currency ({@link PRICING_SOURCE_CURRENCY}) — every
+ * number here comes straight from {@link generatePlaceholderFlights}/{@link generatePlaceholderHotels} and
+ * the per-day USD cost constants, all in that one currency. {@link estimateBudgetRange} converts the result
+ * to the traveler's display currency exactly once; this function never mixes currencies or relabels.
+ */
+function computeBudgetEstimateUsd(
   entities: TravelEntities,
   config: TravelEmployeeRuntimeConfig
 ): BudgetEstimate {
+  void config;
   const adults = entities.adults ?? entities.totalTravellers ?? 1;
   // Fare-/cost-paying headcount: children occupy a seat, a bed, and a plate, so they must factor into
   // every priced category — only infants (typically lap/free) are excluded from per-head multipliers.
   // Falls back to an ambiguous `totalTravellers` count (a documented approximation) when composition is
-  // still unknown — see {@link resolveFarePayers}.
+  // still unknown — see {@link resolveFarePayers}. (A separate, indicative per-category child/infant cost
+  // SHARE is available via {@link describeTravellerCostBreakdown} for transparency — see its own doc comment
+  // for why it does not feed back into this total.)
   const farePayers = resolveFarePayers(entities);
+  // Duration used for cost math ONLY — never presented to the traveler as if it were the stated value; see
+  // {@link buildDurationPhrase}/{@link buildDurationAssumptionNote} for the honest, source-aware display.
   const days = entities.days ?? entities.nights ?? 5;
   const nights = entities.nights ?? Math.max(days - 1, 1);
-  const currency = entities.budgetCurrency ?? config.defaultCurrency;
   const destination = entities.destinationCity ?? "your destination";
 
   const { flightOptions } = generatePlaceholderFlights({
@@ -2473,8 +5689,12 @@ export function estimateBudgetRange(
     hotelStars: entities.hotelStars
   });
   const hotelPrices = hotelOptions.map((hotel) => hotel.pricePerNight);
-  const hotelLow = Math.min(...hotelPrices) * rooms * nights;
-  const hotelHigh = Math.max(...hotelPrices) * rooms * nights;
+  const hotelPerNightLow = Math.min(...hotelPrices);
+  const hotelPerNightHigh = Math.max(...hotelPrices);
+  const hotelPerRoomLow = hotelPerNightLow * nights;
+  const hotelPerRoomHigh = hotelPerNightHigh * nights;
+  const hotelLow = hotelPerRoomLow * rooms;
+  const hotelHigh = hotelPerRoomHigh * rooms;
 
   const foodLow = farePayers * days * 25;
   const foodHigh = farePayers * days * 40;
@@ -2485,11 +5705,16 @@ export function estimateBudgetRange(
   const activitiesLow = farePayers * days * 15;
   const activitiesHigh = farePayers * days * 30;
 
-  const visaLow = farePayers * 40;
-  const visaHigh = farePayers * 80;
+  // Domestic travel (origin and destination in the same country — see `isDomesticTrip`) never carries a
+  // visa or international-travel-insurance assumption; only a genuinely cross-border trip does. An
+  // unrecognized origin/destination is never assumed domestic (see `isDomesticTrip`'s own doc comment),
+  // so this never silently under-estimates a real international trip.
+  const domestic = isDomesticTrip(entities.originCity, entities.destinationCity);
+  const visaLow = domestic ? 0 : farePayers * 40;
+  const visaHigh = domestic ? 0 : farePayers * 80;
 
-  const insuranceLow = farePayers * 20;
-  const insuranceHigh = farePayers * 40;
+  const insuranceLow = domestic ? 0 : farePayers * 20;
+  const insuranceHigh = domestic ? 0 : farePayers * 40;
 
   const subtotalLow = flightsLow + hotelLow + foodLow + localTransportLow + activitiesLow + visaLow + insuranceLow;
   const subtotalHigh = flightsHigh + hotelHigh + foodHigh + localTransportHigh + activitiesHigh + visaHigh + insuranceHigh;
@@ -2497,25 +5722,1414 @@ export function estimateBudgetRange(
   const contingencyHigh = Math.round(subtotalHigh * 0.08);
 
   const breakdown: BudgetEstimateLine[] = [
-    { label: "Flights", low: flightsLow, high: flightsHigh },
-    { label: "Hotel", low: hotelLow, high: hotelHigh },
+    {
+      label: "Flights",
+      low: flightsLow,
+      high: flightsHigh,
+      perTraveller: { low: flightsLow / farePayers, high: flightsHigh / farePayers }
+    },
+    {
+      label: "Hotel",
+      low: hotelLow,
+      high: hotelHigh,
+      perNight: { low: hotelPerNightLow, high: hotelPerNightHigh },
+      perRoom: { low: hotelPerRoomLow, high: hotelPerRoomHigh }
+    },
     { label: "Food", low: foodLow, high: foodHigh },
     { label: "Local transport", low: localTransportLow, high: localTransportHigh },
     { label: "Activities", low: activitiesLow, high: activitiesHigh },
-    { label: "Visa", low: visaLow, high: visaHigh },
-    { label: "Insurance", low: insuranceLow, high: insuranceHigh },
+    ...(domestic
+      ? []
+      : [
+          {
+            label: "Visa",
+            low: visaLow,
+            high: visaHigh,
+            perTraveller: { low: visaLow / farePayers, high: visaHigh / farePayers }
+          },
+          {
+            label: "Insurance",
+            low: insuranceLow,
+            high: insuranceHigh,
+            perTraveller: { low: insuranceLow / farePayers, high: insuranceHigh / farePayers }
+          }
+        ]),
     { label: "Contingency", low: contingencyLow, high: contingencyHigh }
   ];
   return {
-    currency,
+    currency: PRICING_SOURCE_CURRENCY,
+    sourceCurrency: PRICING_SOURCE_CURRENCY,
     low: breakdown.reduce((sum, line) => sum + line.low, 0),
     high: breakdown.reduce((sum, line) => sum + line.high, 0),
     breakdown
   };
 }
 
+/**
+ * Deterministic budget-range estimator, in the traveler's display currency. Computes the estimate in the
+ * pricing engine's native {@link PRICING_SOURCE_CURRENCY} and converts it exactly once to `displayCurrency`
+ * (defaulting to the trip's budget currency, then the config default). This is the fix for the "USD amounts
+ * shown as INR" implausibility defect: amounts are always genuinely converted, never relabeled.
+ */
+export function estimateBudgetRange(
+  entities: TravelEntities,
+  config: TravelEmployeeRuntimeConfig,
+  displayCurrency?: string
+): BudgetEstimate {
+  const usd = computeBudgetEstimateUsd(entities, config);
+  const target = displayCurrency ?? entities.budgetCurrency ?? config.defaultCurrency;
+  return convertBudgetEstimate(usd, target);
+}
+
+/**
+ * Generic, route-agnostic plausibility sanity checks for a computed estimate — never route-specific price
+ * thresholds. A failure here is a signal to qualify the estimate to the traveler rather than present a
+ * confidently misleading number; it never silently alters the figures. Checks: all amounts finite and
+ * non-negative, min <= max on every line and the total, the total equals the sum of its lines (conversion
+ * applied consistently, exactly once), and an explicit, supported source/display currency.
+ */
+export function validateBudgetEstimatePlausibility(estimate: BudgetEstimate): string[] {
+  const issues: string[] = [];
+  const finitePositive = (value: number): boolean => Number.isFinite(value) && value >= 0;
+  if (!finitePositive(estimate.low) || !finitePositive(estimate.high)) issues.push("TOTAL_NOT_FINITE_POSITIVE");
+  if (estimate.low > estimate.high) issues.push("TOTAL_MIN_EXCEEDS_MAX");
+  for (const line of estimate.breakdown) {
+    if (!finitePositive(line.low) || !finitePositive(line.high)) issues.push(`LINE_NOT_FINITE_POSITIVE:${line.label}`);
+    if (line.low > line.high) issues.push(`LINE_MIN_EXCEEDS_MAX:${line.label}`);
+  }
+  if (reconcileBudgetEstimate(estimate).length > 0) issues.push("TOTAL_NOT_SUM_OF_LINES");
+  if (!isSupportedCurrency(estimate.currency)) issues.push("DISPLAY_CURRENCY_UNSUPPORTED");
+  if (estimate.sourceCurrency && !isSupportedCurrency(estimate.sourceCurrency)) issues.push("SOURCE_CURRENCY_UNSUPPORTED");
+  return issues;
+}
+
+/** A single reconciliation mismatch — see {@link reconcileBudgetEstimate}/{@link reconcileJourneyBudgetEstimate}. */
+export interface BudgetReconciliationViolation {
+  scope: "SINGLE_ESTIMATE" | "JOURNEY_CATEGORY" | "JOURNEY_TOTAL";
+  label?: string;
+  expectedLow: number;
+  actualLow: number;
+  expectedHigh: number;
+  actualHigh: number;
+}
+
+/** Invariant: a `BudgetEstimate`'s top-level low/high must equal the sum of its own breakdown lines. */
+export function reconcileBudgetEstimate(estimate: BudgetEstimate): BudgetReconciliationViolation[] {
+  const expectedLow = estimate.breakdown.reduce((sum, line) => sum + line.low, 0);
+  const expectedHigh = estimate.breakdown.reduce((sum, line) => sum + line.high, 0);
+  if (expectedLow === estimate.low && expectedHigh === estimate.high) return [];
+  return [{ scope: "SINGLE_ESTIMATE", expectedLow, actualLow: estimate.low, expectedHigh, actualHigh: estimate.high }];
+}
+
 function formatAmount(value: number): string {
   return Math.round(value).toLocaleString("en-US");
+}
+
+// ---- Multi-leg journey budget aggregation ----
+
+/**
+ * Per-leg budget estimate used only for journey aggregation — deliberately NOT `estimateBudgetRange` reused
+ * as-is, because that function defaults an entirely-unknown duration to 5 days (the right assumption for a
+ * single, still-being-planned trip, but wrong for a leg that has no stay at all, e.g. a same-day connecting
+ * or return leg): here, a leg with no known days/nights gets ZERO hotel/food/local-transport/activities
+ * cost, while flights are still costed (a sector still needs to be flown regardless of whether anyone stays
+ * overnight there). Has no "Contingency" line — that is computed once, after aggregation, at the journey
+ * level (see `estimateJourneyBudgetRange`), never summed per leg.
+ */
+function estimateJourneyLegBudget(
+  leg: JourneyLeg,
+  travellerProfile: JourneyTravellerProfile,
+  config: TravelEmployeeRuntimeConfig
+): BudgetEstimate {
+  const farePayers =
+    leg.passengers.adults !== null
+      ? leg.passengers.adults + (leg.passengers.children ?? 0)
+      : (leg.passengers.totalTravellers ?? 1);
+  void config;
+  const hasStay = leg.duration.days !== null || leg.duration.nights !== null;
+  const days = leg.duration.days ?? leg.duration.nights ?? 0;
+  const nights = leg.duration.nights ?? (hasStay ? Math.max(days - 1, 1) : 0);
+  const destination = leg.destination ?? "your destination";
+
+  const { flightOptions } = generatePlaceholderFlights({
+    destination,
+    travelMonth: leg.dates.travelMonth,
+    passengers: farePayers
+  });
+  const flightPrices = flightOptions.map((flight) => flight.price);
+  const flightsLow = Math.min(...flightPrices);
+  const flightsHigh = Math.max(...flightPrices);
+
+  let hotelLow = 0;
+  let hotelHigh = 0;
+  let hotelPerNightLow = 0;
+  let hotelPerNightHigh = 0;
+  let hotelPerRoomLow = 0;
+  let hotelPerRoomHigh = 0;
+  let foodLow = 0;
+  let foodHigh = 0;
+  let localTransportLow = 0;
+  let localTransportHigh = 0;
+  let activitiesLow = 0;
+  let activitiesHigh = 0;
+  if (hasStay) {
+    const rooms = Math.max(1, Math.ceil((leg.passengers.adults ?? farePayers) / 2));
+    const { hotelOptions } = generatePlaceholderHotels({
+      destination,
+      travelMonth: leg.dates.travelMonth,
+      hotelStars: travellerProfile.hotelStars
+    });
+    const hotelPrices = hotelOptions.map((hotel) => hotel.pricePerNight);
+    hotelPerNightLow = Math.min(...hotelPrices);
+    hotelPerNightHigh = Math.max(...hotelPrices);
+    hotelPerRoomLow = hotelPerNightLow * nights;
+    hotelPerRoomHigh = hotelPerNightHigh * nights;
+    hotelLow = hotelPerRoomLow * rooms;
+    hotelHigh = hotelPerRoomHigh * rooms;
+    foodLow = farePayers * days * 25;
+    foodHigh = farePayers * days * 40;
+    localTransportLow = farePayers * days * 10;
+    localTransportHigh = farePayers * days * 18;
+    activitiesLow = farePayers * days * 15;
+    activitiesHigh = farePayers * days * 30;
+  }
+
+  // Same domestic/international gate as `estimateBudgetRange` — a leg entirely within one country never
+  // carries a visa or international-insurance assumption.
+  const legDomestic = isDomesticTrip(leg.origin, leg.destination);
+  const visaLow = legDomestic ? 0 : farePayers * 40;
+  const visaHigh = legDomestic ? 0 : farePayers * 80;
+  const insuranceLow = legDomestic ? 0 : farePayers * 20;
+  const insuranceHigh = legDomestic ? 0 : farePayers * 40;
+
+  const breakdown: BudgetEstimateLine[] = [
+    {
+      label: "Flights",
+      low: flightsLow,
+      high: flightsHigh,
+      perTraveller: { low: flightsLow / farePayers, high: flightsHigh / farePayers }
+    },
+    {
+      label: "Hotel",
+      low: hotelLow,
+      high: hotelHigh,
+      perNight: { low: hotelPerNightLow, high: hotelPerNightHigh },
+      perRoom: { low: hotelPerRoomLow, high: hotelPerRoomHigh }
+    },
+    { label: "Food", low: foodLow, high: foodHigh },
+    { label: "Local transport", low: localTransportLow, high: localTransportHigh },
+    { label: "Activities", low: activitiesLow, high: activitiesHigh },
+    ...(legDomestic
+      ? []
+      : [
+          {
+            label: "Visa",
+            low: visaLow,
+            high: visaHigh,
+            perTraveller: { low: visaLow / farePayers, high: visaHigh / farePayers }
+          },
+          {
+            label: "Insurance",
+            low: insuranceLow,
+            high: insuranceHigh,
+            perTraveller: { low: insuranceLow / farePayers, high: insuranceHigh / farePayers }
+          }
+        ])
+  ];
+  return {
+    currency: PRICING_SOURCE_CURRENCY,
+    sourceCurrency: PRICING_SOURCE_CURRENCY,
+    low: breakdown.reduce((sum, line) => sum + line.low, 0),
+    high: breakdown.reduce((sum, line) => sum + line.high, 0),
+    breakdown
+  };
+}
+
+export interface JourneyLegBudgetEntry {
+  origin: string | null;
+  destination: string | null;
+  estimate: BudgetEstimate;
+}
+
+export interface JourneyBudgetEstimate {
+  currency: string;
+  perLeg: JourneyLegBudgetEntry[];
+  combined: BudgetEstimate;
+}
+
+/**
+ * Aggregates a per-leg estimate into one journey-level total, per the required aggregation rules:
+ * - Flights, Hotel, Food, Local transport, Activities: summed across every leg (each leg's own stay
+ *   duration and destination already drive its own numbers — see `estimateJourneyLegBudget`).
+ * - Visa: charged once per unique destination, EXCLUDING the traveler's home/origin city (no visa needed
+ *   to return home) — never double-counted when the same destination appears in more than one leg.
+ * - Insurance: journey-level, computed once — the underlying pricing model has no per-leg differentiation
+ *   for insurance (it only ever depends on headcount, not destination or duration), so summing it per leg
+ *   would just be the same number repeated, not a genuine per-leg cost.
+ * - Contingency: computed from the aggregated subtotal, never summed from per-leg contingency figures.
+ */
+export function estimateJourneyBudgetRange(
+  legs: readonly JourneyLeg[],
+  travellerProfile: JourneyTravellerProfile,
+  config: TravelEmployeeRuntimeConfig
+): JourneyBudgetEstimate {
+  const currency = legs.find((leg) => leg.budget.currency)?.budget.currency ?? config.defaultCurrency;
+  // Every per-leg estimate is computed canonically in the pricing source currency; the combined total and
+  // each per-leg entry are converted to the traveler's display currency exactly once, at the end.
+  const perLegUsd: JourneyLegBudgetEntry[] = legs.map((leg) => ({
+    origin: leg.origin,
+    destination: leg.destination,
+    estimate: estimateJourneyLegBudget(leg, travellerProfile, config)
+  }));
+  const perLeg = perLegUsd;
+
+  const sumCategory = (label: string): { low: number; high: number } =>
+    perLeg.reduce(
+      (total, entry) => {
+        const line = entry.estimate.breakdown.find((candidate) => candidate.label === label);
+        return { low: total.low + (line?.low ?? 0), high: total.high + (line?.high ?? 0) };
+      },
+      { low: 0, high: 0 }
+    );
+
+  const flights = sumCategory("Flights");
+  const hotel = sumCategory("Hotel");
+  const food = sumCategory("Food");
+  const localTransport = sumCategory("Local transport");
+  const activities = sumCategory("Activities");
+
+  const homeCity = travellerProfile.originCity?.trim().toLowerCase() ?? null;
+  const seenVisaDestinations = new Set<string>();
+  let visaLow = 0;
+  let visaHigh = 0;
+  for (const leg of legs) {
+    const destinationKey = leg.destination?.trim().toLowerCase() ?? null;
+    if (!destinationKey || destinationKey === homeCity || seenVisaDestinations.has(destinationKey)) continue;
+    seenVisaDestinations.add(destinationKey);
+    const line = perLeg
+      .find((entry) => entry.destination?.trim().toLowerCase() === destinationKey)
+      ?.estimate.breakdown.find((candidate) => candidate.label === "Visa");
+    visaLow += line?.low ?? 0;
+    visaHigh += line?.high ?? 0;
+  }
+
+  // Insurance depends only on headcount in this pricing model (never destination/duration), so every leg's
+  // figure is identical when the same travel party continues throughout — reusing the first leg's line
+  // AS-IS (never stripped down) is exactly "journey-level, computed once", not an arbitrary pick, and keeps
+  // its `perTraveller` breakdown intact for the combined total too.
+  const insuranceLine: BudgetEstimateLine = perLeg[0]?.estimate.breakdown.find(
+    (candidate) => candidate.label === "Insurance"
+  ) ?? { label: "Insurance", low: 0, high: 0 };
+  const journeyFarePayers =
+    legs[0]?.passengers.adults !== null && legs[0] !== undefined
+      ? (legs[0].passengers.adults ?? 0) + (legs[0].passengers.children ?? 0)
+      : (legs[0]?.passengers.totalTravellers ?? 1);
+
+  const subtotalLow = flights.low + hotel.low + food.low + localTransport.low + activities.low + visaLow + insuranceLine.low;
+  const subtotalHigh =
+    flights.high + hotel.high + food.high + localTransport.high + activities.high + visaHigh + insuranceLine.high;
+  const contingencyLow = Math.round(subtotalLow * 0.05);
+  const contingencyHigh = Math.round(subtotalHigh * 0.08);
+
+  const breakdown: BudgetEstimateLine[] = [
+    {
+      label: "Flights",
+      low: flights.low,
+      high: flights.high,
+      perTraveller: { low: flights.low / journeyFarePayers, high: flights.high / journeyFarePayers }
+    },
+    { label: "Hotel", low: hotel.low, high: hotel.high },
+    { label: "Food", low: food.low, high: food.high },
+    { label: "Local transport", low: localTransport.low, high: localTransport.high },
+    { label: "Activities", low: activities.low, high: activities.high },
+    {
+      label: "Visa",
+      low: visaLow,
+      high: visaHigh,
+      perTraveller: { low: visaLow / journeyFarePayers, high: visaHigh / journeyFarePayers }
+    },
+    insuranceLine,
+    { label: "Contingency", low: contingencyLow, high: contingencyHigh }
+  ];
+  const combinedUsd: BudgetEstimate = {
+    currency: PRICING_SOURCE_CURRENCY,
+    sourceCurrency: PRICING_SOURCE_CURRENCY,
+    low: breakdown.reduce((sum, line) => sum + line.low, 0),
+    high: breakdown.reduce((sum, line) => sum + line.high, 0),
+    breakdown
+  };
+  const combined = convertBudgetEstimate(combinedUsd, currency);
+  const convertedPerLeg: JourneyLegBudgetEntry[] = perLeg.map((entry) => ({
+    ...entry,
+    estimate: convertBudgetEstimate(entry.estimate, currency)
+  }));
+  return { currency, perLeg: convertedPerLeg, combined };
+}
+
+/**
+ * Invariant: the journey's combined total reconciles internally (see `reconcileBudgetEstimate`), every
+ * per-leg estimate reconciles internally, AND the summed categories (Flights/Hotel/Food/Local
+ * transport/Activities) match the combined total's own line for that category exactly — Visa/Insurance/
+ * Contingency are deliberately excluded from this per-category check, since dedup/once/after-aggregation
+ * rules apply to them instead of a plain sum (see `estimateJourneyBudgetRange`'s own doc comment).
+ */
+export function reconcileJourneyBudgetEstimate(journeyEstimate: JourneyBudgetEstimate): BudgetReconciliationViolation[] {
+  const violations: BudgetReconciliationViolation[] = [
+    ...reconcileBudgetEstimate(journeyEstimate.combined),
+    ...journeyEstimate.perLeg.flatMap((entry) => reconcileBudgetEstimate(entry.estimate))
+  ];
+  const summedCategories = ["Flights", "Hotel", "Food", "Local transport", "Activities"];
+  for (const label of summedCategories) {
+    const combinedLine = journeyEstimate.combined.breakdown.find((line) => line.label === label);
+    const expectedLow = journeyEstimate.perLeg.reduce(
+      (sum, entry) => sum + (entry.estimate.breakdown.find((line) => line.label === label)?.low ?? 0),
+      0
+    );
+    const expectedHigh = journeyEstimate.perLeg.reduce(
+      (sum, entry) => sum + (entry.estimate.breakdown.find((line) => line.label === label)?.high ?? 0),
+      0
+    );
+    if (combinedLine && (combinedLine.low !== expectedLow || combinedLine.high !== expectedHigh)) {
+      violations.push({ scope: "JOURNEY_CATEGORY", label, expectedLow, actualLow: combinedLine.low, expectedHigh, actualHigh: combinedLine.high });
+    }
+  }
+  return violations;
+}
+
+/**
+ * Journey summary + each leg + its own per-leg estimate + the combined total + assumptions and the required
+ * indicative/live disclaimer — per the response-format requirement. Never a fabricated live price: every
+ * number here traces back to the same aggregate estimator used throughout the rest of this engine.
+ */
+export function buildJourneyBudgetMessage(
+  legs: readonly JourneyLeg[],
+  journeyEstimate: JourneyBudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const header = language === "HINGLISH" ? "Journey summary:" : language === "HINDI" ? "यात्रा सारांश:" : "Journey summary:";
+  const legLines = legs.map((leg, index) => {
+    const perLegEstimate = journeyEstimate.perLeg[index]?.estimate;
+    const range = perLegEstimate
+      ? `${journeyEstimate.currency} ${formatAmount(perLegEstimate.low)}–${formatAmount(perLegEstimate.high)}`
+      : "—";
+    // Shows exactly what was stated for this leg (days, nights, or both) — never silently relabeling one
+    // as the other; a leg with neither is an honest "no stay (connecting)", not a fabricated night count.
+    const stay =
+      leg.destinationRole === "FINAL_RETURN"
+        ? language === "HINGLISH"
+          ? "return flight"
+          : "return flight"
+        : buildDurationPhrase(leg.duration, language) ??
+          (language === "HINGLISH" ? "koi stay nahi (connecting)" : "no stay (connecting)");
+    return `  Leg ${leg.sequence}: ${leg.origin ?? "?"} -> ${leg.destination ?? "?"} — ${stay} — est. ${range}`;
+  });
+  const durationAssumptions = legs
+    .map((leg) => buildDurationAssumptionNote(leg.duration, language))
+    .filter((note): note is string => Boolean(note));
+  const travellerFactorNote = buildTravellerCostFactorNote(
+    describeTravellerCostBreakdown(legs[0]?.passengers ?? { adults: null, children: null, infants: null, totalTravellers: null }),
+    language
+  );
+  const combinedLines = journeyEstimate.combined.breakdown.map(
+    (line) => `  • ${line.label}: ${journeyEstimate.currency} ${formatAmount(line.low)}–${formatAmount(line.high)}`
+  );
+  const total =
+    language === "HINGLISH"
+      ? `Total (combined): ${journeyEstimate.currency} ${formatAmount(journeyEstimate.combined.low)}–${formatAmount(journeyEstimate.combined.high)}`
+      : language === "HINDI"
+        ? `कुल (संयुक्त): ${journeyEstimate.currency} ${formatAmount(journeyEstimate.combined.low)}–${formatAmount(journeyEstimate.combined.high)}`
+        : `Total (combined): ${journeyEstimate.currency} ${formatAmount(journeyEstimate.combined.low)}–${formatAmount(journeyEstimate.combined.high)}`;
+  const assumptions =
+    language === "HINGLISH"
+      ? "Assumptions: economy class, standard hotel occupancy, known dates/duration per leg."
+      : language === "HINDI"
+        ? "मान्यताएं: इकॉनमी क्लास, मानक होटल अधिभोग, प्रत्येक चरण के लिए ज्ञात तिथियां/अवधि।"
+        : "Assumptions: economy class, standard hotel occupancy, known dates/duration per leg.";
+  return [
+    header,
+    ...legLines,
+    "",
+    language === "HINGLISH" ? "Combined budget (category-wise):" : "Combined budget (category-wise):",
+    ...combinedLines,
+    total,
+    "",
+    assumptions,
+    ...durationAssumptions,
+    ...(travellerFactorNote ? [travellerFactorNote] : []),
+    INDICATIVE_DISCLAIMER[language]
+  ].join("\n");
+}
+
+/** One leg's flight/hotel options within a {@link buildJourneyRecommendationMessage}. */
+export interface JourneyLegRecommendation {
+  leg: JourneyLeg;
+  flights: readonly FlightOption[];
+  hotels: readonly HotelOption[];
+}
+
+/**
+ * Search/recommendation across EVERY leg of a journey, never just the currently active one — a live
+ * single-leg tool call (or a single-leg placeholder) can only ever answer for one leg, which is exactly the
+ * reported bug: a bare "ji" confirming a multi-city journey returned only the LAST leg's hotels. Reuses the
+ * same combined-budget total as {@link buildJourneyBudgetMessage} so the two never disagree on numbers.
+ */
+export function buildJourneyRecommendationMessage(
+  perLeg: readonly JourneyLegRecommendation[],
+  journeyEstimate: JourneyBudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const header =
+    language === "HINGLISH"
+      ? "Aapki poori journey ke liye options:"
+      : language === "HINDI"
+        ? "आपकी पूरी यात्रा के विकल्प:"
+        : "Options across your full journey:";
+  const legBlocks = perLeg.map(({ leg, flights, hotels }) => {
+    const flightLines = flights
+      .map(
+        (flight, index) =>
+          `    ${index + 1}. ${flight.airline} — ~${flight.currency} ${flight.price} (${flight.stops === 0 ? "non-stop" : `${flight.stops} stop(s)`}, ~${flight.durationHours}h)`
+      )
+      .join("\n");
+    const hotelLines = hotels
+      .map(
+        (hotel, index) =>
+          `    ${index + 1}. ${hotel.name} — ~${hotel.currency} ${hotel.pricePerNight}/night (rated ${hotel.rating.toFixed(1)}/5)`
+      )
+      .join("\n");
+    return [
+      `  Leg ${leg.sequence}: ${leg.origin ?? "?"} -> ${leg.destination ?? "?"}`,
+      "    Flights:",
+      flightLines,
+      "    Hotels:",
+      hotelLines
+    ].join("\n");
+  });
+  const total = `Total (combined): ${journeyEstimate.currency} ${formatAmount(journeyEstimate.combined.low)}–${formatAmount(journeyEstimate.combined.high)}`;
+  const closing =
+    language === "HINGLISH"
+      ? "Batayiye agar ye theek hai, ya kisi leg mein kuch adjust karna hai."
+      : language === "HINDI"
+        ? "बताइए अगर यह ठीक है, या किसी चरण में कुछ बदलना है।"
+        : "Let me know if this works, or if you'd like any leg adjusted.";
+  return [
+    header,
+    "",
+    ...legBlocks,
+    "",
+    total,
+    "",
+    "This is placeholder planning data — no booking has been made, and prices or availability are not live and should be verified.",
+    "",
+    closing
+  ].join("\n");
+}
+
+/** One leg's date within a {@link JourneyDateProjection} — see `projectJourneyReturnDate`. */
+export interface JourneyLegDateProjection {
+  origin: string | null;
+  destination: string | null;
+  departureDate: string | null;
+  isAssumption: boolean;
+}
+
+/**
+ * The traveler's projected final-leg arrival date, built from structured journey state alone. `confidence`
+ * distinguishes a date the traveler stated outright from one this runtime computed via day-math from stay
+ * durations — never fabricates an exact time, and is always accompanied by the assumptions that produced
+ * it (departure day counts as day one, no live flight-schedule/timezone data is available here).
+ */
+export interface JourneyDateProjection {
+  legDates: JourneyLegDateProjection[];
+  finalArrivalDate: string | null;
+  finalArrivalDateRange: { earliest: string; latest: string } | null;
+  confidence: "EXACT_FROM_USER" | "DERIVED" | "INDICATIVE";
+  assumptions: string[];
+}
+
+/**
+ * Projects the journey's final-leg arrival date from its legs' own (possibly already-derived) departure
+ * dates — the last leg IS the "back home" leg, so its departure date doubles as the arrival-date basis
+ * (flight duration/timezone crossing isn't modeled here, hence the assumptions list). Never guesses when
+ * the final leg's own date isn't known at all — `finalArrivalDate` stays null rather than fabricating one.
+ */
+export function projectJourneyReturnDate(
+  legs: readonly { origin: string | null; destination: string | null; dates: JourneyLegDates }[]
+): JourneyDateProjection {
+  const assumptions: string[] = [
+    "The departure day counts as day one of each leg's stay.",
+    "Dates don't account for exact flight times, overnight/red-eye departures, or timezone-crossing date shifts.",
+    "Live flight schedules aren't available here, so the actual arrival date could land a day earlier or later."
+  ];
+  const legDates: JourneyLegDateProjection[] = legs.map((leg) => ({
+    origin: leg.origin,
+    destination: leg.destination,
+    departureDate: leg.dates.departureDate,
+    isAssumption: leg.dates.departureDateIsAssumption
+  }));
+  const lastLeg = legDates[legDates.length - 1] ?? null;
+  if (!lastLeg || lastLeg.departureDate === null) {
+    return {
+      legDates,
+      finalArrivalDate: null,
+      finalArrivalDateRange: null,
+      confidence: "INDICATIVE",
+      assumptions: [
+        ...assumptions,
+        "The final leg's own date isn't confirmed yet, so no arrival date could be projected — share it and I'll calculate this."
+      ]
+    };
+  }
+  const anyAssumption = legDates.some((leg) => leg.isAssumption);
+  return {
+    legDates,
+    finalArrivalDate: lastLeg.departureDate,
+    finalArrivalDateRange: null,
+    confidence: anyAssumption ? "DERIVED" : "EXACT_FROM_USER",
+    assumptions
+  };
+}
+
+/** Renders a {@link JourneyDateProjection} as a customer-facing message — never claims false precision. */
+export function buildReturnDateProjectionMessage(
+  projection: JourneyDateProjection,
+  homeCity: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const home = homeCity ?? (language === "ENGLISH" ? "home" : "ghar");
+  if (!projection.finalArrivalDate) {
+    if (language === "HINGLISH")
+      return `Abhi final leg ki date confirm nahi hai, isliye ${home} wapas aane ki exact date nahi bata sakta — date milte hi calculate kar dunga.`;
+    if (language === "HINDI")
+      return `अभी अंतिम चरण की तारीख निश्चित नहीं है, इसलिए ${home} वापसी की सटीक तिथि नहीं बता सकता — तारीख मिलते ही गणना कर दूँगा।`;
+    return `I can't pin down an exact date for arriving back in ${home} yet since the final leg's own date isn't confirmed — share that and I'll calculate it.`;
+  }
+  const qualifier =
+    projection.confidence === "EXACT_FROM_USER"
+      ? language === "HINGLISH"
+        ? "(aapki di gayi date ke hisaab se)"
+        : "(based on the date you gave)"
+      : language === "HINGLISH"
+        ? "(estimated — pichle legs ke stay ke hisaab se; live flight schedule ke hisaab se badal sakta hai)"
+        : "(estimated from your stated stay lengths — the exact date depends on live flight schedules)";
+  if (language === "HINGLISH") return `Aap lagbhag ${projection.finalArrivalDate} ko ${home} land karenge ${qualifier}.`;
+  if (language === "HINDI") return `आप लगभग ${projection.finalArrivalDate} को ${home} पहुँचेंगे ${qualifier}।`;
+  return `You'd land back in ${home} around ${projection.finalArrivalDate} ${qualifier}.`;
+}
+
+// ---- Provider-independent indicative recommendations & the complete trip plan ----
+// Deliberately never sourced from generatePlaceholderFlights/generatePlaceholderHotels, which invent a
+// specific airline name, hotel name, and per-night price for the LIVE-search-success path — an indicative
+// recommendation (shown when there is no live result to show) must never resemble a live quote. Only the
+// aggregate, already-hedged category-wise BudgetEstimate range and qualitative route/area knowledge are used.
+const DESTINATION_AIRPORT_HINTS: Record<string, string> = {
+  dubai: "Dubai International Airport (DXB)",
+  paris: "Paris Charles de Gaulle (CDG) or Orly (ORY)",
+  london: "London Heathrow (LHR) or Gatwick (LGW)",
+  "new york": "John F. Kennedy (JFK), Newark (EWR), or LaGuardia (LGA)",
+  tokyo: "Tokyo Narita (NRT) or Haneda (HND)",
+  singapore: "Singapore Changi (SIN)",
+  bali: "Ngurah Rai International, Denpasar (DPS)",
+  goa: "Goa's Dabolim (GOI) or Manohar International (GOX)",
+  bangkok: "Bangkok Suvarnabhumi (BKK) or Don Mueang (DMK)",
+  istanbul: "Istanbul Airport (IST)",
+  maldives: "Velana International Airport (MLE)"
+};
+/** Destination-specific area alias resolution — maps user-friendly area names to canonical
+ *  recommendation labels per destination. Used by {@link extractHotelArea} to determine whether
+ *  the traveler explicitly asked about a specific area (e.g. "near Marina" → "Dubai Marina"). */
+const HOTEL_AREA_ALIASES: Record<string, Record<string, string>> = {
+  dubai: {
+    marina: "Dubai Marina",
+    "dubai marina": "Dubai Marina",
+    jbr: "Jumeirah Beach Residence (JBR)",
+    "jumeirah beach residence": "Jumeirah Beach Residence (JBR)",
+    downtown: "Downtown Dubai",
+    "downtown dubai": "Downtown Dubai",
+    "business bay": "Business Bay",
+    deira: "Deira",
+    palm: "Palm Jumeirah",
+    "palm jumeirah": "Palm Jumeirah",
+    jumeirah: "Jumeirah"
+  }
+};
+
+/**
+ * Extracts an explicitly requested hotel area from the user's message, resolved against the trip's
+ * destination city. Returns the canonical area label when a known alias is found, or null when no
+ * area was requested (the caller falls back to generic destination-wide guidance).
+ */
+export function extractHotelArea(text: string, destinationCity: string | null): string | null {
+  if (!destinationCity || !text) return null;
+  const destKey = destinationCity.trim().toLowerCase();
+  const aliases = HOTEL_AREA_ALIASES[destKey];
+  if (!aliases) return null;
+  const areaPattern = /\b(?:near|in|around|at)\s+(\w+(?:\s+\w+){0,2}?)(?:\s*[.,;!?]|\s+(?:and|or|please)|\s*$)/i;
+  const match = areaPattern.exec(text);
+  if (!match) return null;
+  const captured = match[1];
+  if (!captured) return null;
+  const raw = captured.trim().toLowerCase();
+  return aliases[raw] ?? null;
+}
+
+const DESTINATION_HOTEL_AREA_HINTS: Record<string, string> = {
+  dubai: "Downtown Dubai/Business Bay for central attractions, or Deira for a more local, budget-friendly base",
+  paris: "Le Marais or near the Champs-Élysées for central access, or the outer arrondissements for better value",
+  london: "South Kensington or Covent Garden for central access, or Zone 2/3 for better value",
+  "new york": "Midtown Manhattan for central access, or Brooklyn/Queens for better value with an easy commute",
+  tokyo: "Shinjuku or Shibuya for central access and strong transit links",
+  singapore: "Orchard Road or Marina Bay for central access",
+  bali: "Seminyak/Kuta for nightlife and beaches, or Ubud for a quieter, cultural base",
+  goa: "North Goa (Calangute/Baga) for nightlife, or South Goa for quieter beaches",
+  bangkok: "Sukhumvit or Silom for central access and BTS Skytrain links",
+  istanbul: "Sultanahmet for historic sights, or Beyoğlu/Taksim for nightlife and transit links",
+  maldives: "resort islands are typically booked as a package with transfers included from Malé"
+};
+const DESTINATION_TRANSPORT_HINTS: Record<string, string> = {
+  dubai: "the Dubai Metro and ride-hailing apps (Careem/Uber) cover most tourist areas well",
+  paris: "the Metro and RER cover the city extensively; a multi-day transit pass is usually worthwhile",
+  london: "the Tube and buses cover the city well; an Oyster/contactless card is the easiest way to pay",
+  "new york": "the subway runs 24/7 and is the fastest way around; a weekly MetroCard/OMNY cap is usually worthwhile",
+  tokyo: "the JR and metro lines cover the city extensively; a rechargeable IC card (Suica/Pasmo) is convenient",
+  singapore: "the MRT covers the island well and is the easiest way to get around",
+  bali: "ride-hailing apps (Gojek/Grab) and scooter rentals are the most common ways to get around",
+  goa: "scooter/bike rentals are common; taxis and ride-hailing are also available in the main towns",
+  bangkok: "the BTS Skytrain, MRT, and ride-hailing apps (Grab) cover the city well",
+  istanbul: "trams, ferries, and the metro cover the city well; an Istanbulkart covers all of them",
+  maldives: "inter-island transfers are by speedboat or seaplane, usually arranged with your resort"
+};
+
+function destinationHint(map: Record<string, string>, destination: string | null): string | null {
+  if (!destination) return null;
+  return map[destination.trim().toLowerCase()] ?? null;
+}
+
+const INDICATIVE_DISCLAIMER: Record<TravelResponseLanguage, string> = {
+  ENGLISH: "These are indicative recommendations, not live availability.",
+  HINGLISH: "Ye indicative recommendations hain, live availability nahi.",
+  HINDI: "ये संकेतात्मक सुझाव हैं, लाइव उपलब्धता नहीं।"
+};
+
+/** Qualitative, never-invented route/airport guidance — no specific airline, flight number, or live price. */
+export function buildAirportRouteGuidance(
+  originCity: string | null,
+  destinationCity: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const destination = destinationCity ?? "your destination";
+  const airport = destinationHint(DESTINATION_AIRPORT_HINTS, destinationCity) ?? `${destination}'s main international airport`;
+  if (language === "HINGLISH")
+    return originCity
+      ? `${originCity} se ${destination} ke liye aam taur par ${airport} par land karte hain — direct ya one-stop dono routes mil sakte hain; exact carrier live search se confirm hoga.`
+      : `${destination} ke liye aam taur par ${airport} par land karte hain; exact carrier live search se confirm hoga.`;
+  if (language === "HINDI")
+    return originCity
+      ? `${originCity} से ${destination} के लिए आमतौर पर ${airport} पर उतरा जाता है — डायरेक्ट या एक-स्टॉप दोनों मार्ग मिल सकते हैं; सटीक एयरलाइन लाइव सर्च से पता चलेगी।`
+      : `${destination} के लिए आमतौर पर ${airport} पर उतरा जाता है; सटीक एयरलाइन लाइव सर्च से पता चलेगी।`;
+  return originCity
+    ? `From ${originCity}, flights to ${destination} typically land at ${airport} — both direct and one-stop routings are common on this route; the exact carrier and schedule will show once a live search runs.`
+    : `Flights to ${destination} typically land at ${airport}; the exact carrier and schedule will show once a live search runs.`;
+}
+
+/** Indicative flight guidance: the budget estimate's flight range, never a specific invented fare/airline. */
+export function buildIndicativeFlightGuidance(
+  entities: TravelEntities,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const flightsLine = estimate.breakdown.find((line) => line.label === "Flights");
+  // Flights are always priced per farepayer (see computeBudgetEstimateUsd) — this message says "per
+  // traveler", so it must show the PER_TRAVELLER-scoped figure, never `flightsLine.low/high` (the
+  // TOTAL_PARTY amount all farePayers pay combined) mislabeled as a per-head number.
+  const perTravellerAmount = flightsLine?.perTraveller ?? flightsLine ?? null;
+  const range = perTravellerAmount
+    ? formatScopedAmount(perTravellerAmount, estimate.currency, "PER_TRAVELLER", language)
+    : null;
+  const cabin = entities.cabinClass ? ` (${entities.cabinClass} cabin)` : "";
+  if (language === "HINGLISH")
+    return range
+      ? `Flights${cabin} ka indicative range: ${range}, route aur season ke hisaab se.`
+      : `Flights${cabin} ka fare route aur season ke hisaab se alag hoga — exact price live search se milegi.`;
+  if (language === "HINDI")
+    return range
+      ? `फ्लाइट्स${cabin} की संकेतात्मक सीमा: ${range}, मार्ग और मौसम के अनुसार।`
+      : `फ्लाइट्स${cabin} का किराया मार्ग और मौसम के अनुसार अलग होगा — सटीक कीमत लाइव सर्च से मिलेगी।`;
+  return range
+    ? `Indicative flight range${cabin}: ${range}, depending on route and season.`
+    : `Flight fares${cabin} vary by route and season — the exact price will come from a live search.`;
+}
+
+/** Indicative hotel guidance: the budget estimate's hotel range, never a specific invented property/price. */
+export function buildIndicativeHotelGuidance(
+  entities: TravelEntities,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const hotelLine = estimate.breakdown.find((line) => line.label === "Hotel");
+  const range = hotelLine ? `${estimate.currency} ${formatAmount(hotelLine.low)}–${formatAmount(hotelLine.high)}` : null;
+  const starTier = entities.hotelStars ? ` (${entities.hotelStars}-star tier)` : "";
+  if (language === "HINGLISH")
+    return range
+      ? `Hotels${starTier} ka indicative range: total ${range}, stay ki duration ke hisaab se.`
+      : `Hotel${starTier} ka price stay ki duration aur category ke hisaab se hoga — exact rate live search se milegi.`;
+  if (language === "HINDI")
+    return range
+      ? `होटल${starTier} की संकेतात्मक सीमा: कुल ${range}, ठहरने की अवधि के अनुसार।`
+      : `होटल${starTier} की कीमत ठहरने की अवधि और श्रेणी पर निर्भर करेगी — सटीक दर लाइव सर्च से मिलेगी।`;
+  return range
+    ? `Indicative hotel range${starTier}: ${range} total, depending on length of stay.`
+    : `Hotel rates${starTier} depend on length of stay and category — the exact rate will come from a live search.`;
+}
+
+export function buildHotelAreaGuidance(
+  destinationCity: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const destination = destinationCity ?? "your destination";
+  const hint = destinationHint(DESTINATION_HOTEL_AREA_HINTS, destinationCity);
+  if (language === "HINGLISH")
+    return hint
+      ? `${destination} mein recommended areas: ${hint}.`
+      : `${destination} mein, attractions ke paas ka area convenient hota hai; thoda bahar jaane se cost kam ho sakta hai.`;
+  if (language === "HINDI")
+    return hint
+      ? `${destination} में अनुशंसित क्षेत्र: ${hint}।`
+      : `${destination} में, मुख्य आकर्षणों के पास का क्षेत्र सुविधाजनक होता है; थोड़ा बाहर जाने से लागत कम हो सकती है।`;
+  return hint
+    ? `Recommended areas in ${destination}: ${hint}.`
+    : `In ${destination}, staying near the main attractions is usually most convenient; a little further out tends to be better value.`;
+}
+
+/** Room-count and occupancy guidance derived from passenger composition — no invented specific inventory. */
+export function buildRoomOccupancyGuidance(
+  entities: TravelEntities,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const adults = entities.adults ?? entities.totalTravellers ?? 1;
+  const rooms = Math.max(1, Math.ceil(adults / 2));
+  const hasChildren = (entities.children ?? 0) > 0;
+  const hasInfants = (entities.infants ?? 0) > 0;
+  if (language === "HINGLISH") {
+    const base = `${adults} adults ke liye, aam taur par ${rooms} room${rooms > 1 ? "s" : ""} chahiye honge (standard occupancy 2 adults/room).`;
+    const childNote = hasChildren ? " Bachon ke liye extra bed ya connecting room maangi ja sakti hai." : "";
+    const infantNote = hasInfants ? " Infants aksar bina extra charge ke parents ke room mein stay karte hain." : "";
+    return `${base}${childNote}${infantNote}`;
+  }
+  if (language === "HINDI") {
+    const base = `${adults} वयस्कों के लिए आमतौर पर ${rooms} कमरे चाहिए होंगे (मानक अधिभोग 2 वयस्क/कमरा)।`;
+    const childNote = hasChildren ? " बच्चों के लिए अतिरिक्त बेड या कनेक्टिंग रूम माँगा जा सकता है।" : "";
+    const infantNote = hasInfants ? " शिशु आमतौर पर बिना अतिरिक्त शुल्क के माता-पिता के कमरे में रहते हैं।" : "";
+    return `${base}${childNote}${infantNote}`;
+  }
+  const base = `For ${adults} adult(s), you'd typically need ${rooms} room${rooms > 1 ? "s" : ""} at standard occupancy (2 adults/room).`;
+  const childNote = hasChildren ? " An extra bed or a connecting room is usually available for children." : "";
+  const infantNote = hasInfants ? " Infants commonly stay in the parents' room at no extra charge." : "";
+  return `${base}${childNote}${infantNote}`;
+}
+
+export function buildLocalTransportGuidance(
+  destinationCity: string | null,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const destination = destinationCity ?? "your destination";
+  const hint = destinationHint(DESTINATION_TRANSPORT_HINTS, destinationCity);
+  if (language === "HINGLISH")
+    return hint ? `Getting around ${destination}: ${hint}.` : `${destination} mein taxis, ride-hailing aur public transport aam taur par available hote hain.`;
+  if (language === "HINDI")
+    return hint ? `${destination} में घूमने के लिए: ${hint}।` : `${destination} में टैक्सी, राइड-हेलिंग और सार्वजनिक परिवहन आमतौर पर उपलब्ध होते हैं।`;
+  return hint
+    ? `Getting around ${destination}: ${hint}.`
+    : `Taxis, ride-hailing, and public transport are typically available in ${destination}.`;
+}
+
+/** Qualitative packing guidance, personalized by passenger composition — never a fabricated packing-list SKU. */
+export function buildPackingGuidance(entities: TravelEntities, language: TravelResponseLanguage = "ENGLISH"): string {
+  const hasChildren = (entities.children ?? 0) > 0;
+  const hasInfants = (entities.infants ?? 0) > 0;
+  const familyNote = hasInfants
+    ? language === "HINGLISH"
+      ? " Infant ke saath: diapers, feeds/snacks, aur ek familiar comfort item extra pack karein."
+      : language === "HINDI"
+        ? " शिशु के साथ: डायपर, फीड/स्नैक्स, और एक परिचित आराम की वस्तु अतिरिक्त पैक करें।"
+        : " Traveling with an infant: pack extra diapers, feeds/snacks, and a familiar comfort item."
+    : hasChildren
+      ? language === "HINGLISH"
+        ? " Bachon ke liye: snacks aur kuch entertainment (books/games) saath rakhein."
+        : language === "HINDI"
+          ? " बच्चों के लिए: स्नैक्स और कुछ मनोरंजन (किताबें/खेल) साथ रखें।"
+          : " With children along: pack snacks and some entertainment (books/games) for the journey."
+      : "";
+  if (language === "HINGLISH")
+    return `Packing: weather-appropriate clothes, universal adapter, basic medicines, aur documents ki photocopies saath rakhein.${familyNote}`;
+  if (language === "HINDI")
+    return `पैकिंग: मौसम के अनुसार कपड़े, यूनिवर्सल एडाप्टर, बेसिक दवाइयाँ, और दस्तावेज़ों की फोटोकॉपी साथ रखें।${familyNote}`;
+  return `Packing: weather-appropriate clothing, a universal adapter, basic medicines, and photocopies of your documents.${familyNote}`;
+}
+
+/** Generic, honest practical tips — never destination-specific claims we can't verify (currency rates, safety advisories). */
+export function buildTravelTips(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return "Tips: local currency thodi cash mein rakhein, emergency contacts save kar lein, aur important documents ki digital copy bhi rakhein.";
+  if (language === "HINDI")
+    return "टिप्स: कुछ स्थानीय मुद्रा नकद में रखें, आपातकालीन संपर्क सेव कर लें, और महत्वपूर्ण दस्तावेज़ों की डिजिटल कॉपी भी रखें।";
+  return "Tips: carry some local currency in cash, save emergency contacts, and keep a digital copy of your important documents.";
+}
+
+/** Generic, honest visa/insurance caveat — never destination- or nationality-specific, since that depends on the traveler's passport. */
+export function buildVisaInsuranceCaveat(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return "Visa requirement aapke passport aur destination par depend karta hai — booking se pehle relevant embassy/consulate se confirm kar lein. Travel insurance strongly recommended hai, especially bachon/infants ke saath.";
+  if (language === "HINDI")
+    return "वीज़ा आवश्यकता आपके पासपोर्ट और गंतव्य पर निर्भर करती है — बुकिंग से पहले संबंधित दूतावास/वाणिज्य दूतावास से पुष्टि कर लें। यात्रा बीमा अत्यधिक अनुशंसित है, विशेष रूप से बच्चों/शिशुओं के साथ।";
+  return "Visa requirements depend on your passport and destination — please verify with the relevant embassy/consulate before booking. Travel insurance is strongly recommended, especially when traveling with children or infants.";
+}
+
+export function buildNextActionMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return "Next: reply 'confirm' plan ke saath aage badhne ke liye, live options dekhne ke liye kahiye, ya lead/callback request kar sakte hain.";
+  if (language === "HINDI")
+    return "अगला कदम: योजना के साथ आगे बढ़ने के लिए 'confirm' का जवाब दें, लाइव विकल्प देखने के लिए कहें, या लीड/कॉलबैक का अनुरोध करें।";
+  return "Next: reply 'confirm' to proceed with this plan, ask for live options, or request a lead/callback.";
+}
+
+/** The three-way offer after a provider failure — retry live, take the indicative guidance already shown, or hand off to sales. */
+export function buildProviderFailureRecoveryOffer(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return "Aap chahein to: (1) abhi ke liye ye indicative recommendations use karein, (2) live search dobara try karayein, ya (3) enquiry/callback request kar sakte hain.";
+  if (language === "HINDI")
+    return "आप चाहें तो: (1) अभी के लिए ये संकेतात्मक सुझाव उपयोग करें, (2) लाइव सर्च दोबारा करवाएँ, या (3) पूछताछ/कॉलबैक का अनुरोध कर सकते हैं।";
+  return "You can: (1) use these indicative recommendations for now, (2) ask me to retry the live search, or (3) request a lead/callback instead.";
+}
+
+// A bare "1"/"2"/"3" (optionally "option 1") or its natural-language equivalent, ONLY meaningful as a menu
+// pick when a recovery offer was actually just shown (`this.providerFailure !== null`) — see
+// `detectProviderFailureRecoverySelection` and its call site in `complete()`.
+const RECOVERY_OPTION_1_PATTERN = /^\s*(?:option\s*1|1)\s*[.)]?\s*$|^\s*(?:pehla|pehli|first(?:\s+one)?)\s*$/i;
+const RECOVERY_OPTION_2_PATTERN = /^\s*(?:option\s*2|2)\s*[.)]?\s*$|^\s*(?:dusra|doosra|second(?:\s+one)?)\s*$/i;
+const RECOVERY_OPTION_3_PATTERN = /^\s*(?:option\s*3|3)\s*[.)]?\s*$|^\s*(?:teesra|tisra|third(?:\s+one)?|callback)\s*$/i;
+
+/**
+ * Detects a reply to the three-way recovery menu shown after a provider failure — a bare digit (or its
+ * natural-language equivalent), never a broader phrase, so it can never misfire on an unrelated message
+ * that merely happens to contain a number (e.g. "2 adults").
+ */
+export function detectProviderFailureRecoverySelection(text: string): ProviderFailureRecoverySelection | null {
+  if (RECOVERY_OPTION_1_PATTERN.test(text)) return "INDICATIVE_RECOMMENDATIONS";
+  if (RECOVERY_OPTION_2_PATTERN.test(text)) return "RETRY_LIVE_SEARCH";
+  if (RECOVERY_OPTION_3_PATTERN.test(text)) return "CALLBACK";
+  return null;
+}
+
+/** How long a bare digit reply is still honored as a recovery-menu pick after the menu was shown. */
+export const PROVIDER_FAILURE_MENU_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * Whether a bare digit reply should still be interpreted as a recovery-menu pick right now — false once
+ * `menuActive` was cleared by an intervening explicit action (see `invalidateRecoveryMenu`) or once
+ * `menuExpiresAt` has passed, whichever happened first. The broader "don't blindly retry" gate on
+ * `providerFailure` itself is unaffected either way — only the numeric-shortcut interpretation expires.
+ */
+export function isRecoveryMenuActive(providerFailure: ProviderFailureRecord | null): boolean {
+  if (!providerFailure || !providerFailure.menuActive) return false;
+  return Date.now() < new Date(providerFailure.menuExpiresAt).getTime();
+}
+
+/** Deterministic acknowledgement for option 1 — continues with the recommendations already shown, never repeats the menu. */
+export function buildRecoveryContinuationMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  if (language === "HINGLISH")
+    return "Theek hai, in indicative recommendations ke hisaab se hi aage badhte hain. Aur kuch chahiye?";
+  if (language === "HINDI") return "ठीक है, इन संकेतात्मक सुझावों के हिसाब से ही आगे बढ़ते हैं। और कुछ चाहिए?";
+  return "Sounds good — let's continue with these indicative recommendations. Anything else you'd like to adjust?";
+}
+
+/**
+ * Provider-independent recommendation message: flight + hotel guidance derived only from the aggregate
+ * budget estimate and qualitative route/area knowledge, always carrying the required disclaimer. Used for
+ * GENERATE_FLIGHT_RECOMMENDATIONS/GENERATE_HOTEL_RECOMMENDATIONS and for the provider-failure fallback (which
+ * additionally appends the three-way recovery offer).
+ */
+export function buildIndicativeRecommendationsMessage(
+  entities: TravelEntities,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH",
+  afterProviderFailure = false
+): string {
+  // Stage 9B: the traveler's stated TOTAL_PARTY budget must always be compared against the TOTAL_PARTY
+  // trip estimate here too — reusing buildBudgetFeasibilityNote (the same comparison
+  // buildBudgetGuidanceMessage already makes) so this path never omits a clear "this exceeds your
+  // budget" statement the way it previously did.
+  const feasibilityNote = buildBudgetFeasibilityNote(entities, estimate, language);
+  const lines = [
+    buildIndicativeFlightGuidance(entities, estimate, language),
+    buildAirportRouteGuidance(entities.originCity, entities.destinationCity, language),
+    buildIndicativeHotelGuidance(entities, estimate, language),
+    buildHotelAreaGuidance(entities.destinationCity, language),
+    ...(feasibilityNote ? ["", feasibilityNote] : []),
+    "",
+    INDICATIVE_DISCLAIMER[language]
+  ];
+  if (afterProviderFailure) lines.push("", buildProviderFailureRecoveryOffer(language));
+  return lines.join("\n");
+}
+
+/**
+ * Area-specific guidance when the traveler explicitly asked about a specific hotel area — replaces the
+ * generic destination-wide area list with a focused recommendation for the requested area.
+ */
+export function buildRequestedAreaGuidance(
+  destinationCity: string | null,
+  requestedArea: string,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const destNote = destinationCity ? ` in ${destinationCity}` : "";
+  if (language === "HINGLISH")
+    return `${requestedArea}${destNote} mein recommended area hai — yahan hotels, dining aur attractions ka accha collection hai.`;
+  if (language === "HINDI")
+    return `${requestedArea}${destNote} में अनुशंसित क्षेत्र है — यहाँ होटल, भोजन और आकर्षण का अच्छा संग्रह है।`;
+  return `${requestedArea}${destNote} is a recommended area with a good concentration of hotels, dining, and attractions nearby.`;
+}
+
+/**
+ * Hotel-only recommendations for a GENERATE_HOTEL_RECOMMENDATIONS request — no flights, no airport
+ * guidance, no budget-feasibility replay. When `requestedArea` is provided (e.g. "Dubai Marina"),
+ * produces area-specific guidance instead of the generic destination-wide area list.
+ */
+export function buildHotelRecommendationsMessage(
+  entities: TravelEntities,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH",
+  requestedArea: string | null = null
+): string {
+  const lines: string[] = [
+    buildIndicativeHotelGuidance(entities, estimate, language),
+  ];
+  if (requestedArea) {
+    lines.push(buildRequestedAreaGuidance(entities.destinationCity, requestedArea, language));
+  } else {
+    lines.push(buildHotelAreaGuidance(entities.destinationCity, language));
+  }
+  lines.push("", INDICATIVE_DISCLAIMER[language]);
+  return lines.join("\n");
+}
+
+/**
+ * One-line trip-details-noted summary — every known field, nothing invented. Deliberately never says
+ * "confirmed"/"booked"/"reserved": nothing has actually been booked at this point, only captured, and
+ * wording that implies otherwise would misrepresent the state to the traveler.
+ */
+function buildConfirmedTripSummaryLine(entities: TravelEntities, language: TravelResponseLanguage): string {
+  const travelers = describeTravelerMix(entities.adults, entities.children, entities.infants, entities.totalTravellers);
+  const dates = entities.departureDate ?? entities.travelMonth ?? (language === "ENGLISH" ? "dates not yet set" : "tareekh abhi tay nahi");
+  const durationPart = buildDurationPhrase(entities, language);
+  const budgetPart =
+    entities.budget !== null ? `${entities.budgetCurrency ?? ""} ${entities.budget}`.trim() : null;
+  const parts = [
+    entities.originCity ? `${entities.originCity} -> ${entities.destinationCity ?? "?"}` : (entities.destinationCity ?? "?"),
+    dates,
+    durationPart,
+    travelers,
+    budgetPart ? `budget ${budgetPart}` : null
+  ].filter((part): part is string => Boolean(part));
+  if (language === "HINGLISH") return `Trip details noted (proposed, not booked): ${parts.join(", ")}.`;
+  if (language === "HINDI") return `यात्रा विवरण दर्ज (प्रस्तावित, बुक नहीं): ${parts.join(", ")}।`;
+  return `Trip details noted (proposed, not booked): ${parts.join(", ")}.`;
+}
+
+/** The category-wise budget breakdown, formatted as a short list — reused as-is from the estimate. */
+function buildBudgetBreakdownBlock(estimate: BudgetEstimate, language: TravelResponseLanguage): string {
+  const header = language === "HINGLISH" ? "Estimated budget (category-wise):" : language === "HINDI" ? "अनुमानित बजट (श्रेणी-वार):" : "Estimated budget (category-wise):";
+  const lines = estimate.breakdown.map(
+    (line) => `  • ${line.label}: ${estimate.currency} ${formatAmount(line.low)}–${formatAmount(line.high)}`
+  );
+  const total =
+    language === "HINGLISH"
+      ? `Total: ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)}`
+      : language === "HINDI"
+        ? `कुल: ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)}`
+        : `Total: ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)}`;
+  return [header, ...lines, total].join("\n");
+}
+
+/**
+ * Every section a complete trip plan must have, exactly once — see `buildCompleteTripPlan`/
+ * `validateCompleteTripPlan`. Order here is also render order.
+ */
+export const COMPLETE_TRIP_PLAN_REQUIRED_SECTIONS = [
+  "summary",
+  "flights",
+  "hotels",
+  "budget",
+  "itinerary",
+  "transport",
+  "packing",
+  "tips",
+  "visaInsurance",
+  "disclaimer",
+  "nextSteps"
+] as const;
+export type CompleteTripPlanSectionKey = (typeof COMPLETE_TRIP_PLAN_REQUIRED_SECTIONS)[number];
+
+export interface CompleteTripPlanSection {
+  key: CompleteTripPlanSectionKey;
+  heading: string | null;
+  body: string;
+}
+
+export interface CompleteTripPlan {
+  sections: CompleteTripPlanSection[];
+}
+
+export interface CompleteTripPlanValidationResult {
+  valid: boolean;
+  missingSections: CompleteTripPlanSectionKey[];
+  duplicateSections: CompleteTripPlanSectionKey[];
+}
+
+/** Invariant: every required section is present exactly once — never fewer (an omission), never more (a duplicate). */
+export function validateCompleteTripPlan(plan: CompleteTripPlan): CompleteTripPlanValidationResult {
+  const counts = new Map<CompleteTripPlanSectionKey, number>();
+  for (const section of plan.sections) counts.set(section.key, (counts.get(section.key) ?? 0) + 1);
+  const missingSections = COMPLETE_TRIP_PLAN_REQUIRED_SECTIONS.filter((key) => !counts.has(key));
+  const duplicateSections = COMPLETE_TRIP_PLAN_REQUIRED_SECTIONS.filter((key) => (counts.get(key) ?? 0) > 1);
+  return { valid: missingSections.length === 0 && duplicateSections.length === 0, missingSections, duplicateSections };
+}
+
+export function renderCompleteTripPlan(plan: CompleteTripPlan): string {
+  return plan.sections.map((section) => (section.heading ? `${section.heading}\n${section.body}` : section.body)).join("\n\n");
+}
+
+/**
+ * Builds the structured plan — confirmed-known summary, indicative flight/hotel recommendations,
+ * airport/route guidance, hotel areas, room/occupancy guidance, category-wise budget (with the duration
+ * assumption and traveller cost-factor notes when applicable), the day-wise itinerary (generated
+ * separately and passed in), local transport, packing, tips, visa/insurance caveats, the required
+ * disclaimer, and a next action — every section personalized from known entities and stated preferences,
+ * nothing invented for what isn't yet known.
+ */
+export function buildCompleteTripPlan(
+  entities: TravelEntities,
+  itineraryText: string,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): CompleteTripPlan {
+  const sectionHeader = (en: string, hinglish: string, hindi: string): string =>
+    language === "HINGLISH" ? hinglish : language === "HINDI" ? hindi : en;
+  const durationAssumption = buildDurationAssumptionNote(entities, language);
+  const travellerFactorNote = buildTravellerCostFactorNote(describeTravellerCostBreakdown(entities), language);
+  const preferenceNote = buildPreferenceApplicationNote(
+    entities.preferences,
+    (entities.children ?? 0) > 0,
+    (entities.infants ?? 0) > 0,
+    language
+  );
+  const sections: CompleteTripPlanSection[] = [
+    { key: "summary", heading: null, body: buildConfirmedTripSummaryLine(entities, language) },
+    {
+      key: "flights",
+      heading: sectionHeader("Flights:", "Flights:", "फ्लाइट्स:"),
+      body: [buildIndicativeFlightGuidance(entities, estimate, language), buildAirportRouteGuidance(entities.originCity, entities.destinationCity, language)].join(
+        "\n"
+      )
+    },
+    {
+      key: "hotels",
+      heading: sectionHeader("Hotels:", "Hotels:", "होटल:"),
+      body: [
+        buildIndicativeHotelGuidance(entities, estimate, language),
+        buildHotelAreaGuidance(entities.destinationCity, language),
+        buildRoomOccupancyGuidance(entities, language)
+      ].join("\n")
+    },
+    {
+      key: "budget",
+      heading: null,
+      body: [buildBudgetBreakdownBlock(estimate, language), durationAssumption, travellerFactorNote]
+        .filter((line): line is string => Boolean(line))
+        .join("\n")
+    },
+    {
+      key: "itinerary",
+      heading: sectionHeader("Day-wise itinerary:", "Din-wise itinerary:", "दिन-वार यात्रा-कार्यक्रम:"),
+      body: [itineraryText, preferenceNote].filter((line): line is string => Boolean(line)).join("\n")
+    },
+    {
+      key: "transport",
+      heading: sectionHeader("Getting around:", "Getting around:", "स्थानीय परिवहन:"),
+      body: buildLocalTransportGuidance(entities.destinationCity, language)
+    },
+    { key: "packing", heading: null, body: buildPackingGuidance(entities, language) },
+    { key: "tips", heading: null, body: buildTravelTips(language) },
+    { key: "visaInsurance", heading: null, body: buildVisaInsuranceCaveat(language) },
+    { key: "disclaimer", heading: null, body: INDICATIVE_DISCLAIMER[language] },
+    { key: "nextSteps", heading: null, body: buildNextActionMessage(language) }
+  ];
+  return { sections };
+}
+
+export function buildCompleteTripPlanMessage(
+  entities: TravelEntities,
+  itineraryText: string,
+  estimate: BudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): string {
+  const plan = buildCompleteTripPlan(entities, itineraryText, estimate, language);
+  const validation = validateCompleteTripPlan(plan);
+  if (!validation.valid) {
+    // Defensive only: buildCompleteTripPlan always emits every required section exactly once. If this ever
+    // fires, fail loudly rather than silently ship a plan missing a required section.
+    throw new Error(
+      `CompleteTripPlan failed validation — missing: [${validation.missingSections.join(", ")}], duplicate: [${validation.duplicateSections.join(", ")}]`
+    );
+  }
+  return renderCompleteTripPlan(plan);
+}
+
+// ---- Journey-native complete plans (multi-leg) ----
+// Sprint 4.2: Journey is the authoritative source for EVERY complete plan, single- or multi-leg — the
+// orchestrator always resolves a Journey + its ordered JourneyLeg[] first (see `ensureJourney`/
+// `collectAllJourneyLegs`), and single-leg trips render via the existing `buildCompleteTripPlan` above
+// (a journey holding exactly one leg, reusing that already-tested single-BudgetEstimate path unchanged).
+// Only once 2+ legs exist does the following multi-leg structure take over — it never renders a multi-leg
+// plan from a single BudgetEstimate or from bare TravelEntities.originCity/destinationCity alone.
+
+/** Reconstructs a leg's own entities so every existing entity-shaped guidance builder can be reused per-leg. */
+function legToEntities(leg: JourneyLeg, travellerProfile: JourneyTravellerProfile): TravelEntities {
+  return {
+    ...EMPTY_TRAVEL_ENTITIES,
+    originCity: leg.origin,
+    destinationCity: leg.destination,
+    departureDate: leg.dates.departureDate,
+    travelMonth: leg.dates.travelMonth,
+    returnDate: leg.dates.returnDate,
+    days: leg.duration.days,
+    nights: leg.duration.nights,
+    adults: leg.passengers.adults,
+    children: leg.passengers.children,
+    infants: leg.passengers.infants,
+    totalTravellers: leg.passengers.totalTravellers,
+    budget: leg.budget.amount,
+    budgetCurrency: leg.budget.currency,
+    cabinClass: travellerProfile.cabinClass,
+    hotelStars: travellerProfile.hotelStars,
+    preferences: travellerProfile.preferences
+  };
+}
+
+/** A leg has an actual overnight stay at its destination only when some duration was stated for it. */
+function legHasStay(leg: JourneyLeg): boolean {
+  return leg.duration.days !== null || leg.duration.nights !== null;
+}
+
+function buildJourneySummarySection(legs: readonly JourneyLeg[], language: TravelResponseLanguage): string {
+  const header = language === "HINDI" ? "यात्रा सारांश:" : "Journey summary:";
+  const noStay = language === "HINGLISH" ? "koi stay nahi (connecting)" : language === "HINDI" ? "कोई ठहराव नहीं (कनेक्टिंग)" : "no stay (connecting)";
+  const lines = legs.map((leg) => {
+    const stay = buildDurationPhrase(leg.duration, language) ?? noStay;
+    const dateNote = leg.dates.departureDate
+      ? leg.dates.departureDateIsAssumption === true
+        ? language === "HINGLISH"
+          ? ` — tentative date ${leg.dates.departureDate} (assumption, based on the previous leg)`
+          : language === "HINDI"
+            ? ` — अस्थायी तिथि ${leg.dates.departureDate} (अनुमान, पिछले चरण पर आधारित)`
+            : ` — tentative date ${leg.dates.departureDate} (assumption, derived from the previous leg)`
+        : ` — departs ${leg.dates.departureDate}`
+      : "";
+    return `  Leg ${leg.sequence}: ${leg.origin ?? "?"} -> ${leg.destination ?? "?"} — ${stay}${dateNote}`;
+  });
+  return [header, ...lines].join("\n");
+}
+
+export const JOURNEY_COMPLETE_TRIP_PLAN_JOURNEY_SECTIONS = [
+  "journeySummary",
+  "combinedBudget",
+  "transport",
+  "packing",
+  "tips",
+  "visaInsurance",
+  "disclaimer",
+  "nextSteps"
+] as const;
+/** Emitted exactly once per leg, regardless of whether that leg has a stay. */
+export const JOURNEY_COMPLETE_TRIP_PLAN_LEG_SECTIONS = ["legFlights", "legItinerary", "legBudget"] as const;
+/** Emitted exactly once per leg, but ONLY for legs with an actual stay at their destination — see `legHasStay`. */
+export const JOURNEY_COMPLETE_TRIP_PLAN_STAY_SECTIONS = ["legHotel", "legOccupancy"] as const;
+
+export type JourneyCompleteTripPlanSectionKey =
+  | (typeof JOURNEY_COMPLETE_TRIP_PLAN_JOURNEY_SECTIONS)[number]
+  | (typeof JOURNEY_COMPLETE_TRIP_PLAN_LEG_SECTIONS)[number]
+  | (typeof JOURNEY_COMPLETE_TRIP_PLAN_STAY_SECTIONS)[number];
+
+export interface JourneyCompleteTripPlanSection {
+  key: JourneyCompleteTripPlanSectionKey;
+  /** Null for journey-level sections; the owning leg's 1-indexed sequence for leg-scoped sections. */
+  legSequence: number | null;
+  heading: string | null;
+  body: string;
+}
+
+export interface JourneyCompleteTripPlan {
+  sections: JourneyCompleteTripPlanSection[];
+}
+
+export interface JourneyCompleteTripPlanValidationResult {
+  valid: boolean;
+  /** Human-readable identifiers — e.g. "journeySummary" or "leg 2: legHotel". */
+  missingSections: string[];
+  duplicateSections: string[];
+}
+
+/**
+ * Invariant: every journey-level section appears exactly once, every leg has its own flights/itinerary/
+ * budget section exactly once, and every leg WITH A STAY additionally has its own hotel/occupancy section
+ * exactly once (a pure connecting leg is never expected to carry hotel guidance for a stay it doesn't have).
+ */
+export function validateJourneyCompleteTripPlan(
+  plan: JourneyCompleteTripPlan,
+  legs: readonly JourneyLeg[]
+): JourneyCompleteTripPlanValidationResult {
+  const missingSections: string[] = [];
+  const duplicateSections: string[] = [];
+  const countOf = (key: JourneyCompleteTripPlanSectionKey, legSequence: number | null): number =>
+    plan.sections.filter((section) => section.key === key && section.legSequence === legSequence).length;
+  for (const key of JOURNEY_COMPLETE_TRIP_PLAN_JOURNEY_SECTIONS) {
+    const count = countOf(key, null);
+    if (count === 0) missingSections.push(key);
+    if (count > 1) duplicateSections.push(key);
+  }
+  for (const leg of legs) {
+    for (const key of JOURNEY_COMPLETE_TRIP_PLAN_LEG_SECTIONS) {
+      const count = countOf(key, leg.sequence);
+      if (count === 0) missingSections.push(`leg ${leg.sequence}: ${key}`);
+      if (count > 1) duplicateSections.push(`leg ${leg.sequence}: ${key}`);
+    }
+    if (legHasStay(leg)) {
+      for (const key of JOURNEY_COMPLETE_TRIP_PLAN_STAY_SECTIONS) {
+        const count = countOf(key, leg.sequence);
+        if (count === 0) missingSections.push(`leg ${leg.sequence}: ${key}`);
+        if (count > 1) duplicateSections.push(`leg ${leg.sequence}: ${key}`);
+      }
+    }
+  }
+  return { valid: missingSections.length === 0 && duplicateSections.length === 0, missingSections, duplicateSections };
+}
+
+export function renderJourneyCompleteTripPlan(plan: JourneyCompleteTripPlan): string {
+  return plan.sections.map((section) => (section.heading ? `${section.heading}\n${section.body}` : section.body)).join("\n\n");
+}
+
+/**
+ * Builds the full multi-leg plan directly from the Journey + its ordered legs — flights/hotel/occupancy/
+ * day-plan/budget PER LEG, plus the ordered journey summary (with every derived date's assumption clearly
+ * labeled), the combined journey budget, and the shared journey-level sections (transport, packing, tips,
+ * visa/insurance, disclaimer, next steps). Never sourced from a single BudgetEstimate or from standalone
+ * TravelEntities.originCity/destinationCity — everything here traces back to `legs`/`journeyEstimate`.
+ */
+export function buildJourneyCompleteTripPlan(
+  journey: Journey,
+  legs: readonly JourneyLeg[],
+  perLegItineraries: readonly string[],
+  journeyEstimate: JourneyBudgetEstimate,
+  language: TravelResponseLanguage = "ENGLISH"
+): JourneyCompleteTripPlan {
+  const firstLeg = legs[0];
+  if (!firstLeg) throw new Error("buildJourneyCompleteTripPlan requires at least one leg");
+  const legHeading = (leg: JourneyLeg, label: string): string =>
+    `${language === "HINDI" ? "चरण" : "Leg"} ${leg.sequence} (${leg.origin ?? "?"} -> ${leg.destination ?? "?"}) — ${label}:`;
+
+  const sections: JourneyCompleteTripPlanSection[] = [
+    { key: "journeySummary", legSequence: null, heading: null, body: buildJourneySummarySection(legs, language) }
+  ];
+
+  legs.forEach((leg, index) => {
+    const legEntities = legToEntities(leg, journey.travellerProfile);
+    const legEstimate = journeyEstimate.perLeg[index]?.estimate ?? null;
+    const flightsLabel = language === "HINGLISH" ? "flights" : language === "HINDI" ? "फ्लाइट्स" : "flights";
+    sections.push({
+      key: "legFlights",
+      legSequence: leg.sequence,
+      heading: legHeading(leg, flightsLabel),
+      body: [
+        legEstimate ? buildIndicativeFlightGuidance(legEntities, legEstimate, language) : null,
+        buildAirportRouteGuidance(leg.origin, leg.destination, language)
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join("\n")
+    });
+    if (legHasStay(leg) && legEstimate) {
+      const hotelLabel = language === "HINGLISH" ? "hotel" : language === "HINDI" ? "होटल" : "hotel";
+      sections.push({
+        key: "legHotel",
+        legSequence: leg.sequence,
+        heading: legHeading(leg, hotelLabel),
+        body: [buildIndicativeHotelGuidance(legEntities, legEstimate, language), buildHotelAreaGuidance(leg.destination, language)].join(
+          "\n"
+        )
+      });
+      sections.push({
+        key: "legOccupancy",
+        legSequence: leg.sequence,
+        heading: null,
+        body: buildRoomOccupancyGuidance(legEntities, language)
+      });
+    }
+    const itineraryLabel =
+      language === "HINGLISH" ? "Din-wise itinerary" : language === "HINDI" ? "दिन-वार यात्रा-कार्यक्रम" : "Day-wise itinerary";
+    const preferenceNote = buildPreferenceApplicationNote(
+      journey.travellerProfile.preferences,
+      (leg.passengers.children ?? 0) > 0,
+      (leg.passengers.infants ?? 0) > 0,
+      language
+    );
+    sections.push({
+      key: "legItinerary",
+      legSequence: leg.sequence,
+      heading: `${itineraryLabel} — ${leg.destination ?? "?"}:`,
+      body: [perLegItineraries[index] ?? "", preferenceNote].filter((line): line is string => Boolean(line)).join("\n")
+    });
+    sections.push({
+      key: "legBudget",
+      legSequence: leg.sequence,
+      heading: null,
+      body: legEstimate
+        ? buildBudgetBreakdownBlock(legEstimate, language)
+        : language === "HINGLISH"
+          ? "Is leg ke liye abhi budget calculate nahi ho saka (dates/duration missing)."
+          : language === "HINDI"
+            ? "इस चरण के लिए अभी बजट की गणना नहीं हो सकी (तिथियां/अवधि अनुपलब्ध)।"
+            : "Budget for this leg could not be calculated yet (dates/duration missing)."
+    });
+  });
+
+  const durationAssumptions = legs
+    .map((leg) => buildDurationAssumptionNote(leg.duration, language))
+    .filter((note): note is string => Boolean(note));
+  const travellerFactorNote = buildTravellerCostFactorNote(describeTravellerCostBreakdown(firstLeg.passengers), language);
+  sections.push({
+    key: "combinedBudget",
+    legSequence: null,
+    heading: language === "HINDI" ? "संयुक्त यात्रा बजट:" : "Combined journey budget:",
+    body: [buildBudgetBreakdownBlock(journeyEstimate.combined, language), ...durationAssumptions, travellerFactorNote]
+      .filter((line): line is string => Boolean(line))
+      .join("\n")
+  });
+  sections.push({
+    key: "transport",
+    legSequence: null,
+    heading: language === "HINDI" ? "स्थानीय परिवहन:" : "Getting around:",
+    body: legs.map((leg) => buildLocalTransportGuidance(leg.destination, language)).join("\n")
+  });
+  sections.push({
+    key: "packing",
+    legSequence: null,
+    heading: null,
+    body: buildPackingGuidance(legToEntities(firstLeg, journey.travellerProfile), language)
+  });
+  sections.push({ key: "tips", legSequence: null, heading: null, body: buildTravelTips(language) });
+  sections.push({ key: "visaInsurance", legSequence: null, heading: null, body: buildVisaInsuranceCaveat(language) });
+  sections.push({ key: "disclaimer", legSequence: null, heading: null, body: INDICATIVE_DISCLAIMER[language] });
+  sections.push({ key: "nextSteps", legSequence: null, heading: null, body: buildNextActionMessage(language) });
+  return { sections };
 }
 
 /**
@@ -2642,10 +7256,14 @@ function buildFeasibilityStatement(feasibility: BudgetFeasibilityResult, languag
 export function buildBudgetGuidanceMessage(
   entities: TravelEntities,
   config: TravelEmployeeRuntimeConfig,
-  language: TravelResponseLanguage = "ENGLISH"
+  language: TravelResponseLanguage = "ENGLISH",
+  displayCurrency?: string
 ): string {
-  const estimate = estimateBudgetRange(entities, config);
-  const days = entities.days ?? entities.nights ?? 5;
+  const estimate = estimateBudgetRange(entities, config, displayCurrency);
+  // Never silently relabel one as the other — a traveler who said "3 nights" must see "3 nights" in the
+  // summary, not a fabricated "3 days" (or a derived day-count reported as a fact). Falls back to a plain
+  // "5 day(s)" ONLY when duration is genuinely unknown (matches `estimateBudgetRange`'s own default).
+  const durationPhrase = buildDurationPhrase(entities, language) ?? (language === "ENGLISH" ? "5 day(s)" : "5 din");
   const destination = entities.destinationCity ?? "your destination";
   const travelers = describeTravelerMix(
     entities.adults,
@@ -2655,20 +7273,24 @@ export function buildBudgetGuidanceMessage(
   );
   const introLine =
     language === "HINGLISH"
-      ? `${entities.originCity ? `${entities.originCity} se ${destination}` : destination} trip ke liye (${travelers}, ${days} din), ek practical economy estimate lagbhag ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)} hai:`
+      ? `${entities.originCity ? `${entities.originCity} se ${destination}` : destination} trip ke liye (${travelers}, ${durationPhrase}), ek practical economy estimate lagbhag ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)} hai:`
       : language === "HINDI"
-        ? `${entities.originCity ? `${entities.originCity} से ${destination}` : destination} यात्रा के लिए (${travelers}, ${days} दिन), एक व्यावहारिक इकोनॉमी अनुमान लगभग ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)} है:`
-        : `Sure — for ${travelers} travelling ${entities.originCity ? `from ${entities.originCity} to ${destination}` : `to ${destination}`} for ${days} day${days === 1 ? "" : "s"}, a practical estimate in economy would be around ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)}:`;
+        ? `${entities.originCity ? `${entities.originCity} से ${destination}` : destination} यात्रा के लिए (${travelers}, ${durationPhrase}), एक व्यावहारिक इकोनॉमी अनुमान लगभग ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)} है:`
+        : `Sure — for ${travelers} travelling ${entities.originCity ? `from ${entities.originCity} to ${destination}` : `to ${destination}`} for ${durationPhrase}, a practical estimate in economy would be around ${estimate.currency} ${formatAmount(estimate.low)}–${formatAmount(estimate.high)}:`;
   const footerNote =
     language === "HINGLISH"
       ? "Ye estimates indicative hain jab tak live booking provider connect nahi hota — actual prices alag ho sakte hain."
       : language === "HINDI"
         ? "जब तक लाइव बुकिंग प्रोवाइडर कनेक्ट नहीं होता, ये अनुमान सांकेतिक हैं — वास्तविक कीमतें अलग हो सकती हैं।"
         : "These are indicative estimates until a live booking provider is connected — actual prices will vary.";
+  const durationAssumption = buildDurationAssumptionNote(entities, language);
+  const travellerFactorNote = buildTravellerCostFactorNote(describeTravellerCostBreakdown(entities), language);
   const lines = [
     introLine,
     ...estimate.breakdown.map((line) => `• ${line.label}: ${estimate.currency} ${formatAmount(line.low)}–${formatAmount(line.high)}`),
     "",
+    ...(durationAssumption ? [durationAssumption] : []),
+    ...(travellerFactorNote ? [travellerFactorNote] : []),
     footerNote
   ];
   if (entities.budget !== null) {
@@ -2835,17 +7457,38 @@ function buildHotelModificationMessage(
   return lines.join("\n");
 }
 
-function buildFallbackAskMessage(
+/**
+ * Deterministic fallback used only when the real LLM reply-generation call fails — must stand on its own
+ * without any model help, so it applies the same "ask several missing things together" strategy as the
+ * LLM prompts (see `combineMissingLabels`) rather than asking one field at a time.
+ */
+export function buildFallbackAskMessage(
   missing: string[],
   config: TravelEmployeeRuntimeConfig,
   isFirstTurn: boolean,
-  language: TravelResponseLanguage = "ENGLISH"
+  language: TravelResponseLanguage = "ENGLISH",
+  justLearnedName: string | null = null
 ): string {
-  const prefix = isFirstTurn ? `${config.welcomeMessage}\n\n` : "";
-  const label = ENTITY_MISSING_LABELS[missing[0] ?? ""] ?? "a few more trip details";
-  if (language === "HINGLISH") return `${prefix}Kya aap ${label} bata sakte hain?`;
-  if (language === "HINDI") return `${prefix}क्या आप ${label} बता सकते हैं?`;
-  return `${prefix}Could you share ${label}?`;
+  const greeting = isFirstTurn ? `${config.welcomeMessage}\n\n` : "";
+  const nameAck = justLearnedName ? `${buildNameAcknowledgment(justLearnedName, language)} ` : "";
+  const prefix = greeting + nameAck;
+  const labels = missing
+    .map((field) => ENTITY_MISSING_LABELS[field])
+    .filter((label): label is string => Boolean(label));
+  if (!labels.length) {
+    if (language === "HINGLISH") return `${prefix}Kya aap thodi aur trip details share kar sakte hain?`;
+    if (language === "HINDI") return `${prefix}क्या आप थोड़ी और यात्रा जानकारी साझा कर सकते हैं?`;
+    return `${prefix}Could you share a few more trip details?`;
+  }
+  if (labels.length === 1) {
+    if (language === "HINGLISH") return `${prefix}Kya aap ${labels[0]} bata sakte hain?`;
+    if (language === "HINDI") return `${prefix}क्या आप ${labels[0]} बता सकते हैं?`;
+    return `${prefix}Could you share ${labels[0]}?`;
+  }
+  const bullets = combineMissingLabels(labels);
+  if (language === "HINGLISH") return `${prefix}Kya aap ye bata sakte hain:\n${bullets}`;
+  if (language === "HINDI") return `${prefix}क्या आप ये बता सकते हैं:\n${bullets}`;
+  return `${prefix}To plan this well, could you share:\n${bullets}`;
 }
 
 /** Adapts the extended entity schema to the legacy slot shape so the deterministic recommendation/CRM builders can be reused unchanged. */
@@ -2877,6 +7520,10 @@ export function entitiesToStoredState(
     ...legacy,
     stage,
     missingFields: computeMissingEntityFields(entities, memory?.budgetMode),
+    onboardingCompleted: entities.customerName !== null,
+    // This is only ever called on a turn after the proactive greeting has already been shown (see
+    // AgentService.execute's greeting bypass) — greetingSent is therefore always true here by construction.
+    greetingSent: true,
     ...entities,
     ...(memory
       ? {
@@ -2885,10 +7532,21 @@ export function entitiesToStoredState(
           lastAskedField: memory.lastAskedField,
           budgetMode: memory.budgetMode,
           pendingAction: memory.pendingAction,
+          pendingInputAction: memory.pendingInputAction,
+          pendingContactValue: memory.pendingContactValue,
+          conversationClosed: memory.conversationClosed,
           responseLanguage: memory.responseLanguage,
           budgetDiscussionCompleted: memory.budgetDiscussionCompleted,
           lastBudgetEstimate: memory.lastBudgetEstimate,
-          pendingPassengerConflict: memory.pendingPassengerConflict
+          pendingPassengerConflict: memory.pendingPassengerConflict,
+          pendingDepartureDate: memory.pendingDepartureDate,
+          journey: memory.journey,
+          lastGeneratedItinerary: memory.lastGeneratedItinerary,
+          providerFailure: memory.providerFailure,
+          completionStage: memory.completionStage,
+          capturedLeadReference: memory.capturedLeadReference,
+          displayCurrency: memory.displayCurrency,
+          pendingRouteClarification: memory.pendingRouteClarification
         }
       : {})
   };
@@ -2900,7 +7558,15 @@ const VALID_PENDING_ACTIONS: readonly Exclude<TravelPendingAction, null>[] = [
   "SEARCH_OPTIONS",
   "GENERATE_ITINERARY",
   "MODIFY_HOTEL_BUDGET",
-  "BOOK_FLIGHT"
+  "BOOK_FLIGHT",
+  "BOOK_HOTEL"
+];
+const VALID_PENDING_INPUT_ACTIONS: readonly Exclude<TravelPendingInputAction, null>[] = [
+  "AWAITING_LEAD_CONTACT",
+  "AWAITING_LEAD_CONSENT",
+  "CONFIRM_STANDALONE_CONTACT_USE",
+  "AWAITING_PASSENGER_COMPOSITION",
+  "AWAITING_TRAVEL_YEAR"
 ];
 const VALID_RESPONSE_LANGUAGES: readonly TravelResponseLanguage[] = ["ENGLISH", "HINDI", "HINGLISH"];
 
@@ -2926,6 +7592,16 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
     (VALID_PENDING_ACTIONS as readonly string[]).includes(value.pendingAction)
       ? (value.pendingAction as TravelPendingAction)
       : null;
+  const pendingInputAction =
+    typeof value.pendingInputAction === "string" &&
+    (VALID_PENDING_INPUT_ACTIONS as readonly string[]).includes(value.pendingInputAction)
+      ? (value.pendingInputAction as TravelPendingInputAction)
+      : value.completionStage === "AWAITING_CONTACT"
+        ? "AWAITING_LEAD_CONTACT"
+        : null;
+  const pendingContactValue =
+    typeof value.pendingContactValue === "string" ? value.pendingContactValue : null;
+  const conversationClosed = value.conversationClosed === true;
   const responseLanguage =
     typeof value.responseLanguage === "string" &&
     (VALID_RESPONSE_LANGUAGES as readonly string[]).includes(value.responseLanguage)
@@ -2940,16 +7616,99 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
     typeof value.pendingPassengerConflict === "object" && value.pendingPassengerConflict !== null
       ? (value.pendingPassengerConflict as PendingPassengerConflict)
       : null;
+  const rawPendingDepartureDate = value.pendingDepartureDate as Record<string, unknown> | null | undefined;
+  const pendingDepartureDate: PendingDepartureDate | null =
+    rawPendingDepartureDate &&
+    typeof rawPendingDepartureDate.day === "number" &&
+    typeof rawPendingDepartureDate.month === "number"
+      ? {
+          day: rawPendingDepartureDate.day,
+          month: rawPendingDepartureDate.month,
+          year: null,
+          source: "USER_EXPLICIT"
+        }
+      : null;
+  const journey =
+    typeof value.journey === "object" &&
+    value.journey !== null &&
+    typeof (value.journey as Record<string, unknown>).id === "string" &&
+    Array.isArray((value.journey as Record<string, unknown>).legs)
+      ? (value.journey as Journey)
+      : null;
+  const lastGeneratedItinerary = typeof value.lastGeneratedItinerary === "string" ? value.lastGeneratedItinerary : null;
+  const VALID_PROVIDER_FAILURE_ACTIONS = ["SEARCH_LIVE_OPTIONS", "BOOK_FLIGHT", "BOOK_HOTEL"];
+  const rawProviderFailure = value.providerFailure as Record<string, unknown> | null | undefined;
+  const providerFailure: ProviderFailureRecord | null =
+    typeof rawProviderFailure === "object" &&
+    rawProviderFailure !== null &&
+    VALID_PROVIDER_FAILURE_ACTIONS.includes(rawProviderFailure.failedAction as string)
+      ? {
+          failedAction: rawProviderFailure.failedAction as ProviderFailureRecord["failedAction"],
+          provider: typeof rawProviderFailure.provider === "string" ? rawProviderFailure.provider : "unknown",
+          failedAt: typeof rawProviderFailure.failedAt === "string" ? rawProviderFailure.failedAt : new Date(0).toISOString(),
+          retryable: rawProviderFailure.retryable !== false,
+          selectedRecoveryAction: (rawProviderFailure.selectedRecoveryAction as ProviderFailureRecoverySelection | null) ?? null,
+          // Older persisted records predate the menu-lifecycle fields — default to "already inactive" rather
+          // than risk resurrecting a numeric-shortcut window the traveler never actually saw in this session.
+          menuActive: rawProviderFailure.menuActive === true,
+          menuExpiresAt: typeof rawProviderFailure.menuExpiresAt === "string" ? rawProviderFailure.menuExpiresAt : new Date(0).toISOString()
+        }
+      : null;
+  const VALID_COMPLETION_STAGES: readonly ConversationCompletionStage[] = [
+    "NOT_OFFERED",
+    "OFFERED",
+    "AWAITING_CONTACT",
+    "CAPTURED",
+    "DECLINED"
+  ];
+  const completionStage =
+    typeof value.completionStage === "string" &&
+    (VALID_COMPLETION_STAGES as readonly string[]).includes(value.completionStage)
+      ? (value.completionStage as ConversationCompletionStage)
+      : "NOT_OFFERED";
+  const capturedLeadReference = typeof value.capturedLeadReference === "string" ? value.capturedLeadReference : null;
+  const displayCurrency =
+    typeof value.displayCurrency === "string" && isSupportedCurrency(value.displayCurrency)
+      ? value.displayCurrency.toUpperCase()
+      : null;
+  const rawPendingRouteClarification = value.pendingRouteClarification as Record<string, unknown> | null | undefined;
+  const pendingRouteClarification =
+    typeof rawPendingRouteClarification === "object" &&
+    rawPendingRouteClarification !== null &&
+    typeof rawPendingRouteClarification.originalMessage === "string"
+      ? {
+          originalMessage: rawPendingRouteClarification.originalMessage,
+          fromDestination:
+            typeof rawPendingRouteClarification.fromDestination === "string"
+              ? rawPendingRouteClarification.fromDestination
+              : null,
+          toDestination:
+            typeof rawPendingRouteClarification.toDestination === "string"
+              ? rawPendingRouteClarification.toDestination
+              : null
+        }
+      : null;
   return {
     confirmation,
     pendingClarification,
     lastAskedField,
     budgetMode,
     pendingAction,
+    pendingInputAction,
+    pendingContactValue,
+    conversationClosed,
     responseLanguage,
     budgetDiscussionCompleted,
     lastBudgetEstimate,
-    pendingPassengerConflict
+    pendingPassengerConflict,
+    pendingDepartureDate,
+    journey,
+    lastGeneratedItinerary,
+    providerFailure,
+    completionStage,
+    capturedLeadReference,
+    displayCurrency,
+    pendingRouteClarification
   };
 }
 
@@ -2958,12 +7717,17 @@ export function entitiesFromStoredState(value: Record<string, unknown> | null | 
   if (!value) return EMPTY_TRAVEL_ENTITIES;
   const str = (key: string): string | null => (typeof value[key] === "string" ? (value[key] as string) : null);
   const num = (key: string): number | null => (typeof value[key] === "number" ? (value[key] as number) : null);
+  const bool = (key: string): boolean | null => (typeof value[key] === "boolean" ? (value[key] as boolean) : null);
   const adults = num("adults");
   // `passengers` is the legacy TravelSlots mirror — only meaningful as an ambiguous total fallback for a
   // document that predates `totalTravellers` and has no real composition either. Never read it into
   // `adults`, or a stored ambiguous total would silently become "N adults" on the next load.
   const totalTravellers = num("totalTravellers") ?? (adults === null ? num("passengers") : null);
+  const storedTripPurpose = str("tripPurpose");
+  const tripPurpose: "LEISURE" | "BUSINESS" | null =
+    storedTripPurpose === "LEISURE" || storedTripPurpose === "BUSINESS" ? storedTripPurpose : null;
   return {
+    customerName: str("customerName"),
     originCity: str("originCity"),
     destinationCity: str("destinationCity") ?? str("destination"),
     departureDate: str("departureDate"),
@@ -2980,6 +7744,9 @@ export function entitiesFromStoredState(value: Record<string, unknown> | null | 
     cabinClass: str("cabinClass"),
     tripType: str("tripType"),
     hotelStars: num("hotelStars"),
+    visaRequired: bool("visaRequired"),
+    passportStatus: str("passportStatus"),
+    tripPurpose,
     preferences: Array.isArray(value.preferences)
       ? (value.preferences as unknown[]).filter((x): x is string => typeof x === "string")
       : []
@@ -3009,6 +7776,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
   budgetMode: TravelBudgetMode;
   /** A structured action awaiting a blocking field — see {@link TravelPendingAction}. Persisted across turns. */
   pendingAction: TravelPendingAction;
+  pendingInputAction: TravelPendingInputAction;
+  pendingContactValue: string | null;
+  conversationClosed: boolean;
   /** The language every user-facing reply must be composed in — see {@link TravelResponseLanguage}. */
   responseLanguage: TravelResponseLanguage;
   /** Whether the BELOW_MINIMUM explanation has already been shown at least once. Persisted across turns. */
@@ -3017,16 +7787,43 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
   lastBudgetEstimate: StoredBudgetEstimate | null;
   /** A composition breakdown awaiting reconciliation against a previously stated total. Persisted across turns. */
   pendingPassengerConflict: PendingPassengerConflict | null;
+  pendingDepartureDate: PendingDepartureDate | null;
+  /** The multi-leg trip this conversation is planning, if any — see {@link Journey}. Persisted across turns. */
+  journey: Journey | null;
+  /** The most recent itinerary text generated, captured into a leg when it is finalized. Persisted across turns. */
+  lastGeneratedItinerary: string | null;
+  /** The most recent live-provider failure, if not yet retried — see {@link ProviderFailureRecord}. Persisted across turns. */
+  providerFailure: ProviderFailureRecord | null;
+  /** Where this conversation is in the Conversation Completion & Lead Capture flow — see
+   * {@link ConversationCompletionStage}. Persisted across turns. */
+  completionStage: ConversationCompletionStage;
+  /** The reference of the {@link TravelLead} captured for this conversation, if any — lets a repeat
+   * submit/callback/confirm ask re-confirm it instead of asking for a phone number again. Persisted
+   * across turns. */
+  capturedLeadReference: string | null;
+  /** The traveler's chosen display currency for cost figures — see {@link TravelConversationMemory.displayCurrency}. Persisted. */
+  displayCurrency: string | null;
+  /** An ambiguous route awaiting "same trip or separate trip" — see {@link TravelConversationMemory.pendingRouteClarification}. Persisted. */
+  pendingRouteClarification: TravelConversationMemory["pendingRouteClarification"];
+  /** Set while a proactively-offered or explicitly-requested lead capture is awaiting its
+   * `travel.create_lead` tool response — resolved in `continueAfterTool`. Not persisted across requests:
+   * the tool round-trip always completes within the same execution's iteration loop. */
+  private pendingLeadCapture = false;
   /** Set while a BELOW_MINIMUM sales handoff is awaiting its CRM-lead tool response. Not persisted across requests. */
   private pendingSalesHandoff: { feasibilityMessage: string } | null = null;
   /** Structured per-turn trace for observability — see {@link TravelTurnDiagnostics}. Not persisted. */
   private diagnostics: TravelTurnDiagnostics | null = null;
+  /** Stage 9E: non-null only the turn a Travel Runtime business result (currently only BELOW_MINIMUM
+   *  budget feasibility) decided a workflow should start — see {@link TravelRuntimeExecutionMode} and
+   *  `lastWorkflowSignal`. Reset at the start of every `complete()` call. Not persisted across requests. */
+  private pendingWorkflowSignal: TravelWorkflowSignalDraft | null = null;
 
   constructor(
     private readonly realProvider: AiProvider,
     private readonly config: TravelEmployeeRuntimeConfig,
     priorEntities: TravelEntities,
-    priorMemory: TravelConversationMemory = EMPTY_TRAVEL_CONVERSATION_MEMORY
+    priorMemory: TravelConversationMemory = EMPTY_TRAVEL_CONVERSATION_MEMORY,
+    private readonly executionMode: TravelRuntimeExecutionMode = "STANDALONE_COMPATIBILITY"
   ) {
     this.lastEntities = priorEntities;
     this.confirmation = priorMemory.confirmation;
@@ -3034,10 +7831,26 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.lastAskedField = priorMemory.lastAskedField;
     this.budgetMode = priorMemory.budgetMode;
     this.pendingAction = priorMemory.pendingAction;
+    this.pendingInputAction =
+      priorMemory.pendingInputAction ??
+      (priorMemory.completionStage === "AWAITING_CONTACT" ? "AWAITING_LEAD_CONTACT" : null);
+    this.pendingContactValue = priorMemory.pendingContactValue ?? null;
+    this.conversationClosed = priorMemory.conversationClosed ?? false;
     this.responseLanguage = priorMemory.responseLanguage;
     this.budgetDiscussionCompleted = priorMemory.budgetDiscussionCompleted;
     this.lastBudgetEstimate = priorMemory.lastBudgetEstimate;
     this.pendingPassengerConflict = priorMemory.pendingPassengerConflict;
+    this.pendingDepartureDate = priorMemory.pendingDepartureDate ?? null;
+    this.journey = priorMemory.journey;
+    this.lastGeneratedItinerary = priorMemory.lastGeneratedItinerary;
+    // Cloned, never aliased: `menuActive` is mutated in place during a turn (see the invalidation check in
+    // `complete()`), and a shared/reused `priorMemory` object (as several tests intentionally do, and as a
+    // caller caching memory between conversations might) must never have that mutation leak sideways.
+    this.providerFailure = priorMemory.providerFailure ? { ...priorMemory.providerFailure } : null;
+    this.completionStage = priorMemory.completionStage;
+    this.capturedLeadReference = priorMemory.capturedLeadReference;
+    this.displayCurrency = priorMemory.displayCurrency;
+    this.pendingRouteClarification = priorMemory.pendingRouteClarification;
   }
 
   /** Snapshot of everything besides plain entity values that must be persisted between turns. */
@@ -3048,10 +7861,21 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       lastAskedField: this.lastAskedField,
       budgetMode: this.budgetMode,
       pendingAction: this.pendingAction,
+      pendingInputAction: this.pendingInputAction,
+      pendingContactValue: this.pendingContactValue,
+      conversationClosed: this.conversationClosed,
       responseLanguage: this.responseLanguage,
       budgetDiscussionCompleted: this.budgetDiscussionCompleted,
       lastBudgetEstimate: this.lastBudgetEstimate,
-      pendingPassengerConflict: this.pendingPassengerConflict
+      pendingPassengerConflict: this.pendingPassengerConflict,
+      pendingDepartureDate: this.pendingDepartureDate,
+      journey: this.journey,
+      lastGeneratedItinerary: this.lastGeneratedItinerary,
+      providerFailure: this.providerFailure,
+      completionStage: this.completionStage,
+      capturedLeadReference: this.capturedLeadReference,
+      displayCurrency: this.displayCurrency,
+      pendingRouteClarification: this.pendingRouteClarification
     };
   }
 
@@ -3060,13 +7884,45 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     return this.diagnostics;
   }
 
-  /** Tags the branch this turn resolved to and the tool calls it attempted, then returns the result unchanged. */
+  /** Stage 9E: see the field doc above. AgentService reads this once per turn (PLATFORM_MANAGED mode
+   *  only — always null in STANDALONE_COMPATIBILITY) and hands it to WorkflowCoordinator.dispatchSignal. */
+  get lastWorkflowSignal(): TravelWorkflowSignalDraft | null {
+    return this.pendingWorkflowSignal;
+  }
+
+  /**
+   * Tags the branch this turn resolved to, then — for a real text reply on a branch where the traveler
+   * just received something substantial (see {@link GOAL_ENGINE_ELIGIBLE_BRANCHES}) — appends either the
+   * Conversation Completion offer (at most once per conversation, and only in place of the Goal Engine
+   * suggestions on the turn it fires, never both at once) or the Goal Engine's suggested next actions.
+   * A pending tool call (no text yet) or an ineligible branch passes through unchanged.
+   */
   private tag(branch: string, result: AiCompletionResult): AiCompletionResult {
     if (this.diagnostics) {
       this.diagnostics.branch = branch;
       this.diagnostics.toolCallsAttempted = result.toolCalls.map((call) => call.name);
     }
-    return result;
+    if (result.toolCalls.length > 0 || !result.content || !GOAL_ENGINE_ELIGIBLE_BRANCHES.has(branch)) return result;
+    if (this.completionStage === "NOT_OFFERED" && this.isReadyForCompletionOffer()) {
+      this.completionStage = "OFFERED";
+      this.lastStage = "OFFER_TRAVEL_REQUEST";
+      return {
+        ...result,
+        content: `${result.content}\n\n${buildCompletionOfferMessage(this.lastEntities.customerName, this.responseLanguage)}`
+      };
+    }
+    const suggestions = computeSuggestedActions(branch, this.lastEntities, this.lastGeneratedItinerary !== null);
+    if (!suggestions.length) return result;
+    return { ...result, content: `${result.content}${formatSuggestedActionsLocalized(suggestions, this.responseLanguage)}` };
+  }
+
+  /** Whether this is a good moment to proactively offer to submit the travel request — core trip details
+   * complete and something substantial already delivered. `completionStage` (checked by the caller) is
+   * what actually prevents re-offering after an explicit submit/callback/confirm already ran this
+   * conversation — both paths share the same stage, so there is nothing further to check here. */
+  private isReadyForCompletionOffer(): boolean {
+    if (computeMissingEntityFields(this.lastEntities, this.budgetMode).length > 0) return false;
+    return this.lastBudgetEstimate !== null || this.lastGeneratedItinerary !== null;
   }
 
   /** All captured trip preferences, shaped for `travel.search_flights` / `travel.search_hotels` tool calls. */
@@ -3090,6 +7946,45 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     };
   }
 
+  /** Payload for the `travel.create_lead` tool call — see `TravelLead` (database/prisma/schema.prisma).
+   * The reference is generated here (Travel-owned copy), not by the persistence handler, so the
+   * confirmation message and the stored row are guaranteed to agree on it. When a multi-leg journey
+   * exists (see {@link Journey}), the destination and summary cover every leg, not just the current one —
+   * the same "submit the whole journey" behavior the old CRM-only path had. */
+  private buildTravelLeadPayload(phoneNumber: string): Record<string, unknown> {
+    const entities = this.lastEntities;
+    const legs = this.journey ? this.collectAllJourneyLegs(this.journey, entities) : null;
+    // The COMPLETE route, including the very first leg's own origin — never just the chain of
+    // destinations (which would silently drop where the journey started from).
+    const destination = legs && legs.length > 1 ? describeJourneyRoute(legs) : entities.destinationCity;
+    const conversationSummary =
+      legs && legs.length > 1
+        ? legs
+            .map((leg, index) => `Leg ${index + 1}: ${leg.origin ?? "?"} -> ${leg.destination ?? "?"}`)
+            .join(" | ")
+        : buildLeadConversationSummary(entities);
+    return {
+      reference: generateLeadReference("TRV"),
+      // Ties this lead to the SAME journey-scoped idempotency key `TravelLeadService` uses — a repeated
+      // "ji"/"haan"/re-submit for this same journey collapses onto one lead; a genuinely new journey (a
+      // fresh `Journey.id`) always gets its own.
+      journeyId: this.journey?.id ?? null,
+      customerName: entities.customerName,
+      phoneNumber,
+      departureCity: entities.originCity,
+      destination,
+      travelDates: entities.departureDate ?? entities.travelMonth,
+      passengers: formatPassengerSummaryForLead(entities),
+      // No dedicated "business vs leisure" purpose is collected anywhere in this runtime today — left null
+      // rather than mislabeling `tripType` (ONE_WAY/ROUND_TRIP/MULTI_CITY, a route shape, not a purpose).
+      tripPurpose: null,
+      budgetAmount: entities.budget,
+      budgetCurrency: entities.budgetCurrency,
+      displayCurrency: this.displayCurrency,
+      conversationSummary
+    };
+  }
+
   private recommendationOptions(entities: TravelEntities, starNote?: string | null): RecommendationOptions {
     return {
       consultantStyle: true,
@@ -3101,11 +7996,36 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     };
   }
 
+  /** The COLLECT_NAME gate's reply — acknowledges any destination captured this same turn, never silently drops it. */
+  private buildNameGateReply(entities: TravelEntities, changed: string[]): string {
+    const mentionedDestination = changed.some((entry) => entry.startsWith("destinationCity=")) && entities.destinationCity;
+    if (mentionedDestination) {
+      if (this.responseLanguage === "HINGLISH")
+        return `${entities.destinationCity} sounds good. Planning shuru karne se pehle, may I know your name?`;
+      if (this.responseLanguage === "HINDI")
+        return `${entities.destinationCity} बढ़िया विकल्प है। योजना शुरू करने से पहले, क्या मैं आपका नाम जान सकता/सकती हूँ?`;
+      return `${entities.destinationCity} sounds like a wonderful choice! Before we get started, may I know your name?`;
+    }
+    if (this.responseLanguage === "HINGLISH") return "Bataiye, aapka naam kya hai?";
+    if (this.responseLanguage === "HINDI") return "क्या मैं आपका नाम जान सकता/सकती हूँ?";
+    return "Before we get started, may I know your name?";
+  }
+
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
+    this.pendingWorkflowSignal = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const currentText = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
-    const isFirstTurn = messages.filter((message) => message.role === "user").length <= 1;
+    // Once a greeting has already been shown as its own turn (the normal proactive-greeting flow),
+    // `isFirstTurn` must never be true again — otherwise the configured welcome message gets recited a
+    // second time inline on the traveler's first substantive reply. "No assistant turn has happened yet
+    // at all" is the real condition, not "this is the traveler's first reply".
+    const hasAssistantHistory = messages.some((message) => message.role === "assistant");
+    const isFirstTurn = messages.filter((message) => message.role === "user").length <= 1 && !hasAssistantHistory;
+    // Captured before anything below can mutate `this.lastEntities` — ADD_TRIP_LEG needs the leg that was
+    // in progress BEFORE this turn, and reading it here means a misclassified intent (e.g. the LLM reading
+    // "continue to New York" as `start_new_trip`) can never wipe it out from under the finalize step.
+    const priorEntitiesSnapshot = this.lastEntities;
 
     // Language detection from the traveler's own wording, upgrade-only (sticky) so an English city name or
     // date word embedded in an otherwise Hinglish/Hindi message never flips the conversation to English.
@@ -3130,10 +8050,172 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       passengerState: computePassengerState(this.lastEntities),
       passengerClarificationRequired: false,
       planningAction: null,
-      budgetDiscussionCompletedBefore: this.budgetDiscussionCompleted
+      budgetDiscussionCompletedBefore: this.budgetDiscussionCompleted,
+      journeyId: this.journey?.id ?? null,
+      journeyLegCountBefore: this.journey?.legs.length ?? 0,
+      providerFailureActiveBefore: this.providerFailure !== null,
+      recoveryMenuActiveBefore: isRecoveryMenuActive(this.providerFailure),
+      itineraryFallbackUsed: false,
+      itineraryValidationIssues: []
     };
 
     if (last?.role === "tool") return this.tag("tool_continuation", this.continueAfterTool(messages, last, request.tools));
+
+    const resolvedInput = resolveTravelInput(currentText, {
+      pendingInputAction: this.pendingInputAction,
+      pendingContactValue: this.pendingContactValue,
+      tripState: this.lastEntities,
+      lastAssistantQuestion:
+        [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null,
+      conversationClosed: this.conversationClosed,
+      currentLeadState:
+        this.completionStage === "CAPTURED"
+          ? "CREATED"
+          : this.completionStage === "AWAITING_CONTACT"
+            ? "PENDING"
+            : "NONE"
+    });
+
+    if (this.completionStage === "CAPTURED" && this.capturedLeadReference && looksLikePhoneOrContact(currentText)) {
+      return this.tag(
+        "lead_contact_already_captured",
+        textResult(buildLeadAlreadyCapturedMessage(this.capturedLeadReference, this.responseLanguage))
+      );
+    }
+    if (resolvedInput.kind === "PENDING_CONTACT") {
+      this.pendingAction = null;
+      this.providerFailure = null;
+      this.pendingPassengerConflict = null;
+      this.pendingContactValue = resolvedInput.contact;
+      this.pendingLeadCapture = true;
+      return this.tag(
+        "lead_capture_submit",
+        toolResult("travel.create_lead", this.buildTravelLeadPayload(resolvedInput.contact))
+      );
+    }
+    if (resolvedInput.kind === "INVALID_CONTACT_ATTEMPT")
+      return this.tag("lead_capture_invalid_contact", textResult(buildInvalidPhoneMessage(this.responseLanguage)));
+    if (resolvedInput.kind === "PENDING_CONTACT_NON_CONTACT") {
+      this.lastStage = "AWAITING_CONTACT";
+      return this.tag(
+        "lead_capture_waiting",
+        textResult(buildPendingContactAcknowledgement(this.responseLanguage))
+      );
+    }
+    if (resolvedInput.kind === "PENDING_CONTACT_PAUSED") {
+      this.pendingInputAction = null;
+      this.pendingContactValue = null;
+      this.completionStage = "DECLINED";
+      return this.tag(
+        "lead_capture_paused",
+        textResult(buildFarewellMessage(this.lastEntities.customerName, this.responseLanguage))
+      );
+    }
+    if (resolvedInput.kind === "STANDALONE_CONTACT") {
+      this.pendingAction = null;
+      this.providerFailure = null;
+      this.pendingPassengerConflict = null;
+      this.pendingContactValue = resolvedInput.contact;
+      this.pendingInputAction = "CONFIRM_STANDALONE_CONTACT_USE";
+      return this.tag(
+        "standalone_contact_confirmation",
+        textResult(buildStandaloneContactConfirmation(this.lastEntities, this.responseLanguage))
+      );
+    }
+    if (resolvedInput.kind === "STANDALONE_CONTACT_CONFIRMED") {
+      this.conversationClosed = false;
+      this.pendingInputAction = null;
+      this.pendingLeadCapture = true;
+      return this.tag(
+        "standalone_contact_submit",
+        toolResult("travel.create_lead", this.buildTravelLeadPayload(resolvedInput.contact))
+      );
+    }
+    if (resolvedInput.kind === "STANDALONE_CONTACT_DECLINED") {
+      this.pendingInputAction = null;
+      this.pendingContactValue = null;
+      return this.tag(
+        "standalone_contact_declined",
+        textResult(buildFarewellMessage(this.lastEntities.customerName, this.responseLanguage))
+      );
+    }
+    if (!isFarewellMessage(currentText)) this.conversationClosed = false;
+
+    // Graceful conversation closing: a standalone "thanks"/"that's all"/"bye" ends the conversation
+    // naturally — never re-classified as trip content, and never a reason to fall into slot collection,
+    // repeat a recommendation, or restart any other workflow step. Checked before everything else so it
+    // takes priority regardless of what stage the conversation is in. A still-open completion offer or
+    // contact request is gracefully closed out (never repeated later) rather than left dangling.
+    if (isFarewellMessage(currentText)) {
+      if (this.completionStage === "OFFERED") {
+        this.completionStage = "DECLINED";
+      }
+      this.conversationClosed = true;
+      this.pendingAction = null;
+      this.providerFailure = null;
+      this.pendingPassengerConflict = null;
+      this.pendingDepartureDate = null;
+      this.pendingInputAction = null;
+      return this.tag("farewell", textResult(buildFarewellMessage(this.lastEntities.customerName, this.responseLanguage)));
+    }
+
+    // State recall/frustration is answered from structured memory before any LLM extraction, route
+    // addition, tool action, or knowledge path. It must never restart slot collection.
+    if (isTravelStateRecallRequest(currentText) || isTravelFrustrationMessage(currentText)) {
+      return this.tag(
+        isTravelFrustrationMessage(currentText) ? "frustration_state_repair" : "conversation_state_recall",
+        textResult(
+          buildTravelStateRecallMessage(
+            this.lastEntities,
+            this.pendingDepartureDate,
+            this.journey,
+            isTravelFrustrationMessage(currentText)
+          )
+        )
+      );
+    }
+
+    // Conversation Completion & Lead Capture: resolve a pending offer/contact-request before anything
+    // else this turn — the reply to "would you like to submit this?" or "may I have your number?" is
+    // never a new trip detail, it's an answer to that specific ask. Mirrors the pendingClarification
+    // priority immediately below.
+    if (this.completionStage === "OFFERED") {
+      if (isAffirmativeResponse(currentText)) {
+        this.completionStage = "AWAITING_CONTACT";
+        this.pendingInputAction = "AWAITING_LEAD_CONTACT";
+        this.pendingAction = null;
+        this.providerFailure = null;
+        this.lastStage = "AWAITING_CONTACT";
+        return this.tag("lead_capture_request_phone", textResult(buildContactRequestMessage(this.responseLanguage)));
+      }
+      // A short, standalone "no"/"not now" (nothing else in the message) ends the offer gracefully right
+      // here — never falls through to re-classification, which could otherwise "restart" an unrelated
+      // workflow step. A decline with more content ("no, but what about visa requirements") still falls
+      // through so that real content gets a real answer.
+      if (isNegativeResponse(currentText) && currentText.trim().split(/\s+/).length <= 4) {
+        this.completionStage = "DECLINED";
+        this.pendingInputAction = null;
+        return this.tag("farewell_declined_offer", textResult(buildFarewellMessage(this.lastEntities.customerName, this.responseLanguage)));
+      }
+      if (isNegativeResponse(currentText)) {
+        this.completionStage = "DECLINED";
+        this.pendingInputAction = null;
+        // Falls through deliberately: per policy, a decline only stops the offer from being repeated —
+        // whatever else this message says (or if it says nothing else) is still handled normally below.
+      }
+      // Anything else leaves the offer open for a later turn and falls through to normal processing.
+    }
+
+    // Explicit currency preference/update ("share in USD", "estimate in usd", bare "usd", "convert to
+    // dirhams"). Deterministic, state-aware, and deliberately HIGH priority — above trip-completeness
+    // confirmation, search confirmation, recommendation generation, slot recollection, and generic intent
+    // classification — so a currency-only follow-up is never misread as a search/recommendation request or
+    // an incomplete-trip update, and never loops the "would you like me to look up options now?" prompt.
+    // The original budget (`budgetAmount`/`budgetCurrency`) is never touched — only how amounts are shown.
+    const currencyPreference = currencyService.detectPreference(currentText);
+    if (currencyPreference) {
+      return this.tag("currency_preference", this.handleCurrencyPreference(currencyPreference));
+    }
 
     // Resolve an in-flight "Did you mean X?" before anything else — the reply to that question is not a
     // new trip detail, it's a yes/no about a value already proposed last turn. A bare "yes" here is only
@@ -3155,6 +8237,85 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       this.pendingClarification = null;
     }
 
+    // Resolve an in-flight "same trip or separate trip?" ambiguity before anything else — mirrors the
+    // pendingClarification handling above. A bare Hinglish affirmative ("ji"/"haan") must NEVER resolve
+    // this by itself (see CLARIFY_ROUTE_RELATIONSHIP in the spec): only an explicit "same trip" or
+    // "separate/new trip" answer picks a side; anything else re-asks rather than guessing.
+    if (this.pendingRouteClarification) {
+      const pending = this.pendingRouteClarification;
+      const sameTripAnswer =
+        /\bsame\s+trip\b|\bsame\s+journey\b|\bisi\s+trip\b|\bus\s+(?:hi\s+)?trip\s+(?:mein|me)\b|\bek\s+hi\s+trip\b|\badd\s+it\b|\bconnect\s+it\b|\bcontinue\s+(?:the\s+)?(?:same|current)\s+trip\b/i.test(
+          currentText
+        );
+      const separateTripAnswer =
+        NEW_INDEPENDENT_TRIP_PATTERN.test(currentText) || /\bseparate\s+trip\b|\bnew\s+trip\b|\balag\s+trip\b/i.test(currentText);
+      if (sameTripAnswer) {
+        this.pendingRouteClarification = null;
+        const parsedLegs = parseJourneyLegChain(pending.originalMessage);
+        if (parsedLegs.length >= 2) {
+          return this.tag(
+            "route_relationship_resolved_extension",
+            this.startMultipleJourneyLegs(priorEntitiesSnapshot, parsedLegs, pending.originalMessage)
+          );
+        }
+        // `startNewJourneyLeg` infers the new leg's origin from whether `this.lastEntities.originCity`
+        // already differs from the pre-merge snapshot (normally true because extraction already ran on the
+        // route-bearing message) — but here, the route came from a STORED earlier message that was never
+        // re-extracted this turn, so that inference must be primed explicitly from the parsed leg first.
+        const firstLeg = parsedLegs[0];
+        if (firstLeg) {
+          this.lastEntities = { ...this.lastEntities, originCity: firstLeg.origin, destinationCity: firstLeg.destination };
+        }
+        return this.tag(
+          "route_relationship_resolved_extension",
+          await this.startNewJourneyLeg(priorEntitiesSnapshot, pending.originalMessage, isFirstTurn)
+        );
+      }
+      if (separateTripAnswer) {
+        this.pendingRouteClarification = null;
+        const parsedLegs = parseJourneyLegChain(pending.originalMessage);
+        const lastLeg = parsedLegs[parsedLegs.length - 1] ?? null;
+        if (lastLeg) {
+          const freshTrip: TravelEntities = {
+            ...EMPTY_TRAVEL_ENTITIES,
+            customerName: this.lastEntities.customerName,
+            originCity: lastLeg.origin,
+            destinationCity: lastLeg.destination,
+            days: lastLeg.days,
+            nights: lastLeg.nights,
+            adults: this.lastEntities.adults,
+            children: this.lastEntities.children,
+            infants: this.lastEntities.infants,
+            totalTravellers: this.lastEntities.totalTravellers,
+            cabinClass: this.lastEntities.cabinClass,
+            hotelStars: this.lastEntities.hotelStars,
+            tripType: this.lastEntities.tripType,
+            preferences: this.lastEntities.preferences
+          };
+          this.lastEntities = freshTrip;
+          this.confirmation = EMPTY_TRAVEL_ENTITY_CONFIRMATION;
+          this.lastBudgetEstimate = null;
+          this.lastGeneratedItinerary = null;
+          this.budgetDiscussionCompleted = false;
+          this.pendingAction = null;
+          this.lastWorkflowPhase = "COLLECTING_DETAILS";
+          const missing = computeMissingEntityFields(freshTrip, this.budgetMode);
+          this.lastStage = stageForMissingEntityField(missing[0] ?? "");
+          this.lastAskedField = missing[0] ?? null;
+          const reply = await this.safeGenerateReply(freshTrip, missing, [], currentText, isFirstTurn, false);
+          return this.tag("route_relationship_resolved_new_trip", textResult(reply));
+        }
+        // No parsable route survived from the original message — fall through to this turn's own text.
+      } else {
+        return this.tag(
+          "route_relationship_clarify_repeat",
+          textResult(
+            buildRouteRelationshipClarificationMessage(pending.fromDestination, pending.toDestination, this.responseLanguage)
+          )
+        );
+      }
+    }
+
     if (isEscalationRequest(currentText) && !wasEscalated(messages)) {
       this.lastStage = "ESCALATED";
       if (toolAvailable(request.tools, "travel.escalate"))
@@ -3162,7 +8323,98 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       return this.tag("escalate", textResult(buildEscalationMessage(this.config, this.responseLanguage)));
     }
 
-    const { entities: extracted, intent, cityInterpretations } = await this.safeExtractAndClassify(currentText);
+    // The traveler's explicit current request always wins over stale state — budget feasibility (or any
+    // other pending action) must never hijack an unrelated ask like "day plan" or "what's worth seeing".
+    // Computed early (a pure function of the raw text alone) so the business-workflow actions below can
+    // run — and, for CREATE_LEAD/SUBMIT_ENQUIRY/REQUEST_CALLBACK, pre-empt the LLM's own intent label —
+    // before extraction, merge, or intent-based branches ever see this turn.
+    let planningAction = classifyPlanningAction(currentText);
+    const correctionRouteCue =
+      /\b(?:first|actually|correction|nahi|maine\s+kaha|bhai|pehle)\b/i.test(currentText) &&
+      parseJourneyLegChain(currentText).length > 0;
+    if (correctionRouteCue) planningAction = "ADD_TRIP_LEG";
+    // A multi-leg journey changes what a budget ask MEANS: once 2+ legs exist (already-finalized legs plus
+    // the current in-progress one), any budget-related ask — however phrased, including a plain "you
+    // suggest the budget" that would otherwise map to the single-leg AGENT_RECOMMENDED flow — must estimate
+    // the WHOLE journey. Never silently fall back to the active leg's estimate once this is the case.
+    const hasMultiLegJourney = (this.journey?.legs.length ?? 0) + (this.lastEntities.destinationCity ? 1 : 0) >= 2;
+    // GENERATE_COMPLETE_TRIP_PLAN/GENERATE_ITINERARY are their own explicit, already-correct asks — a
+    // full plan or a day-wise itinerary must never be silently narrowed down to a budget-only reply just
+    // because the message happens to mention cities that match an existing leg (journey source of truth:
+    // these two actions own their routing outright once explicitly classified).
+    if (
+      hasMultiLegJourney &&
+      planningAction !== "ADD_TRIP_LEG" &&
+      planningAction !== "CALCULATE_JOURNEY_BUDGET" &&
+      planningAction !== "GENERATE_COMPLETE_TRIP_PLAN" &&
+      planningAction !== "GENERATE_ITINERARY"
+    ) {
+      const referencesExistingLegs = parseJourneyLegChain(currentText).some((parsedLeg) =>
+        (this.journey?.legs ?? []).some(
+          (leg) =>
+            leg.origin?.toLowerCase() === parsedLeg.origin.toLowerCase() &&
+            leg.destination?.toLowerCase() === parsedLeg.destination.toLowerCase()
+        )
+      );
+      if (planningAction === "CALCULATE_BUDGET" || detectBudgetModeSignal(currentText) !== null || referencesExistingLegs) {
+        planningAction = "CALCULATE_JOURNEY_BUDGET";
+      }
+    }
+    // Route-relationship classification: does this message's route extend the journey, start an
+    // independent new trip, correct earlier turns into "one connected journey" ("bhai multileg hai"), or
+    // is it genuinely ambiguous? Skipped when ADD_TRIP_LEG/CALCULATE_JOURNEY_BUDGET are already decided —
+    // nothing to reclassify, and a budget ask about the existing journey is never itself a route change.
+    if (planningAction !== "ADD_TRIP_LEG" && planningAction !== "CALCULATE_JOURNEY_BUDGET") {
+      const homeOriginCity = this.journey?.travellerProfile.originCity ?? priorEntitiesSnapshot.originCity;
+      const routeRelationship = classifyRouteRelationship(
+        currentText,
+        priorEntitiesSnapshot.destinationCity,
+        homeOriginCity
+      );
+      if (routeRelationship === "EXTENSION") {
+        planningAction = "ADD_TRIP_LEG";
+      } else if (routeRelationship === "MULTILEG_CORRECTION") {
+        return this.tag("multileg_correction_acknowledged", this.acknowledgeMultilegCorrection(priorEntitiesSnapshot));
+      } else if (routeRelationship === "AMBIGUOUS") {
+        const candidateLegs = parseJourneyLegChain(currentText);
+        const lastCandidate = candidateLegs[candidateLegs.length - 1] ?? null;
+        this.pendingRouteClarification = {
+          originalMessage: currentText,
+          fromDestination: priorEntitiesSnapshot.destinationCity,
+          toDestination: lastCandidate?.destination ?? null
+        };
+        return this.tag(
+          "route_relationship_clarify",
+          textResult(
+            buildRouteRelationshipClarificationMessage(
+              priorEntitiesSnapshot.destinationCity,
+              lastCandidate?.destination ?? null,
+              this.responseLanguage
+            )
+          )
+        );
+      }
+    }
+    if (this.diagnostics) this.diagnostics.planningAction = planningAction;
+    // Any OTHER recognized explicit planning action means the traveler has moved on from the recovery
+    // menu — invalidate the numeric-shortcut window so a LATER, unrelated bare digit is never misread as a
+    // menu pick. `providerFailure` itself is untouched: the broader "don't blindly retry" gate still holds.
+    if (this.providerFailure && planningAction !== null) this.providerFailure.menuActive = false;
+
+    const {
+      entities: extracted,
+      intent,
+      cityInterpretations,
+      turnProposal
+    } = await this.safeExtractAndClassify(currentText);
+    if (
+      this.pendingInputAction &&
+      turnProposal.supersedesPendingAction &&
+      turnProposal.confidence >= 0.75
+    ) {
+      this.pendingInputAction = null;
+      this.pendingContactValue = null;
+    }
     this.diagnostics.intent = intent;
     this.diagnostics.extractedEntityKeys = (Object.keys(extracted) as Array<keyof TravelEntities>).filter(
       (key) => extracted[key] !== null && extracted[key] !== undefined
@@ -3185,19 +8437,153 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     const passengerConflict = this.applyPassengerReconciliation(extracted);
     if (passengerConflict) return this.tag("passenger_composition_conflict", passengerConflict);
 
-    const baseEntities = intent === "start_new_trip" ? EMPTY_TRAVEL_ENTITIES : this.lastEntities;
-    const baseConfirmation = intent === "start_new_trip" ? EMPTY_TRAVEL_ENTITY_CONFIRMATION : this.confirmation;
-    const { values: merged, confirmation: mergedConfirmation, destinationChanged } = mergeConfirmedEntities(
+    // "Start a new trip" resets trip DETAILS, never onboarding — the traveler already introduced
+    // themselves once this conversation; asking their name again just because they want to plan a
+    // different destination would be exactly the robotic re-asking this workflow exists to avoid.
+    const baseEntities =
+      intent === "start_new_trip"
+        ? { ...EMPTY_TRAVEL_ENTITIES, customerName: this.lastEntities.customerName }
+        : this.lastEntities;
+    const baseConfirmation =
+      intent === "start_new_trip"
+        ? this.confirmation.customerName
+          ? { customerName: this.confirmation.customerName }
+          : EMPTY_TRAVEL_ENTITY_CONFIRMATION
+        : this.confirmation;
+    const { values: mergedValues, confirmation: mergedConfirmation, destinationChanged } = mergeConfirmedEntities(
       baseEntities,
       baseConfirmation,
       extracted,
       intent
     );
+    // Year clarification/correction ("2027 me", "year is 2027"): apply the year to a known date, and roll
+    // back any budget the same value was previously mis-inferred as (see the "2027 -> USD 2,027" defect).
+    // Dependent derived state (feasibility, the stored estimate) is recomputed downstream from the corrected
+    // entities, so clearing the bad budget here is enough to invalidate the false "over budget" result.
+    const yearClarification = detectYearClarification(currentText);
+    if (yearClarification !== null) {
+      if (this.pendingDepartureDate) {
+        const pending = this.pendingDepartureDate;
+        mergedValues.departureDate = `${yearClarification}-${String(pending.month).padStart(2, "0")}-${String(pending.day).padStart(2, "0")}`;
+        mergedValues.travelMonth = titleCase(MONTHS[pending.month - 1] ?? "");
+        mergedConfirmation.departureDate = {
+          source: "USER_EXPLICIT",
+          confidence: 1,
+          confirmed: true,
+          updatedAt: new Date().toISOString()
+        };
+        this.pendingDepartureDate = null;
+        if (this.pendingInputAction === "AWAITING_TRAVEL_YEAR") this.pendingInputAction = null;
+      }
+      if (mergedValues.departureDate) {
+        const corrected = withYear(mergedValues.departureDate, yearClarification);
+        if (corrected) mergedValues.departureDate = corrected;
+      }
+      if (mergedValues.budget === yearClarification && !hasMonetaryContext(currentText)) {
+        mergedValues.budget = null;
+        mergedValues.budgetCurrency = null;
+        this.budgetMode = "UNKNOWN";
+        delete mergedConfirmation.budget;
+        delete mergedConfirmation.budgetCurrency;
+      }
+    }
+    // Stage 9G: when the destination changes without modify_trip intent, the user is starting a
+    // contextually new trip — clear all trip-specific entity fields inherited from the previous
+    // destination unless they were explicitly provided in this turn's message. Fields explicitly
+    // extracted this turn (e.g. a new budget in "Tokyo 200000 INR ka trip") survive; old fields
+    // the user didn't re-state are dropped so the new trip starts with a clean slate.
+    if (destinationChanged && intent !== "modify_trip") {
+      const newTripEntityKeys: Array<keyof TravelEntities> = [
+        "originCity", "travelMonth", "departureDate", "returnDate",
+        "days", "nights", "totalTravellers", "adults", "children", "infants",
+        "budget", "budgetCurrency", "cabinClass", "hotelStars", "tripType",
+        "visaRequired", "passportStatus", "tripPurpose"
+      ];
+      for (const key of newTripEntityKeys) {
+        if ((extracted as unknown as Record<string, unknown>)[key] == null) {
+          (mergedValues as unknown as Record<string, unknown>)[key] = null;
+          (mergedConfirmation as unknown as Record<string, unknown>)[key] = undefined;
+        }
+      }
+      this.lastBudgetEstimate = null;
+      this.lastGeneratedItinerary = null;
+      this.budgetDiscussionCompleted = false;
+      // Note: displayCurrency is intentionally NOT cleared — it only survives if the user
+      // explicitly set it (e.g. "show in AED"); when null the fallback default is used.
+    }
+    const merged = deriveDurationFromDateRange(mergedValues);
     const changed = diffChangedFields(baseEntities, merged);
     this.diagnostics.changedFields = changed;
     this.lastEntities = merged;
     this.confirmation = mergedConfirmation;
     this.diagnostics.passengerState = computePassengerState(merged);
+
+    if (
+      this.pendingDepartureDate &&
+      yearClarification === null &&
+      parsePendingDepartureDate(currentText) !== null
+    ) {
+      this.lastStage = "ASK_MISSING_INFO";
+      this.lastAskedField = "travelYear";
+      this.pendingInputAction = "AWAITING_TRAVEL_YEAR";
+      return this.tag(
+        "partial_date_needs_year",
+        textResult(
+          `I have ${this.pendingDepartureDate.day} ${titleCase(MONTHS[this.pendingDepartureDate.month - 1] ?? "")}. Which year should I use?`
+        )
+      );
+    }
+
+    // Onboarding gate: the traveler's name is collected before any trip-detail question, per the
+    // GREETING -> COLLECT_NAME -> trip-discovery workflow. A message that only states trip content
+    // ("Delhi jana hai") is acknowledged (via `changed`/`merged` below) but still routed back to asking
+    // for the name; a message that introduces the traveler (with or without trip content in the same
+    // message) is never re-asked, since `customerName` is a normal confirmed entity once captured.
+    if (!merged.customerName) {
+      this.lastStage = "COLLECT_NAME";
+      return this.tag("collect_name", textResult(this.buildNameGateReply(merged, changed)));
+    }
+
+    // Intent Discovery: right after the name is captured, if the traveler has not stated any trip
+    // content at all yet (nothing in `merged` beyond the name itself — `baseEntities.customerName` being
+    // null is what tells us the name was JUST captured this turn), offer the intent menu instead of
+    // assuming a trip is being planned. A message that captures the name together with real trip content
+    // skips this and proceeds straight into slot collection, exactly as before. Shown exactly once per
+    // conversation: once the name is known from a prior turn, this branch is never reached again.
+    const justLearnedName = !baseEntities.customerName;
+    const hasStatedTripContent =
+      ENTITY_SCALAR_KEYS.some((key) => key !== "customerName" && merged[key] !== null) ||
+      merged.preferences.length > 0;
+    if (justLearnedName && !hasStatedTripContent) {
+      this.lastStage = "DISCOVER_INTENT";
+      return this.tag(
+        "discover_intent",
+        textResult(buildIntentDiscoveryMessage(merged.customerName, this.responseLanguage))
+      );
+    }
+
+    // ADD_TRIP_LEG: "continue to New York" / "London se New York ka plan continue karo" finalizes the leg
+    // that was in progress (using the pre-merge snapshot, not `merged`) and starts a fresh one — never a
+    // destination correction to the SAME leg, and never a reason to run a search. Must run before the
+    // destinationChanged check below, which would otherwise misread the new destination as a same-leg swap.
+    if (planningAction === "ADD_TRIP_LEG") {
+      // A single message can describe more than one new leg at once ("Washington se London aur fir London
+      // se Delhi") — parsed and handled together so neither is silently dropped; a single parsed leg (or
+      // none, e.g. plain "continue to New York" with no chain of known cities) keeps the existing flow.
+      const parsedLegs = parseJourneyLegChain(currentText);
+      // Compound intent: the SAME message that describes the new leg(s) can also ask for the total cost
+      // and/or the return date ("Tokyo me 3 days, phir London me 2 days, then back to Delhi. Total kharcha
+      // batao aur kis date ko Delhi land karunga?") — both must be answered from the now-finalized journey
+      // in this SAME response, never deferred to a follow-up.
+      const legResult =
+        parsedLegs.length >= 2
+          ? this.startMultipleJourneyLegs(priorEntitiesSnapshot, parsedLegs, currentText)
+          : await this.startNewJourneyLeg(priorEntitiesSnapshot, currentText, isFirstTurn);
+      return this.tag(
+        parsedLegs.length >= 2 ? "add_multiple_trip_legs" : "add_trip_leg",
+        this.journey ? this.appendCompoundJourneyAnswers(legResult, currentText) : legResult
+      );
+    }
 
     // Deterministic budget-mode signal, independent of LLM intent classification: "you suggest your
     // budget" / "you suggest" / "recommend a budget" -> AGENT_RECOMMENDED; "no budget" / "flexible
@@ -3223,6 +8609,22 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         : null;
     this.diagnostics.feasibility = feasibility;
 
+    // SUBMIT_ENQUIRY/CREATE_LEAD and REQUEST_CALLBACK are terminal lead-capture handoffs, never a reason
+    // to touch travel.search_flights/search_hotels — and must run before the `request_human` intent check
+    // below, since an LLM has been observed to misread "ask anyone to call" as wanting a human-agent
+    // escalation, which would otherwise return nothing but a support-contact message instead of actually
+    // acting. Both always use the built-in TravelLead capture (see `beginOrResumeLeadCapture`) — never
+    // gated on, or dependent on, an external CRM connector being configured.
+    if (planningAction === "SUBMIT_ENQUIRY" || planningAction === "CREATE_LEAD") {
+      return this.tag(
+        planningAction === "SUBMIT_ENQUIRY" ? "submit_enquiry" : "create_lead",
+        this.beginOrResumeLeadCapture(currentText)
+      );
+    }
+    if (planningAction === "REQUEST_CALLBACK") {
+      return this.tag("request_callback", this.beginOrResumeLeadCapture(currentText));
+    }
+
     if (intent === "request_human" && !wasEscalated(messages)) {
       this.lastStage = "ESCALATED";
       if (toolAvailable(request.tools, "travel.escalate"))
@@ -3244,11 +8646,50 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       );
     }
 
-    // The traveler's explicit current request always wins over stale state — budget feasibility (or any
-    // other pending action) must never hijack an unrelated ask like "day plan" or "what's worth seeing".
-    // This deterministic classification runs before pending-action resumption and before any budget logic.
-    const planningAction = classifyPlanningAction(currentText);
-    if (this.diagnostics) this.diagnostics.planningAction = planningAction;
+    // GENERATE_COMPLETE_TRIP_PLAN: "complete end to end plan" asks for everything (flights, hotels, budget,
+    // day-wise itinerary) in one message — never just the day-wise schedule alone (see buildCompleteTripPlanMessage).
+    if (planningAction === "GENERATE_COMPLETE_TRIP_PLAN") {
+      // Journey is the authoritative source for every complete plan, single- or multi-leg: a single-leg
+      // trip is represented as a journey holding exactly one leg (the existing, already-tested
+      // single-BudgetEstimate render below is reused unchanged for that case); 2+ legs route into the
+      // dedicated multi-leg builder, which is never fed from a single BudgetEstimate or bare
+      // originCity/destinationCity alone.
+      const journey = this.ensureJourney(merged);
+      const legs = this.collectAllJourneyLegs(journey, merged);
+      // The missing-fields gate only applies to the single-leg path: once 2+ legs already exist, the
+      // journey itself is the completeness signal (exactly like CALCULATE_JOURNEY_BUDGET's own policy) — a
+      // trailing connecting/return leg legitimately has no stay duration of its own and must never block
+      // the whole journey's plan on that account.
+      if (legs.length < 2 && !hasItineraryFields(merged)) {
+        const missingForPlan: string[] = [];
+        if (!merged.destinationCity) missingForPlan.push("destinationCity");
+        if (!merged.travelMonth && !merged.departureDate) missingForPlan.push("travelDates");
+        if (merged.days === null && merged.nights === null) missingForPlan.push("duration");
+        this.lastStage = stageForMissingEntityField(missingForPlan[0] ?? "");
+        this.lastWorkflowPhase = "COLLECTING_DETAILS";
+        this.lastAskedField = missingForPlan[0] ?? null;
+        const reply = await this.safeGenerateReply(merged, missingForPlan, changed, currentText, isFirstTurn, false);
+        return this.tag("complete_trip_plan_needs_details", textResult(reply));
+      }
+      this.pendingAction = null;
+      this.lastStage = "ITINERARY_SUMMARY";
+      this.lastWorkflowPhase = "OPTIONS_PRESENTED";
+      this.lastAskedField = null;
+      if (legs.length >= 2) {
+        return this.tag(
+          "generate_journey_complete_trip_plan",
+          await this.buildJourneyCompleteTripPlanResult(journey, legs, currentText)
+        );
+      }
+      const itinerary = await this.safeGenerateItinerary(merged, currentText);
+      this.lastGeneratedItinerary = itinerary;
+      const estimate = estimateBudgetRange(merged, this.config, this.effectiveDisplayCurrency(merged));
+      this.storeEstimate(merged, "INDICATIVE");
+      return this.tag(
+        "generate_complete_trip_plan",
+        textResult(buildCompleteTripPlanMessage(merged, itinerary, estimate, this.responseLanguage))
+      );
+    }
 
     if (planningAction === "GENERATE_ITINERARY") {
       // Passenger composition (and budget) must never block this — only destination/duration/dates are
@@ -3271,32 +8712,53 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       this.lastWorkflowPhase = "OPTIONS_PRESENTED";
       this.lastAskedField = null;
       const itinerary = await this.safeGenerateItinerary(merged, currentText);
+      this.lastGeneratedItinerary = itinerary;
       return this.tag("generate_itinerary", textResult(itinerary));
     }
 
-    // BOOK_FLIGHT: an explicit booking go-ahead ("flight book kar do") must persist across every
-    // clarification and collect only booking-required fields — never budget. See `continueBookFlightFlow`.
-    if (planningAction === "BOOK_FLIGHT") {
+    // BOOK_FLIGHT/BOOK_HOTEL: an explicit booking go-ahead must persist across every clarification and
+    // collect only booking-required fields — never budget. See `continueBookingFlow`.
+    if (planningAction === "BOOK_FLIGHT" || planningAction === "BOOK_HOTEL") {
       return this.tag(
-        "book_flight",
-        await this.continueBookFlightFlow(merged, feasibility, request.tools, changed, currentText, isFirstTurn)
+        planningAction === "BOOK_FLIGHT" ? "book_flight" : "book_hotel",
+        await this.continueBookingFlow(planningAction, merged, feasibility, request.tools, changed, currentText, isFirstTurn)
       );
     }
 
-    // CONVERT_ESTIMATE_CURRENCY: "give in INR" / "convert to rupees" converts the LAST STORED estimate
-    // with one FX rate — this is never a request to state a new budget amount, and must run before any
-    // budget-guidance/signal logic that would otherwise misread it as one.
+    // CONVERT_ESTIMATE_CURRENCY: currency preferences ("give in INR", "share in USD", bare "usd") are fully
+    // resolved earlier, by the high-priority currency-preference branch above (see `handleCurrencyPreference`),
+    // before extraction or any other routing. This defensive delegation only ever runs if a message was
+    // classified as a currency request by `classifyPlanningAction` but not by `detectPreference` — the two
+    // share the same detector, so in practice it never fires. Kept so the two can never silently disagree.
     if (planningAction === "CONVERT_ESTIMATE_CURRENCY") {
-      const conversion = detectCurrencyConversionRequest(currentText);
-      const targetCurrency = conversion?.targetCurrency ?? this.lastEntities.budgetCurrency ?? this.config.defaultCurrency;
-      if (!this.lastBudgetEstimate) {
-        return this.tag("convert_estimate_no_estimate", textResult(buildNoEstimateToConvertMessage(this.responseLanguage)));
-      }
-      const converted = convertStoredBudgetEstimate(this.lastBudgetEstimate, targetCurrency);
-      this.lastBudgetEstimate = converted;
+      const preference = currencyService.detectPreference(currentText);
+      if (preference) return this.tag("currency_preference", this.handleCurrencyPreference(preference));
+    }
+
+    // GENERATE_HOTEL_RECOMMENDATIONS: "recommend hotels", "suggest hotels near Marina" — indicative
+    // hotel-only guidance, never a live tool call. Produces a hotel-only response (no flights, no airport
+    // guidance, no budget-feasibility replay) using the trip's destination from current context. When the
+    // user explicitly names a specific area ("near Marina", "in Dubai Marina", "around JBR"), the area
+    // is extracted and passed to produce area-focused guidance instead of the generic area list.
+    if (planningAction === "GENERATE_HOTEL_RECOMMENDATIONS") {
+      this.lastWorkflowPhase = readyToSearch ? "READY_TO_SEARCH" : "COLLECTING_DETAILS";
+      const estimate = estimateBudgetRange(merged, this.config, this.effectiveDisplayCurrency(merged));
+      this.storeEstimate(merged, "INDICATIVE");
+      const requestedArea = extractHotelArea(currentText, merged.destinationCity);
       return this.tag(
-        "convert_estimate_currency",
-        textResult(buildConvertedEstimateMessage(converted, this.responseLanguage))
+        requestedArea ? "generate_hotel_recommendations_area" : "generate_hotel_recommendations",
+        textResult(buildHotelRecommendationsMessage(merged, estimate, this.responseLanguage, requestedArea))
+      );
+    }
+    // GENERATE_FLIGHT_RECOMMENDATIONS: "recommend flights", "recommendations bhejo" — indicative guidance
+    // only, never a live tool call. Shows combined flight+hotel recommendations for a generic ask.
+    if (planningAction === "GENERATE_FLIGHT_RECOMMENDATIONS") {
+      this.lastWorkflowPhase = readyToSearch ? "READY_TO_SEARCH" : "COLLECTING_DETAILS";
+      const estimate = estimateBudgetRange(merged, this.config, this.effectiveDisplayCurrency(merged));
+      this.storeEstimate(merged, "INDICATIVE");
+      return this.tag(
+        "generate_indicative_recommendations",
+        textResult(buildIndicativeRecommendationsMessage(merged, estimate, this.responseLanguage, false))
       );
     }
 
@@ -3310,14 +8772,68 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       return this.tag(`recommend_${planningAction.slice("RECOMMEND_".length).toLowerCase()}`, textResult(reply));
     }
 
+    // SEARCH_LIVE_OPTIONS: an explicit "live/current" ask always forces a fresh provider call, even right
+    // after a recent failure — the one deliberate override to the provider-failure gate below.
+    if (planningAction === "SEARCH_LIVE_OPTIONS" && canEstimateFlights) {
+      this.pendingAction = null;
+      this.providerFailure = null;
+      return this.tag("search_live_options", this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools, true));
+    }
+
     // Budget-relevant requests (hotel/flights/budget) must always re-evaluate and re-show feasibility when
     // still BELOW_MINIMUM, regardless of whether it was already explained once — per policy, these three
     // (plus an explicit budget change, handled via `budgetSignal` below) are the only things that repeat it.
     if ((planningAction === "SEARCH_HOTELS" || planningAction === "SEARCH_FLIGHTS") && canEstimateFlights) {
       this.pendingAction = null;
+      // An explicit search/show/find ask is itself a fresh attempt — clear any stale failure record rather
+      // than leaving it to block a LATER vague follow-up even after this attempt succeeds.
+      this.providerFailure = null;
       return this.tag(
         planningAction === "SEARCH_HOTELS" ? "search_hotels" : "search_flights",
         this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools, true)
+      );
+    }
+    // CALCULATE_JOURNEY_BUDGET: a multi-leg journey's budget ask — "estimate full trip budget", "you
+    // suggest the budget" once 2+ legs exist, etc. Calculates directly from whatever journey data already
+    // exists (no missing-field gate, per policy): a leg with no known dates/duration simply contributes no
+    // hotel/food/transport cost, it never blocks the whole journey's estimate.
+    if (planningAction === "CALCULATE_JOURNEY_BUDGET") {
+      this.pendingAction = null;
+      this.budgetDiscussionCompleted = true;
+      const journey = this.ensureJourney(merged);
+      const legs = this.collectAllJourneyLegs(journey, merged);
+      const journeyEstimate = estimateJourneyBudgetRange(legs, journey.travellerProfile, this.config);
+      // Compound intent: "total kharcha batao aur kis date ko Delhi land karunga" asks for BOTH the total
+      // and the return date in one breath — both are answered from this SAME journey snapshot in one
+      // response, never forcing a single-intent choice or a second, possibly conflicting, LLM call.
+      let content = buildJourneyBudgetMessage(legs, journeyEstimate, this.responseLanguage);
+      if (this.pendingDepartureDate) {
+        const partialDate = `${this.pendingDepartureDate.day} ${titleCase(MONTHS[this.pendingDepartureDate.month - 1] ?? "")}`;
+        content +=
+          this.responseLanguage === "HINGLISH"
+            ? `\n\n${partialDate} note kiya hai, lekin date-dependent live pricing ke liye travel year abhi bhi required hai.`
+            : `\n\nI have the ${partialDate} departure date, but the travel year is still required for date-dependent live pricing.`;
+      }
+      if (RETURN_DATE_QUESTION_PATTERN.test(currentText)) {
+        const projection = projectJourneyReturnDate(legs);
+        content = `${content}\n\n${buildReturnDateProjectionMessage(projection, journey.travellerProfile.originCity, this.responseLanguage)}`;
+      }
+      return this.tag("calculate_journey_budget", textResult(content));
+    }
+    // A standalone return-date/"when will I land" ask about the existing journey — answered directly from
+    // structured journey state (never routed to knowledge/RAG search, and never blocked on the current
+    // leg's own missing fields, mirroring CALCULATE_JOURNEY_BUDGET's policy).
+    if (
+      planningAction === null &&
+      RETURN_DATE_QUESTION_PATTERN.test(currentText) &&
+      (this.journey?.legs.length ?? 0) + (merged.destinationCity ? 1 : 0) >= 1
+    ) {
+      const journey = this.ensureJourney(merged);
+      const legs = this.collectAllJourneyLegs(journey, merged);
+      const projection = projectJourneyReturnDate(legs);
+      return this.tag(
+        "journey_return_date_projection",
+        textResult(buildReturnDateProjectionMessage(projection, journey.travellerProfile.originCity, this.responseLanguage))
       );
     }
     if (planningAction === "CALCULATE_BUDGET" && canEstimateFlights) {
@@ -3351,21 +8867,31 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     }
     if (this.pendingAction === "SEARCH_OPTIONS" && readyToSearch) {
       this.pendingAction = null;
+      if (this.providerFailure && !isExplicitLiveOptionsRequest(currentText)) {
+        const estimate = estimateBudgetRange(merged, this.config, this.effectiveDisplayCurrency(merged));
+        this.storeEstimate(merged, "INDICATIVE");
+        return this.tag(
+          "resume_search_indicative_after_failure",
+          textResult(buildIndicativeRecommendationsMessage(merged, estimate, this.responseLanguage, true))
+        );
+      }
       return this.tag("resume_search", this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools));
     }
     if (this.pendingAction === "GENERATE_ITINERARY" && hasItineraryFields(merged)) {
       this.pendingAction = null;
       const itinerary = await this.safeGenerateItinerary(merged, currentText);
+      this.lastGeneratedItinerary = itinerary;
       return this.tag("resume_generate_itinerary", textResult(itinerary));
     }
     if (this.pendingAction === "MODIFY_HOTEL_BUDGET" && readyToSearch && itineraryAlreadyPresented) {
       this.pendingAction = null;
       return this.tag("resume_hotel_modification", this.handleHotelBudgetModification(merged));
     }
-    if (this.pendingAction === "BOOK_FLIGHT") {
+    if (this.pendingAction === "BOOK_FLIGHT" || this.pendingAction === "BOOK_HOTEL") {
+      const kind = this.pendingAction;
       return this.tag(
-        "resume_book_flight",
-        await this.continueBookFlightFlow(merged, feasibility, request.tools, changed, currentText, isFirstTurn)
+        kind === "BOOK_FLIGHT" ? "resume_book_flight" : "resume_book_hotel",
+        await this.continueBookingFlow(kind, merged, feasibility, request.tools, changed, currentText, isFirstTurn)
       );
     }
 
@@ -3390,6 +8916,64 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         "budget_mode_guidance",
         textResult(this.showBudgetGuidance(merged))
       );
+    }
+
+    // Reply to the three-way recovery menu shown after a provider failure — checked only when a failure is
+    // actually outstanding, so a bare "1"/"2" elsewhere (e.g. "2 adults", already consumed by extraction
+    // long before this point) can never be misread as a menu pick. Priority: this sits below every explicit
+    // planning action and pending-action resume above, and below the budget reminder just handled — it is
+    // the "Provider failure" tier, checked only once nothing higher already resolved the turn.
+    if (isRecoveryMenuActive(this.providerFailure)) {
+      const selection = detectProviderFailureRecoverySelection(currentText);
+      if (selection === "RETRY_LIVE_SEARCH") {
+        this.providerFailure = null;
+        this.pendingAction = null;
+        return this.tag(
+          "provider_failure_retry",
+          this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools, true)
+        );
+      }
+      if (selection === "CALLBACK" && this.providerFailure) {
+        this.providerFailure.selectedRecoveryAction = "CALLBACK";
+        return this.tag("provider_failure_callback", this.beginOrResumeLeadCapture(currentText));
+      }
+      if (selection === "INDICATIVE_RECOMMENDATIONS" && this.providerFailure) {
+        this.providerFailure.selectedRecoveryAction = "INDICATIVE_RECOMMENDATIONS";
+        return this.tag(
+          "provider_failure_continue_indicative",
+          textResult(buildRecoveryContinuationMessage(this.responseLanguage))
+        );
+      }
+    }
+
+    // Bare numeric input ("3") with no active option list must not fall through to LLM classification,
+    // which could generate inappropriate responses (e.g. repeating a travel reference). The recovery menu
+    // above is the ONLY valid numbered option list — if it wasn't active, a bare number is not actionable.
+    // However, a bare number IS valid when the system is actively waiting for a specific numeric input
+    // such as a year clarification ("2026"), passenger count ("5"), budget amount, or contact number.
+    if (/^\s*\d+(?:\.\d+)?\s*$/.test(currentText)) {
+      const numericAccepted =
+        this.pendingInputAction === "AWAITING_TRAVEL_YEAR" ||
+        this.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION" ||
+        this.pendingInputAction === "AWAITING_LEAD_CONTACT" ||
+        this.lastAskedField === "travelYear" ||
+        this.lastAskedField === "passengerComposition" ||
+        this.lastAskedField === "budget" ||
+        this.lastAskedField === "duration" ||
+        detectYearClarification(currentText) !== null ||
+        isRecoveryMenuActive(this.providerFailure);
+      if (!numericAccepted) {
+        return this.tag(
+          "unexpected_numeric_reply",
+          textResult(
+            this.responseLanguage === "HINGLISH"
+              ? "Kripya apna response text mein share karein."
+              : this.responseLanguage === "HINDI"
+                ? "कृपया अपना उत्तर पाठ में साझा करें।"
+                : "Please share your response in text."
+          )
+        );
+      }
     }
 
     // Deterministic MODIFY_HOTEL_BUDGET action: recognized from phrasing directly, not from LLM intent,
@@ -3450,6 +9034,18 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         intent === "request_plan" ||
         intent === "confirm_plan";
       if (wantsExecution) {
+        // A vague "go ahead"/"yes"/ask_recommendation-style follow-up must never blindly retry a live
+        // provider that just failed — only an explicit "live/current" ask (handled above as
+        // SEARCH_LIVE_OPTIONS) forces a fresh attempt. Offer indicative recommendations instead.
+        if (this.providerFailure && !isExplicitLiveOptionsRequest(currentText)) {
+          this.lastWorkflowPhase = "READY_TO_SEARCH";
+          const estimate = estimateBudgetRange(merged, this.config, this.effectiveDisplayCurrency(merged));
+          this.storeEstimate(merged, "INDICATIVE");
+          return this.tag(
+            "execute_search_indicative_after_failure",
+            textResult(buildIndicativeRecommendationsMessage(merged, estimate, this.responseLanguage, true))
+          );
+        }
         this.lastWorkflowPhase = "READY_TO_SEARCH";
         return this.tag("execute_search", this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools));
       }
@@ -3494,28 +9090,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       }
       if (itineraryAlreadyPresented) {
         if (intent === "confirm_plan" || isBookingConfirmation(currentText)) {
-          const crmTool = findCrmLeadTool(request.tools);
-          if (crmTool) {
-            this.lastWorkflowPhase = "AWAITING_CONFIRMATION";
-            return this.tag(
-              "confirm_booking_crm",
-              toolResult(
-                crmTool.name,
-                buildCrmLeadPayload(toLegacySlots(merged), currentText, {
-                  originCity: merged.originCity,
-                  hotelStars: merged.hotelStars,
-                  cabinClass: merged.cabinClass,
-                  preferences: merged.preferences,
-                  adults: merged.adults,
-                  children: merged.children,
-                  infants: merged.infants
-                })
-              )
-            );
-          }
-          this.lastStage = "BOOKING_CONFIRMED";
           this.lastWorkflowPhase = "AWAITING_CONFIRMATION";
-          return this.tag("confirm_booking", textResult(buildBookingConfirmedMessage(null, this.responseLanguage)));
+          return this.tag("confirm_booking_lead_capture", this.beginOrResumeLeadCapture(currentText));
         }
         this.lastStage = "CONFIRM_BOOKING";
         this.lastWorkflowPhase = "AWAITING_CONFIRMATION";
@@ -3533,6 +9109,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       if (computePassengerState(merged) === "TOTAL_ONLY") {
         this.lastWorkflowPhase = "COLLECTING_DETAILS";
         this.lastAskedField = "passengerComposition";
+        this.pendingInputAction = "AWAITING_PASSENGER_COMPOSITION";
         if (this.diagnostics) this.diagnostics.passengerClarificationRequired = true;
         return this.tag(
           "ready_needs_composition",
@@ -3555,13 +9132,16 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.lastStage = stageForMissingEntityField(missing[0] ?? "");
     this.lastWorkflowPhase = "COLLECTING_DETAILS";
     this.lastAskedField = missing[0] ?? null;
+    // Use deterministic fallback message for simple missing-field turns instead of a provider call.
+    // Skip the LLM when the conversation is established — first-turn or complex scenarios still
+    // use the provider for a more personalised reply.
+    if (!isFirstTurn && !changed.some((e) => e.startsWith("customerName="))) {
+      const learnedName = null;
+      const reply = buildFallbackAskMessage(missing, this.config, false, this.responseLanguage, learnedName);
+      return this.tag("ask_missing_field", textResult(reply));
+    }
     const reply = await this.safeGenerateReply(
-      merged,
-      missing,
-      changed,
-      currentText,
-      isFirstTurn,
-      intent === "start_new_trip"
+      merged, missing, changed, currentText, isFirstTurn, intent === "start_new_trip"
     );
     return this.tag("ask_missing_field", textResult(reply));
   }
@@ -3616,7 +9196,32 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // `null`, never leave it `undefined` — so "was this actually touched this turn" must check for a real
     // value (neither null nor undefined), not merely "the key is present".
     const touchedComposition = extracted.adults != null || extracted.children != null || extracted.infants != null;
-    if (!touchedComposition) return null;
+    if (!touchedComposition) {
+      const explicitTotal = extracted.totalTravellers;
+      if (
+        explicitTotal != null &&
+        this.lastEntities.adults != null &&
+        explicitTotal !==
+          this.lastEntities.adults + (this.lastEntities.children ?? 0) + (this.lastEntities.infants ?? 0)
+      ) {
+        const priorTotal =
+          this.lastEntities.adults + (this.lastEntities.children ?? 0) + (this.lastEntities.infants ?? 0);
+        this.pendingPassengerConflict = {
+          expectedTotal: explicitTotal,
+          candidateAdults: this.lastEntities.adults,
+          candidateChildren: this.lastEntities.children,
+          candidateInfants: this.lastEntities.infants
+        };
+        extracted.totalTravellers = null;
+        this.lastAskedField = "passengerComposition";
+        this.pendingInputAction = "AWAITING_PASSENGER_COMPOSITION";
+        if (this.diagnostics) this.diagnostics.passengerClarificationRequired = true;
+        return textResult(
+          `Earlier you said ${this.lastEntities.adults} adults and ${this.lastEntities.children ?? 0} child${this.lastEntities.children === 1 ? "" : "ren"}, which is ${priorTotal} travellers. Did you add one more traveller, making the total ${explicitTotal}?`
+        );
+      }
+      return null;
+    }
 
     const mode = detectPassengerCorrectionMode(extracted);
 
@@ -3629,6 +9234,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       const candidateChildren = extracted.children ?? 0;
       const candidateInfants = extracted.infants ?? 0;
       this.pendingPassengerConflict = null;
+      if (this.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION")
+        this.pendingInputAction = null;
       extracted.adults = candidateAdults;
       extracted.children = candidateChildren;
       extracted.infants = candidateInfants;
@@ -3660,10 +9267,13 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       extracted.children = null;
       extracted.infants = null;
       this.lastAskedField = "passengerComposition";
+      this.pendingInputAction = "AWAITING_PASSENGER_COMPOSITION";
       return textResult(buildPassengerCompositionConflictMessage(expectedTotal, newTotal, this.responseLanguage));
     }
 
     this.pendingPassengerConflict = null;
+    if (this.pendingInputAction === "AWAITING_PASSENGER_COMPOSITION")
+      this.pendingInputAction = null;
     extracted.adults = candidateAdults;
     extracted.children = candidateChildren ?? null;
     extracted.infants = candidateInfants ?? null;
@@ -3672,13 +9282,16 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
   }
 
   /**
-   * BOOK_FLIGHT's collection/resume logic, shared by the fresh-classification branch and the pending-action
-   * resume-check: booking intent must survive every clarification (city confirmation, passenger conflict,
-   * an intervening budget aside), and must only ever collect booking-required fields — never budget. Once
-   * ready, "book it" is itself explicit authorization to search, so this hands off directly rather than
-   * parking a SEARCH_OPTIONS offer first.
+   * BOOK_FLIGHT/BOOK_HOTEL's collection/resume logic, shared by the fresh-classification branch and the
+   * pending-action resume-check: booking intent must survive every clarification (city confirmation,
+   * passenger conflict, an intervening budget aside), and must only ever collect booking-required fields —
+   * never budget. Once ready, "book it" is itself explicit authorization to search, so this hands off
+   * directly rather than parking a SEARCH_OPTIONS offer first. Both kinds share this logic because the
+   * underlying tool pipeline (`executeSearch`) already calls flights and hotels together in one pass —
+   * there is no separate hotel-only booking tool for BOOK_HOTEL to call instead.
    */
-  private async continueBookFlightFlow(
+  private async continueBookingFlow(
+    kind: "BOOK_FLIGHT" | "BOOK_HOTEL",
     merged: TravelEntities,
     feasibility: BudgetFeasibilityResult | null,
     tools: readonly AiToolDefinition[] | undefined,
@@ -3686,7 +9299,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     currentText: string,
     isFirstTurn: boolean
   ): Promise<AiCompletionResult> {
-    this.pendingAction = "BOOK_FLIGHT";
+    this.pendingAction = kind;
     const canEstimateFlights = validateBudgetEstimateInputs(merged).canEstimateFlights;
     if (!canEstimateFlights) {
       this.lastStage = "ASK_MISSING_INFO";
@@ -3705,12 +9318,352 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     if (computePassengerState(merged) === "TOTAL_ONLY") {
       this.lastWorkflowPhase = "COLLECTING_DETAILS";
       this.lastAskedField = "passengerComposition";
+      this.pendingInputAction = "AWAITING_PASSENGER_COMPOSITION";
       if (this.diagnostics) this.diagnostics.passengerClarificationRequired = true;
       return textResult(buildPassengerCompositionClarificationMessage(merged.totalTravellers, this.responseLanguage));
     }
     this.pendingAction = null;
+    // An explicit booking go-ahead (or its resume, once the blocking field arrives) is itself a fresh
+    // attempt — clear any stale failure record rather than leaving it to block a LATER vague follow-up.
+    this.providerFailure = null;
     this.lastWorkflowPhase = "READY_TO_SEARCH";
     return this.searchOrBelowMinimumHandoff(merged, feasibility, tools, true);
+  }
+
+  /** Lazily creates the journey the first time it's needed — most single-leg conversations never need one. */
+  private ensureJourney(entities: TravelEntities): Journey {
+    if (!this.journey) {
+      this.journey = {
+        id: randomUUID(),
+        version: 1,
+        travellerProfile: {
+          originCity: entities.originCity,
+          cabinClass: entities.cabinClass,
+          hotelStars: entities.hotelStars,
+          preferences: entities.preferences
+        },
+        status: "DRAFT",
+        legs: []
+      };
+    }
+    return this.journey;
+  }
+
+  /**
+   * The complete, ordered list of legs to consider for CRM submission or journey-level budgeting: every
+   * already-finalized leg, plus the current in-progress one — unless the current entities already mirror
+   * the last finalized leg exactly (as they do right after a multi-leg parse finalizes everything at once,
+   * see `startMultipleJourneyLegs`), in which case appending it again would double-count that leg.
+   */
+  private collectAllJourneyLegs(journey: Journey, currentEntities: TravelEntities): JourneyLeg[] {
+    const lastLeg = journey.legs[journey.legs.length - 1];
+    const cityKey = (city: string | null): string | null => {
+      const normalized = normalizeCityName(city)?.toLowerCase().replace(/\s+/g, "") ?? null;
+      return normalized === "newdelhi" ? "delhi" : normalized;
+    };
+    const currentMirrorsLastLeg =
+      lastLeg !== undefined &&
+      cityKey(lastLeg.origin) === cityKey(currentEntities.originCity) &&
+      cityKey(lastLeg.destination) === cityKey(currentEntities.destinationCity) &&
+      lastLeg.duration.days === currentEntities.days &&
+      lastLeg.duration.nights === currentEntities.nights;
+    const currentIsDegenerate =
+      cityKey(currentEntities.originCity) !== null &&
+      cityKey(currentEntities.originCity) === cityKey(currentEntities.destinationCity);
+    const currentAlreadyFinalized =
+      lastLeg !== undefined &&
+      cityKey(lastLeg.destination) === cityKey(currentEntities.destinationCity) &&
+      currentEntities.days === null &&
+      currentEntities.nights === null;
+    if (
+      currentMirrorsLastLeg ||
+      currentIsDegenerate ||
+      currentAlreadyFinalized ||
+      !currentEntities.destinationCity
+    )
+      return [...journey.legs];
+    return [
+      ...journey.legs,
+      toJourneyLeg(currentEntities, this.lastGeneratedItinerary, this.lastBudgetEstimate, journey.legs.length + 1)
+    ];
+  }
+
+  /**
+   * GENERATE_COMPLETE_TRIP_PLAN for a 2+ leg journey: generates each leg's own day-wise itinerary (one LLM
+   * call per leg, using that leg's own destination/duration/passengers — never the whole journey's), then
+   * builds and validates the full multi-leg plan via `buildJourneyCompleteTripPlan`/
+   * `validateJourneyCompleteTripPlan`. Fails loudly (never ships a silently incomplete plan) if validation
+   * somehow doesn't pass — mirrors the single-leg `buildCompleteTripPlanMessage`'s own defensive throw.
+   */
+  private async buildJourneyCompleteTripPlanResult(
+    journey: Journey,
+    legs: readonly JourneyLeg[],
+    userMessage: string
+  ): Promise<AiCompletionResult> {
+    const perLegItineraries = await Promise.all(
+      legs.map((leg) => this.safeGenerateItinerary(legToEntities(leg, journey.travellerProfile), userMessage))
+    );
+    legs.forEach((leg, index) => {
+      leg.itinerary = perLegItineraries[index] ?? leg.itinerary;
+    });
+    const journeyEstimate = estimateJourneyBudgetRange(legs, journey.travellerProfile, this.config);
+    const plan = buildJourneyCompleteTripPlan(journey, legs, perLegItineraries, journeyEstimate, this.responseLanguage);
+    const validation = validateJourneyCompleteTripPlan(plan, legs);
+    if (!validation.valid) {
+      throw new Error(
+        `JourneyCompleteTripPlan failed validation — missing: [${validation.missingSections.join(", ")}], duplicate: [${validation.duplicateSections.join(", ")}]`
+      );
+    }
+    this.lastGeneratedItinerary = perLegItineraries[perLegItineraries.length - 1] ?? null;
+    this.lastBudgetEstimate = null;
+    return textResult(renderJourneyCompleteTripPlan(plan));
+  }
+
+  /**
+   * ADD_TRIP_LEG: finalizes the leg that was in progress before this turn and starts a fresh one. Uses
+   * `priorEntities` — a snapshot taken before this turn's merge ran — rather than `this.lastEntities`,
+   * because the merge step may have already reset the trip (e.g. if the LLM misread "continue to New York"
+   * as `start_new_trip`); reading the pre-merge snapshot means that misclassification can never lose the
+   * leg that's supposed to be finalized. Passenger mix, cabin class, and preferences carry over onto the
+   * new leg (the same travel party is continuing); dates, duration, and budget reset — each leg has its own.
+   */
+  private async startNewJourneyLeg(priorEntities: TravelEntities, currentText: string, isFirstTurn: boolean): Promise<AiCompletionResult> {
+    // The same message that introduces the next leg sometimes also restates/corrects the duration of the
+    // leg being finalized here — e.g. "Tokyo me 3 days, phir London me 2 days..." — which `deriveNextLeg`/
+    // route-chain logic can't attach to `priorEntities` on its own (see `extractStayOverrideForCity`).
+    const stayOverride = extractStayOverrideForCity(currentText, priorEntities.destinationCity);
+    const finalizedPriorEntities: TravelEntities = stayOverride
+      ? { ...priorEntities, days: stayOverride.days ?? priorEntities.days, nights: stayOverride.nights ?? priorEntities.nights }
+      : priorEntities;
+
+    const journey = this.ensureJourney(finalizedPriorEntities);
+    if (finalizedPriorEntities.destinationCity) {
+      const before = JSON.stringify(journey.legs);
+      journey.legs = reconcileJourneyLegs(
+        journey.legs,
+        [toJourneyLeg(finalizedPriorEntities, this.lastGeneratedItinerary, this.lastBudgetEstimate, journey.legs.length + 1)],
+        journey.travellerProfile.originCity
+      );
+      if (JSON.stringify(journey.legs) !== before) journey.version = (journey.version ?? 1) + 1;
+    }
+    journey.status = "PLANNING";
+
+    const fromDestination = finalizedPriorEntities.destinationCity;
+    // The new leg's origin defaults to the leg just finalized ("phir Delhi wapas" continues FROM Tokyo/
+    // London, not from wherever `this.lastEntities.originCity` was last merged to) — unless the traveler
+    // explicitly restated a different origin this turn, in which case that restatement wins.
+    const originExplicitlyRestated = this.lastEntities.originCity !== priorEntities.originCity;
+    const newLeg: TravelEntities = {
+      ...this.lastEntities,
+      originCity: originExplicitlyRestated ? this.lastEntities.originCity : fromDestination,
+      departureDate: null,
+      travelMonth: null,
+      returnDate: null,
+      days: null,
+      nights: null,
+      budget: null,
+      budgetCurrency: null
+    };
+    this.lastEntities = newLeg;
+    // Drop confirmation entries for the fields that were just reset — otherwise "confirmed entity
+    // immutability" would block the new leg's dates/duration/budget from ever being collected again.
+    const resetConfirmationKeys: readonly ConfirmableEntityKey[] = [
+      "departureDate",
+      "travelMonth",
+      "returnDate",
+      "days",
+      "nights",
+      "budget",
+      "budgetCurrency"
+    ];
+    this.confirmation = Object.fromEntries(
+      Object.entries(this.confirmation).filter(
+        ([key]) => !(resetConfirmationKeys as readonly string[]).includes(key)
+      )
+    ) as TravelEntityConfirmation;
+    this.lastBudgetEstimate = null;
+    this.lastGeneratedItinerary = null;
+    this.budgetDiscussionCompleted = false;
+    this.pendingAction = null;
+
+    this.lastWorkflowPhase = "COLLECTING_DETAILS";
+    const missingForLeg = computeMissingEntityFields(newLeg, this.budgetMode);
+    this.lastStage = stageForMissingEntityField(missingForLeg[0] ?? "");
+    this.lastAskedField = missingForLeg[0] ?? null;
+    const reply = await this.safeGenerateReply(newLeg, missingForLeg, [], currentText, isFirstTurn, false);
+    return textResult(`${buildTripLegAddedMessage(fromDestination, newLeg.destinationCity, this.responseLanguage)}\n\n${reply}`);
+  }
+
+  /**
+   * ADD_TRIP_LEG when the message describes TWO OR MORE new legs at once (see `parseJourneyLegChain`) —
+   * e.g. "Washington se London aur fir London se Delhi". Unlike `startNewJourneyLeg` (which leaves the
+   * newest leg "in progress" as `this.lastEntities`, not yet in `journey.legs`, since the conversation is
+   * presumably still collecting details for it), every parsed leg here — including the last — is finalized
+   * into `journey.legs` immediately: the traveler has already stated origin+destination (and sometimes a
+   * stay) for all of them in one breath, so there is nothing left to "collect" before finalizing. The last
+   * leg's entities also become the new `this.lastEntities`, so an immediate follow-up (e.g. a budget
+   * question) has a sensible "current trip" to refer to, without that duplicating anything in `journey.legs`
+   * (see `collectAllJourneyLegs`'s current-mirrors-last-leg check).
+   */
+  private startMultipleJourneyLegs(
+    priorEntities: TravelEntities,
+    parsedLegs: readonly ParsedJourneyLeg[],
+    currentText = ""
+  ): AiCompletionResult {
+    // Same fix as `startNewJourneyLeg`: "Tokyo me 3 days, phir London me 2 days, then back to Delhi" states
+    // the finalized leg's duration inline, where "Tokyo" only ever appears as the ORIGIN of the new
+    // Tokyo->London leg and so is never attached by `parseJourneyLegChain` itself.
+    const stayOverride = extractStayOverrideForCity(currentText, priorEntities.destinationCity);
+    const finalizedPriorEntities: TravelEntities = stayOverride
+      ? { ...priorEntities, days: stayOverride.days ?? priorEntities.days, nights: stayOverride.nights ?? priorEntities.nights }
+      : priorEntities;
+
+    const journey = this.ensureJourney(finalizedPriorEntities);
+    if (finalizedPriorEntities.destinationCity) {
+      const before = JSON.stringify(journey.legs);
+      journey.legs = reconcileJourneyLegs(
+        journey.legs,
+        [toJourneyLeg(finalizedPriorEntities, this.lastGeneratedItinerary, this.lastBudgetEstimate, journey.legs.length + 1)],
+        journey.travellerProfile.originCity
+      );
+      if (JSON.stringify(journey.legs) !== before) journey.version = (journey.version ?? 1) + 1;
+    }
+    journey.status = "PLANNING";
+
+    // A tentative departure date for the FIRST new leg is derived from the leg that was just finalized
+    // (its own departure date + stay duration); each SUBSEQUENT new leg then chains forward from the
+    // previous new leg's own (possibly already-derived) date — always surfaced as an assumption, never as
+    // a stated fact, since none of this was actually said by the traveler.
+    let priorDepartureDate = finalizedPriorEntities.departureDate;
+    let priorDays = finalizedPriorEntities.days;
+    let priorNights = finalizedPriorEntities.nights;
+    const derivedLegPlans: DerivedJourneyLegPlan[] = [];
+
+    let lastLegEntities: TravelEntities = priorEntities;
+    for (const parsedLeg of parsedLegs) {
+      const derivedDate = deriveNextLegDepartureDate({
+        departureDate: priorDepartureDate,
+        days: priorDays,
+        nights: priorNights
+      });
+      const legEntities: TravelEntities = {
+        ...EMPTY_TRAVEL_ENTITIES,
+        customerName: priorEntities.customerName,
+        originCity: parsedLeg.origin,
+        destinationCity: parsedLeg.destination,
+        departureDate: derivedDate.departureDate,
+        days: parsedLeg.days,
+        nights: parsedLeg.nights,
+        adults: priorEntities.adults,
+        children: priorEntities.children,
+        infants: priorEntities.infants,
+        totalTravellers: priorEntities.totalTravellers,
+        cabinClass: priorEntities.cabinClass,
+        hotelStars: priorEntities.hotelStars,
+        tripType: priorEntities.tripType,
+        preferences: priorEntities.preferences
+      };
+      const before = JSON.stringify(journey.legs);
+      journey.legs = reconcileJourneyLegs(
+        journey.legs,
+        [toJourneyLeg(legEntities, null, null, journey.legs.length + 1, derivedDate.isAssumption)],
+        journey.travellerProfile.originCity
+      );
+      if (JSON.stringify(journey.legs) !== before) journey.version = (journey.version ?? 1) + 1;
+      derivedLegPlans.push({
+        ...parsedLeg,
+        departureDate: derivedDate.departureDate,
+        departureDateIsAssumption: derivedDate.isAssumption
+      });
+      lastLegEntities = legEntities;
+      priorDepartureDate = derivedDate.departureDate;
+      priorDays = parsedLeg.days;
+      priorNights = parsedLeg.nights;
+    }
+
+    this.lastEntities = lastLegEntities;
+    this.confirmation = EMPTY_TRAVEL_ENTITY_CONFIRMATION;
+    this.lastBudgetEstimate = null;
+    this.lastGeneratedItinerary = null;
+    this.budgetDiscussionCompleted = false;
+    this.pendingAction = null;
+    this.lastWorkflowPhase = "COLLECTING_DETAILS";
+    return textResult(buildMultiLegAddedMessage(derivedLegPlans, this.responseLanguage));
+  }
+
+  /**
+   * MULTILEG_CORRECTION: a bare "bhai multileg hai" (no new route stated) telling us the turns already
+   * exchanged should have been chained into one journey. If the origin has already implicitly drifted away
+   * from the traveler's home city (e.g. an earlier continuation like "London se New York jana hai" that
+   * wasn't auto-detected as an extension), the journey is already structurally multi-leg even though it was
+   * never split into `journey.legs` — split it now using the best information still available, rather than
+   * asking the traveler to restate anything. Never resets budget/detail collection.
+   */
+  private acknowledgeMultilegCorrection(priorEntities: TravelEntities): AiCompletionResult {
+    const journey = this.ensureJourney(priorEntities);
+    journey.status = "PLANNING";
+    const homeOrigin = journey.travellerProfile.originCity;
+    if (
+      journey.legs.length === 0 &&
+      homeOrigin &&
+      priorEntities.originCity &&
+      priorEntities.originCity.toLowerCase() !== homeOrigin.toLowerCase()
+    ) {
+      journey.legs.push(
+        toJourneyLeg({ ...EMPTY_TRAVEL_ENTITIES, originCity: homeOrigin, destinationCity: priorEntities.originCity }, null, null, 1)
+      );
+    }
+    const legs = this.collectAllJourneyLegs(journey, priorEntities);
+    return textResult(buildMultilegCorrectionMessage(legs, this.responseLanguage));
+  }
+
+  /**
+   * Appends a total-cost and/or return-date answer to an already-built result when the SAME message that
+   * triggered it also asked for one — compound-intent handling for the ADD_TRIP_LEG paths. Never mutates a
+   * tool-call result (there's nothing to append text to), and always computes fresh from the current
+   * journey snapshot rather than replaying anything cached.
+   */
+  private appendCompoundJourneyAnswers(result: AiCompletionResult, currentText: string): AiCompletionResult {
+    if (!this.journey || result.toolCalls.length > 0) return result;
+    const wantsBudget = BUDGET_ACTION_PATTERN.test(currentText) || JOURNEY_BUDGET_PATTERN.test(currentText);
+    const wantsReturnDate = RETURN_DATE_QUESTION_PATTERN.test(currentText);
+    if (!wantsBudget && !wantsReturnDate) return result;
+    const legs = this.collectAllJourneyLegs(this.journey, this.lastEntities);
+    let extra = "";
+    if (wantsBudget) {
+      const journeyEstimate = estimateJourneyBudgetRange(legs, this.journey.travellerProfile, this.config);
+      extra += `\n\n${buildJourneyBudgetMessage(legs, journeyEstimate, this.responseLanguage)}`;
+      this.budgetDiscussionCompleted = true;
+    }
+    if (wantsReturnDate) {
+      const projection = projectJourneyReturnDate(legs);
+      extra += `\n\n${buildReturnDateProjectionMessage(projection, this.journey.travellerProfile.originCity, this.responseLanguage)}`;
+    }
+    return { ...result, content: `${result.content}${extra}` };
+  }
+
+  /**
+   * Single entry point for every "customer wants to be contacted" signal — an explicit SUBMIT_ENQUIRY/
+   * CREATE_LEAD ask, REQUEST_CALLBACK ("call me", "request a callback"), or confirming a presented plan.
+   * Always uses the built-in {@link TravelLead} capture (`travel.create_lead`) — never gated on, blocked
+   * by, or dependent on an external CRM connector being configured. If the traveler's message already
+   * contains a phone number, captures immediately; otherwise politely asks for one first. Idempotent: once
+   * a lead has already been captured this conversation, a repeat ask just re-confirms it.
+   */
+  private beginOrResumeLeadCapture(currentText: string): AiCompletionResult {
+    if (this.completionStage === "CAPTURED" && this.capturedLeadReference) {
+      return textResult(buildLeadAlreadyCapturedMessage(this.capturedLeadReference, this.responseLanguage));
+    }
+    const phone = extractPhoneNumber(currentText);
+    if (phone) {
+      this.pendingLeadCapture = true;
+      return toolResult("travel.create_lead", this.buildTravelLeadPayload(phone));
+    }
+    this.completionStage = "AWAITING_CONTACT";
+    this.pendingInputAction = "AWAITING_LEAD_CONTACT";
+    this.pendingAction = null;
+    this.lastStage = "AWAITING_CONTACT";
+    return textResult(buildContactRequestMessage(this.responseLanguage));
   }
 
   /**
@@ -3753,7 +9706,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     }
     if (this.pendingAction === "GENERATE_ITINERARY" && hasItineraryFields(merged)) {
       this.pendingAction = null;
-      return textResult(await this.safeGenerateItinerary(merged, pending.proposedValue));
+      const itinerary = await this.safeGenerateItinerary(merged, pending.proposedValue);
+      this.lastGeneratedItinerary = itinerary;
+      return textResult(itinerary);
     }
     // `MODIFY_HOTEL_BUDGET` is only ever parked once an itinerary has already been presented (see the
     // main turn handler), and message history only grows — so by the time it's resumable here, that
@@ -3762,12 +9717,13 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       this.pendingAction = null;
       return this.handleHotelBudgetModification(merged);
     }
-    if (this.pendingAction === "BOOK_FLIGHT") {
+    if (this.pendingAction === "BOOK_FLIGHT" || this.pendingAction === "BOOK_HOTEL") {
+      const kind = this.pendingAction;
       const feasibilityForBooking: BudgetFeasibilityResult | null =
         this.budgetMode === "USER_DEFINED" && merged.budget !== null
           ? classifyBudgetFeasibility(merged.budget, estimateBudgetRange(merged, this.config))
           : null;
-      return this.continueBookFlightFlow(merged, feasibilityForBooking, tools, [], pending.proposedValue, false);
+      return this.continueBookingFlow(kind, merged, feasibilityForBooking, tools, [], pending.proposedValue, false);
     }
     // No pending action to resume — acknowledge the field update and stop there.
     return textResult(buildClarificationConfirmedMessage(pending.field, pending.proposedValue, this.responseLanguage));
@@ -3796,14 +9752,49 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       if (this.diagnostics) this.diagnostics.toolExecutionSkippedForFeasibility = true;
       return this.handleBelowMinimumFeasibility(merged, feasibility, tools);
     }
+    // A multi-leg journey's search/recommendation must cover EVERY leg, never just the currently active
+    // one — a single-leg live tool call (or single-leg placeholder) can only ever answer for one leg. Every
+    // execute/search/confirm path funnels through this one method, so fixing it here fixes all of them at
+    // once, including a bare Hinglish "ji" confirming a multi-city journey.
+    if ((this.journey?.legs.length ?? 0) + (merged.destinationCity ? 1 : 0) >= 2) {
+      const journey = this.ensureJourney(merged);
+      const legs = this.collectAllJourneyLegs(journey, merged);
+      return this.executeJourneySearch(journey, legs);
+    }
     return this.executeSearch(merged, tools);
+  }
+
+  /** Placeholder flight/hotel options for EVERY leg of a journey, plus the combined budget — see {@link buildJourneyRecommendationMessage}. */
+  private executeJourneySearch(journey: Journey, legs: readonly JourneyLeg[]): AiCompletionResult {
+    this.lastWorkflowPhase = "OPTIONS_PRESENTED";
+    const journeyEstimate = estimateJourneyBudgetRange(legs, journey.travellerProfile, this.config);
+    const perLeg: JourneyLegRecommendation[] = legs.map((leg) => {
+      const passengers =
+        (leg.passengers.adults ?? leg.passengers.totalTravellers ?? 1) + (leg.passengers.children ?? 0);
+      const { flightOptions } = generatePlaceholderFlights({
+        destination: leg.destination ?? "your destination",
+        travelMonth: leg.dates.travelMonth,
+        passengers
+      });
+      const { hotelOptions } = generatePlaceholderHotels({
+        destination: leg.destination ?? "your destination",
+        travelMonth: leg.dates.travelMonth,
+        hotelStars: journey.travellerProfile.hotelStars
+      });
+      return { leg, flights: flightOptions, hotels: hotelOptions };
+    });
+    return textResult(buildJourneyRecommendationMessage(perLeg, journeyEstimate, this.responseLanguage));
   }
 
   /**
    * BELOW_MINIMUM business result: explains the shortfall and alternatives in the conversation's language,
-   * then — if a CRM-lead tool is available — saves/updates the enquiry tagged BUDGET_BELOW_MINIMUM /
-   * SALES_FOLLOW_UP_REQUIRED. The callback promise is only ever made after that save actually succeeds
-   * (see the `pendingSalesHandoff` resolution in `continueAfterTool`); this never calls a search tool.
+   * then — if a CRM-lead tool is available — ALSO saves/updates the external enquiry tagged
+   * BUDGET_BELOW_MINIMUM / SALES_FOLLOW_UP_REQUIRED (that callback promise is only ever made after that
+   * save actually succeeds — see the `pendingSalesHandoff` resolution in `continueAfterTool`); this never
+   * calls a search tool. Independent of whether a CRM tool exists, this always invites a phone number and
+   * puts the conversation into the SAME `AWAITING_CONTACT` state every other lead-capture entry point uses
+   * (see `beginOrResumeLeadCapture`) — the internal {@link TravelLead} record must never depend on whether
+   * an external CRM connector happens to be configured for this organization.
    */
   private handleBelowMinimumFeasibility(
     merged: TravelEntities,
@@ -3813,14 +9804,36 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.lastStage = "RECOMMEND_OPTIONS";
     this.lastWorkflowPhase = "OPTIONS_PRESENTED";
     this.budgetDiscussionCompleted = true;
-    this.lastBudgetEstimate = toStoredBudgetEstimate(
-      estimateBudgetRange(merged, this.config),
-      merged,
-      new Date().toISOString()
-    );
+    this.storeEstimate(merged, "INDICATIVE");
     const message = buildBelowMinimumMessage(merged, feasibility, this.responseLanguage);
+    // Stage 9E: in PLATFORM_MANAGED mode this ALSO emits a typed signal (below) that gives
+    // WorkflowCoordinator real workflow authority over the next turn's contact reply — the legacy memory
+    // transition itself stays unchanged (rather than skipped) in both modes: `dispatchPendingWorkflowTurn`
+    // always intercepts a turn once a real WorkflowExecution row exists, so this field is inert bookkeeping
+    // once the signal is dispatched, and it is what makes `WorkflowCoordinator.migrateHistoricalContactState`
+    // a safe, self-healing fallback on the rare turn the signal dispatch itself fails.
+    if (this.completionStage !== "CAPTURED") {
+      this.completionStage = "AWAITING_CONTACT";
+      this.pendingInputAction = "AWAITING_LEAD_CONTACT";
+      this.pendingAction = null;
+      this.providerFailure = null;
+    }
+    if (this.executionMode === "PLATFORM_MANAGED") {
+      // Stage 9E.1: the CRM-tool sales-handoff variant (calling a CRM connector tool directly as the
+      // PRIMARY action, with no internal TravelLead) is converged onto the SAME TRIP_SUBMISSION signal as
+      // the common case. TRIP_SUBMISSION creates the internal TravelLead and AgentService's existing
+      // `syncLeadToCrmBestEffort` (already used for every workflow-captured lead) mirrors it to whatever
+      // CRM connector is installed, tracked via TravelLeadCrmSyncStatus (SYNCED/FAILED/SKIPPED) on that
+      // lead row — internal persistence and external CRM sync remain distinguishable via that field, and
+      // this response text never claims a CRM save, truthful regardless of sync outcome. Travel Runtime
+      // never calls a CRM tool directly in this mode, whether or not one happens to be granted/available.
+      this.pendingWorkflowSignal = { signalType: "START_TRIP_SUBMISSION", trigger: "BELOW_MINIMUM_BUDGET" };
+      return textResult(`${message}\n\n${buildContactRequestMessage(this.responseLanguage)}`);
+    }
+    // STANDALONE_COMPATIBILITY only: the original legacy CRM-tool sales-handoff mechanism, preserved
+    // unchanged for direct-construction callers/tests (e.g. travel.llm.spec.ts).
     const crmTool = findCrmLeadTool(tools);
-    if (!crmTool) return textResult(message);
+    if (!crmTool) return textResult(`${message}\n\n${buildContactRequestMessage(this.responseLanguage)}`);
     this.pendingSalesHandoff = { feasibilityMessage: message };
     return toolResult(
       crmTool.name,
@@ -3860,6 +9873,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     if (computePassengerState(merged) === "TOTAL_ONLY") {
       this.lastWorkflowPhase = "COLLECTING_DETAILS";
       this.lastAskedField = "passengerComposition";
+      this.pendingInputAction = "AWAITING_PASSENGER_COMPOSITION";
       if (this.diagnostics) this.diagnostics.passengerClarificationRequired = true;
       return textResult(buildPassengerCompositionClarificationMessage(merged.totalTravellers, this.responseLanguage));
     }
@@ -3881,6 +9895,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       hotelStars: merged.hotelStars
     });
     this.lastWorkflowPhase = "OPTIONS_PRESENTED";
+    // Recommendations have been presented — persist the structured estimate snapshot so a later currency
+    // request converts these figures instead of re-running the search.
+    this.storeEstimate(merged, "INDICATIVE");
     return textResult(
       this.appendBudgetFeasibility(
         merged,
@@ -3902,8 +9919,87 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    * found are still shown, alongside the shortfall against a realistic estimate.
    */
   private appendBudgetFeasibility(entities: TravelEntities, message: string): string {
+    // Feasibility is compared in the trip's BUDGET currency (not the display currency) — see
+    // `effectiveDisplayCurrency`'s doc: budget vs. minimum must be normalized to one currency, and that is
+    // always the currency the traveler actually stated their budget in.
     const note = buildBudgetFeasibilityNote(entities, estimateBudgetRange(entities, this.config), this.responseLanguage);
     return note ? `${message}\n\n${note}` : message;
+  }
+
+  /** The currency cost figures should be shown to the traveler in: an explicit display preference wins,
+   * else the trip's budget currency, else the config default. Kept separate from the budget currency so a
+   * "share in USD" request changes only the display, never the original budget constraint. */
+  private effectiveDisplayCurrency(entities: TravelEntities): string {
+    return this.displayCurrency ?? entities.budgetCurrency ?? this.config.defaultCurrency;
+  }
+
+  /**
+   * Persists a structured snapshot of the estimate that was just shown, in its canonical source currency,
+   * so a later currency request can convert and re-render it without recomputing or re-running any search.
+   * Idempotent and cheap — safe to call from every path that presents flight/hotel/budget figures.
+   */
+  private storeEstimate(entities: TravelEntities, availabilityType: "LIVE" | "INDICATIVE"): void {
+    if (!validateBudgetEstimateInputs(entities).canEstimateFlights) return;
+    const canonical = estimateBudgetRange(entities, this.config, PRICING_SOURCE_CURRENCY);
+    this.lastBudgetEstimate = toStoredBudgetEstimate(
+      canonical,
+      entities,
+      new Date().toISOString(),
+      this.effectiveDisplayCurrency(entities),
+      availabilityType
+    );
+  }
+
+  /**
+   * Renders the last stored estimate in `targetCurrency` for a currency-preference response — converting
+   * the canonical snapshot exactly once, never recomputing or re-running a search. Returns null when there
+   * is no estimate to convert yet.
+   */
+  /**
+   * Deterministic, state-aware handler for an explicit currency preference. Never re-runs a search, never
+   * re-asks for missing slots, never resets completed recommendation/trip state, and is idempotent for a
+   * repeated request. Behavior:
+   *  - Unsupported currency: explain (name the supported ones), change nothing, no loop.
+   *  - Persist the display preference; the original budget/currency is left untouched.
+   *  - An estimate already exists -> convert the stored snapshot exactly once and show it (or, if live FX
+   *    is unavailable, offer it in its original currency — never a fabricated or mislabeled number).
+   *  - No estimate yet, a search confirmation still pending -> acknowledge the currency and re-ask the
+   *    confirmation once (only when the currency actually changed).
+   *  - Otherwise -> acknowledge the display change and continue from the current state.
+   */
+  private handleCurrencyPreference(preference: CurrencyPreference): AiCompletionResult {
+    if (preference.kind === "UNSUPPORTED") {
+      // Deliberately does not change the display currency — we can't service it — but must not loop.
+      return textResult(buildUnsupportedCurrencyMessage(this.responseLanguage));
+    }
+    const target = preference.currency;
+    const previous = (this.displayCurrency ?? this.lastEntities.budgetCurrency ?? this.config.defaultCurrency).toUpperCase();
+    const alreadyInTarget = previous === target;
+    this.displayCurrency = target;
+
+    if (this.lastBudgetEstimate) {
+      const shown = convertStoredBudgetEstimateSafe(this.lastBudgetEstimate, target);
+      if (!shown) {
+        // Live conversion unavailable — keep the recorded preference, never fabricate a rate, offer the
+        // estimate in its original currency instead of looping.
+        return textResult(buildConversionUnavailableMessage(target, this.lastBudgetEstimate, this.responseLanguage));
+      }
+      // Keep the canonical snapshot; only its display preference moves. This preserves single-hop
+      // conversions and never mutates the completed recommendation/trip state.
+      this.lastBudgetEstimate = { ...this.lastBudgetEstimate, displayCurrency: target };
+      const body = buildConvertedEstimateMessage(shown, this.responseLanguage);
+      return textResult(
+        alreadyInTarget ? `${buildAlreadyInCurrencyMessage(target, this.responseLanguage)}\n\n${body}` : body
+      );
+    }
+
+    // No estimate yet. If a search confirmation is genuinely still pending (and nothing has been searched),
+    // acknowledge the currency and re-ask it once — but never after recommendations already exist, and
+    // never repeatedly for an unchanged currency (idempotent).
+    if (this.pendingAction === "SEARCH_OPTIONS" && !alreadyInTarget) {
+      return textResult(buildCurrencyAckWithSearchPromptMessage(target, this.responseLanguage));
+    }
+    return textResult(buildDisplayCurrencySetMessage(target, this.responseLanguage));
   }
 
   /**
@@ -3912,9 +10008,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    * instead of silently recomputing (which could disagree) or merely relabeling the currency.
    */
   private showBudgetGuidance(entities: TravelEntities): string {
-    const estimate = estimateBudgetRange(entities, this.config);
-    this.lastBudgetEstimate = toStoredBudgetEstimate(estimate, entities, new Date().toISOString());
-    return buildBudgetGuidanceMessage(entities, this.config, this.responseLanguage);
+    this.storeEstimate(entities, "INDICATIVE");
+    return buildBudgetGuidanceMessage(entities, this.config, this.responseLanguage, this.effectiveDisplayCurrency(entities));
   }
 
   /**
@@ -3946,11 +10041,64 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     entities: Partial<TravelEntities>;
     intent: TravelIntent;
     cityInterpretations: Partial<Record<"originCity" | "destinationCity", CityInterpretation>>;
+    turnProposal: SemanticTurnProposal;
   }> {
-    if (!message.trim()) return { entities: {}, intent: "provide_trip_details", cityInterpretations: {} };
+    if (!message.trim())
+      return {
+        entities: {},
+        intent: "provide_trip_details",
+        cityInterpretations: {},
+        turnProposal: {
+          answersPendingAction: false,
+          supersedesPendingAction: false,
+          preservePendingAction: true,
+          confidence: 0
+        }
+      };
     let rawEntities: Partial<TravelEntities>;
     let intent: TravelIntent;
+    let turnProposal: SemanticTurnProposal = {
+      answersPendingAction: false,
+      supersedesPendingAction: false,
+      preservePendingAction: true,
+      confidence: 0
+    };
     let cityInterpretations: Partial<Record<"originCity" | "destinationCity", CityInterpretation>> = {};
+
+    // Fast path: use the deterministic regex extractor for simple field-level inputs where the system
+    // is explicitly expecting a specific value. This avoids a ~200-500ms provider call for every simple
+    // field capture (budget, dates, passengers, name, year) without changing entity extraction semantics.
+    // Only fires when lastAskedField or pendingInputAction narrows the expected input to one field type.
+    const deterministic = deterministicExtractFallback(message);
+    const askedField = this.lastAskedField;
+    const pendingAction = this.pendingInputAction;
+    if (askedField || pendingAction) {
+      const matchByField =
+        (askedField === "budget" && deterministic.budget !== null) ||
+        (askedField === "adults" && deterministic.adults !== null) ||
+        (askedField === "totalTravellers" && deterministic.totalTravellers !== null) ||
+        (askedField === "duration" && (deterministic.days !== null || deterministic.nights !== null)) ||
+        (askedField === "travelDates" && (deterministic.travelMonth !== null || deterministic.departureDate !== null)) ||
+        (askedField === "passengerComposition" && (deterministic.adults !== null || deterministic.children !== null || deterministic.infants !== null)) ||
+        (askedField === "customerName" && deterministic.customerName !== null) ||
+        (askedField === "travelYear" && /\b20[2-9]\d\b/.test(message)) ||
+        (pendingAction === "AWAITING_TRAVEL_YEAR") ||
+        (pendingAction === "AWAITING_PASSENGER_COMPOSITION" && (deterministic.adults !== null || deterministic.children !== null || deterministic.infants !== null));
+      if (matchByField) {
+        rawEntities = deterministic;
+        intent = classifyIntentDeterministically(message);
+        return { entities: rawEntities, intent, cityInterpretations, turnProposal };
+      }
+    }
+
+    // Also skip the LLM for explicit escalation requests — the deterministic classifier handles this
+    // correctly and no entity extraction is needed.
+    if (isEscalationRequest(message)) {
+      rawEntities = deterministic;
+      intent = classifyIntentDeterministically(message);
+      return { entities: rawEntities, intent, cityInterpretations, turnProposal };
+    }
+
     try {
       const result = await this.realProvider.complete({
         messages: [
@@ -3959,7 +10107,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
             role: "user",
             content: buildTravelExtractionUserPrompt(this.lastEntities, message, {
               workflowPhase: this.lastWorkflowPhase,
-              lastAskedField: this.lastAskedField
+              lastAskedField: this.lastAskedField,
+              pendingInputAction: this.pendingInputAction
             })
           }
         ],
@@ -3968,19 +10117,65 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       });
       rawEntities = parseExtractedEntities(result.content);
       intent = parseIntent(result.content);
+      turnProposal = parseSemanticTurnProposal(result.content);
       const originInterp = parseCityInterpretation(result.content, "originCity");
       if (originInterp) cityInterpretations = { ...cityInterpretations, originCity: originInterp };
       const destinationInterp = parseCityInterpretation(result.content, "destinationCity");
       if (destinationInterp) cityInterpretations = { ...cityInterpretations, destinationCity: destinationInterp };
     } catch {
-      // The real LLM is unavailable — degrade to deterministic regex extraction and the typo catalog
-      // rather than silently dropping every entity for this turn.
       rawEntities = deterministicExtractFallback(message);
       intent = classifyIntentDeterministically(message);
     }
+    // Deterministic values from the user's literal wording outrank model inference. Sparse overlay only:
+    // fields absent from this turn remain absent and are therefore preserved by mergeConfirmedEntities.
+    // The `deterministic` variable was already computed above for the fast-path check — reuse it here.
+    const explicitKeys = Object.fromEntries(
+      Object.entries(deterministic).filter(
+        ([key, value]) =>
+          key !== "customerName" &&
+          key !== "originCity" &&
+          key !== "destinationCity" &&
+          value !== null &&
+          value !== undefined
+      )
+    ) as Partial<TravelEntities>;
+    rawEntities = { ...rawEntities, ...explicitKeys };
     const withShortAnswer = resolveShortAnswerForLastAskedField(message, this.lastAskedField, rawEntities);
-    const entities = augmentWithDatePhrase(message, withShortAnswer);
-    return { entities, intent, cityInterpretations };
+    // Deterministic parser guards, in dependency order: an explicit full date (with year) wins over a bare
+    // month; a bare/clarified year is never a budget; "N rat"/"N raat"/"N nights" is a night count, never a
+    // hotel star tier; then the existing natural-date and return-date guards.
+    const dayMonthMentions =
+      message.match(
+        /\b(?:\d{1,2}(?:st|nd|rd|th)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2})\b/gi
+      ) ?? [];
+    const partialDate =
+      parseExplicitTravelDate(message) || RETURN_DATE_SIGNAL_PATTERN.test(message) || dayMonthMentions.length > 1
+        ? null
+        : parsePendingDepartureDate(message);
+    if (partialDate) {
+      this.pendingDepartureDate = partialDate;
+      this.pendingInputAction = "AWAITING_TRAVEL_YEAR";
+      withShortAnswer.departureDate = null;
+      withShortAnswer.travelMonth = titleCase(MONTHS[partialDate.month - 1] ?? "");
+    }
+    const explicitDated = augmentWithExplicitDate(message, withShortAnswer);
+    const yearGuarded = guardYearNotBudget(message, explicitDated);
+    const nightsGuarded = guardNightsVsHotelStars(message, yearGuarded);
+    const dateAugmented = augmentWithDatePhrase(message, nightsGuarded);
+    const dateGuarded = guardReturnDateAssumption(message, dateAugmented);
+    const entities = reconcileRouteFromMessage(message, dateGuarded, this.lastAskedField);
+    // Stage 9F: a bare, explicit budget restatement in the traveler's own literal text ("50000 USD",
+    // "budget is now AED 10,000") must always be treated as a correction, regardless of how the LLM (or
+    // the deterministic classification fallback) classified the turn's overall intent — otherwise
+    // `mergeConfirmedEntities`'s "never silently overwrite an already-confirmed field" guard keeps the
+    // stale amount forever, which is exactly the "AED 5,000 survives an AED 10,000 correction" UAT defect.
+    // Gated on the DETERMINISTIC parser itself (never model inference) finding a budget in the raw text,
+    // so this can never fire from an LLM hallucinating a budget change out of ambiguous wording.
+    const explicitBudgetCorrection =
+      deterministic.budget !== null &&
+      this.lastEntities.budget !== null &&
+      deterministic.budget !== this.lastEntities.budget;
+    return { entities, intent: explicitBudgetCorrection ? "modify_trip" : intent, cityInterpretations, turnProposal };
   }
 
   private async safeGenerateReply(
@@ -3991,6 +10186,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     isFirstTurn: boolean,
     startingNewTrip: boolean
   ): Promise<string> {
+    const justLearnedName = changed.some((entry) => entry.startsWith("customerName=")) ? entities.customerName : null;
     try {
       const result = await this.realProvider.complete({
         messages: [
@@ -4012,9 +10208,12 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         temperature: 0.4
       });
       const text = result.content?.trim();
-      return text || buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage);
+      return (
+        text ||
+        buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage, justLearnedName)
+      );
     } catch {
-      return buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage);
+      return buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage, justLearnedName);
     }
   }
 
@@ -4063,7 +10262,16 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    * duration, and dates — deliberately independent of budget feasibility, hotel, or flight state, so an
    * infeasible budget never blocks producing a plan.
    */
+  /**
+   * Generates the itinerary, then runs it through `validateItineraryText` — a purely structural check
+   * (never a claim about real opening hours or live flight times). An LLM-generated schedule that
+   * overlaps, duplicates a named attraction, overloads the arrival day, or leaves no departure-day airport
+   * buffer is swapped for the deterministic fallback template rather than shown to the traveler; the
+   * caught issue codes are recorded on `this.diagnostics` for observability, never silently dropped.
+   */
   private async safeGenerateItinerary(entities: TravelEntities, userMessage: string): Promise<string> {
+    const fallback = (): string => buildFallbackItineraryMessage(entities, this.responseLanguage);
+    let generated: string;
     try {
       const result = await this.realProvider.complete({
         messages: [
@@ -4074,10 +10282,26 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         temperature: 0.5
       });
       const text = result.content?.trim();
-      return text || buildFallbackItineraryMessage(entities, this.responseLanguage);
+      if (!text) return fallback();
+      generated = text;
     } catch {
-      return buildFallbackItineraryMessage(entities, this.responseLanguage);
+      return fallback();
     }
+    const validation = validateItineraryText(generated, {
+      hasChildren: (entities.children ?? 0) > 0,
+      hasInfants: (entities.infants ?? 0) > 0
+    });
+    if (!validation.valid) {
+      if (this.diagnostics) {
+        this.diagnostics.itineraryFallbackUsed = true;
+        this.diagnostics.itineraryValidationIssues = [
+          ...this.diagnostics.itineraryValidationIssues,
+          ...validation.issues.map((issue) => issue.code)
+        ];
+      }
+      return fallback();
+    }
+    return generated;
   }
 
   private continueAfterTool(
@@ -4089,6 +10313,54 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     if (output.escalated) {
       this.lastStage = "ESCALATED";
       return textResult(buildEscalationMessage(this.config, this.responseLanguage));
+    }
+    // A failed travel.search_flights/search_hotels call (fed back here by the caller instead of a flat,
+    // dead-end recovery message) resolves here: persist the failure so a later vague follow-up doesn't
+    // blindly retry it, and answer with provider-independent indicative recommendations instead. Every
+    // failure recorded this way is a transient technical one, never a permanent business result — those
+    // are BELOW_MINIMUM feasibility, handled entirely separately.
+    if (output.error === true) {
+      const provider = typeof output.toolName === "string" ? output.toolName : "travel.search_flights";
+      // `failedAction` is recorded as SEARCH_LIVE_OPTIONS regardless of whether this call was originally
+      // triggered by BOOK_FLIGHT, BOOK_HOTEL, or an explicit live-search ask — by the time a tool call
+      // resolves, `pendingAction` has already been cleared to authorize it, and all three ultimately call
+      // the exact same travel.search_flights/search_hotels pipeline, so there is nothing more specific to
+      // attribute the failure to.
+      const now = Date.now();
+      this.providerFailure = {
+        failedAction: "SEARCH_LIVE_OPTIONS",
+        provider,
+        failedAt: new Date(now).toISOString(),
+        retryable: true,
+        selectedRecoveryAction: null,
+        menuActive: true,
+        menuExpiresAt: new Date(now + PROVIDER_FAILURE_MENU_TTL_MS).toISOString()
+      };
+      this.pendingAction = null;
+      this.lastWorkflowPhase = "COLLECTING_DETAILS";
+      const estimate = estimateBudgetRange(this.lastEntities, this.config);
+      return textResult(buildIndicativeRecommendationsMessage(this.lastEntities, estimate, this.responseLanguage, true));
+    }
+    // Every lead-capture entry point (the proactive offer, an explicit "submit this request"/"generate
+    // lead", or a callback ask) resolves the same way here — the built-in, always-available
+    // `travel.create_lead` tool call, never gated on or dependent on an external CRM connector.
+    if (this.pendingLeadCapture) {
+      this.pendingLeadCapture = false;
+      const reference = typeof output.reference === "string" ? output.reference : null;
+      this.lastStage = "RECOMMEND_OPTIONS";
+      if (!reference) {
+        this.completionStage = "DECLINED";
+        this.pendingInputAction = null;
+        this.pendingContactValue = null;
+        return textResult(buildGenericContinuationMessage(this.responseLanguage));
+      }
+      this.completionStage = "CAPTURED";
+      this.pendingInputAction = null;
+      this.pendingContactValue = null;
+      this.conversationClosed = false;
+      this.capturedLeadReference = reference;
+      if (this.journey) this.journey.status = "ENQUIRY_SUBMITTED";
+      return textResult(buildLeadCapturedMessage(this.lastEntities.customerName, reference, this.responseLanguage));
     }
     const legacy = toLegacySlots(this.lastEntities);
     if (Array.isArray(output.flightOptions)) {
@@ -4102,6 +10374,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         hotelStars: this.lastEntities.hotelStars
       });
       this.lastWorkflowPhase = "OPTIONS_PRESENTED";
+      this.storeEstimate(this.lastEntities, "LIVE");
       return textResult(
         this.appendBudgetFeasibility(
           this.lastEntities,
@@ -4119,6 +10392,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       const flights = (findPriorToolValue(messages, "flightOptions") as FlightOption[] | undefined) ?? [];
       const starNote = typeof output.starNote === "string" ? output.starNote : null;
       this.lastWorkflowPhase = "OPTIONS_PRESENTED";
+      this.storeEstimate(this.lastEntities, "LIVE");
       return textResult(
         this.appendBudgetFeasibility(
           this.lastEntities,
@@ -4143,10 +10417,6 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         ? buildSalesHandoffConfirmedMessage(this.responseLanguage)
         : buildSalesHandoffFallbackMessage(this.responseLanguage);
       return textResult(`${pending.feasibilityMessage}\n\n${followUp}`);
-    }
-    if (typeof output.reference === "string" && output.reference.startsWith("LEAD-")) {
-      this.lastStage = "BOOKING_CONFIRMED";
-      return textResult(buildBookingConfirmedMessage(output.reference, this.responseLanguage));
     }
     return textResult(buildGenericContinuationMessage(this.responseLanguage));
   }

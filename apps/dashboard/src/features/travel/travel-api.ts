@@ -31,6 +31,8 @@ export interface TravelConfigurationInput {
 
 export type TravelStage =
   | "GREETING"
+  | "COLLECT_NAME"
+  | "DISCOVER_INTENT"
   | "COLLECT_DESTINATION"
   | "COLLECT_DATES"
   | "COLLECT_PASSENGERS"
@@ -49,6 +51,9 @@ export interface TravelConversationState {
   passengers: number | null;
   budgetAmount: number | null;
   budgetCurrency: string | null;
+  customerName: string | null;
+  onboardingCompleted: boolean;
+  greetingSent: boolean;
   stage: TravelStage;
   missingFields: string[];
 }

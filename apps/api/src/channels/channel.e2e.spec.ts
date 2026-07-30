@@ -385,6 +385,45 @@ suite("Channels (Twilio WhatsApp) HTTP", () => {
       .expect(204);
     await request(app.getHttpServer()).get(`/api/v1/channels/${channelId}`).set(auth()).expect(404);
   });
+
+  it("lists channels — returns 200 with paginated items for the owning organisation", async () => {
+    const res = await request(app.getHttpServer()).get("/api/v1/channels").set(auth()).expect(200);
+    expect(res.body).toHaveProperty("items");
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body).toHaveProperty("total");
+    expect(res.body).toHaveProperty("page");
+    expect(res.body).toHaveProperty("pageSize");
+    expect(res.body).toHaveProperty("totalPages");
+    // Each item should have the agent field (mapped from pluginInstallation)
+    for (const item of res.body.items) {
+      expect(item).toHaveProperty("agentId");
+      expect(item).toHaveProperty("agent");
+      expect(item).toHaveProperty("hasAuthToken");
+      expect(item).toHaveProperty("webhookUrl");
+      expect(item).not.toHaveProperty("encryptedSecrets");
+      expect(item).not.toHaveProperty("pluginInstallation");
+    }
+  });
+
+  it("list response has the correct paginated shape even when no channels exist", async () => {
+    // Verify the response contract: items array, pagination fields, no secrets exposed
+    const res = await request(app.getHttpServer()).get("/api/v1/channels").set(auth()).expect(200);
+    expect(res.body).toHaveProperty("items");
+    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.body).toHaveProperty("total");
+    expect(res.body).toHaveProperty("page");
+    expect(res.body).toHaveProperty("pageSize");
+    expect(res.body).toHaveProperty("totalPages");
+    for (const item of res.body.items) {
+      expect(item).toHaveProperty("agentId");
+      expect(item).toHaveProperty("agent");
+      expect(item).toHaveProperty("hasAuthToken");
+      expect(item).toHaveProperty("webhookUrl");
+      expect(item).not.toHaveProperty("encryptedSecrets");
+      expect(item).not.toHaveProperty("pluginInstallation");
+      expect(item).not.toHaveProperty("pluginInstallationId");
+    }
+  });
 });
 
 async function cleanup(prisma: PrismaService) {

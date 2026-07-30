@@ -15,7 +15,9 @@ import {
 export class AgentRunDto {
   @IsUUID() pluginInstallationId!: string;
   @IsOptional() @IsUUID() conversationId?: string;
-  @IsString() @MaxLength(12000) message!: string;
+  // Optional: an omitted/empty message on a brand-new conversation is how the dashboard/channel triggers
+  // a proactive greeting (see AgentService.execute) instead of requiring a first user message.
+  @IsOptional() @IsString() @MaxLength(12000) message?: string;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
 }
 export class PageDto {

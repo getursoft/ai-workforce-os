@@ -1,6 +1,11 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 is upstream postgres:16 (Debian-based) with the pgvector extension
+    # preinstalled. Knowledge retrieval requires the `vector` extension (see
+    # database/prisma/schema.prisma `KnowledgeChunk.embedding`); plain postgres:16-alpine cannot
+    # install it. Switching images requires recreating the container and its data volume — the
+    # Alpine (musl) and Debian (glibc) images are not on-disk compatible.
+    image: pgvector/pgvector:pg16
     container_name: ai-workforce-os-postgres
     environment:
       POSTGRES_DB: ai_workforce_os

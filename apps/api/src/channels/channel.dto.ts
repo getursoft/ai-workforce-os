@@ -1,51 +1,44 @@
 import { ChannelConnectionStatus, ChannelMessageDirection, ChannelMessageStatus } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
-  IsEnum,
-  IsIn,
-  IsInt,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Length,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-  ValidateNested
+  IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID,
+  Length, Matches, Max, MaxLength, Min, ValidateNested
 } from "class-validator";
 
-export class ChannelConfigurationDto {
-  @IsOptional()
-  @IsString()
-  @Matches(/^AC[a-zA-Z0-9]{32}$/, { message: "accountSid must be a valid Twilio Account SID" })
+export class TwilioConfigurationDto {
+  @IsOptional() @IsString() @Matches(/^AC[a-zA-Z0-9]{32}$/, { message: "accountSid must be a valid Twilio Account SID" })
   accountSid?: string;
-
   @IsOptional() @IsString() @MaxLength(128) authToken?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^(whatsapp:)?\+[1-9]\d{6,14}$/, {
-    message: "fromNumber must be an E.164 phone number, optionally prefixed with whatsapp:"
-  })
+  @IsOptional() @IsString() @Matches(/^(whatsapp:)?\+[1-9]\d{6,14}$/, { message: "fromNumber must be an E.164 phone number" })
   fromNumber?: string;
+}
+
+export class MetaWhatsAppConfigurationDto {
+  @IsOptional() @IsString() @MaxLength(200) metaAppId?: string;
+  @IsOptional() @IsString() @MaxLength(200) metaAppSecret?: string;
+  @IsOptional() @IsString() @MaxLength(100) whatsappBusinessAccountId?: string;
+  @IsOptional() @IsString() @MaxLength(100) phoneNumberId?: string;
+  @IsOptional() @IsString() @Matches(/^\+[1-9]\d{6,14}$/, { message: "displayPhoneNumber must be E.164" })
+  displayPhoneNumber?: string;
+  @IsOptional() @IsString() @MaxLength(500) accessToken?: string;
+  @IsOptional() @IsString() @MaxLength(200) webhookVerifyToken?: string;
+  @IsOptional() @IsString() @MaxLength(16) apiVersion?: string;
 }
 
 export class CreateChannelDto {
   @IsString() @Length(1, 160) name!: string;
-  @IsIn(["TWILIO"]) provider!: "TWILIO";
+  @IsIn(["TWILIO", "META_CLOUD_API"]) provider!: "TWILIO" | "META_CLOUD_API";
   @IsIn(["WHATSAPP"]) channelType!: "WHATSAPP";
   @IsUUID() agentId!: string;
-  @ValidateNested() @Type(() => ChannelConfigurationDto) configuration!: ChannelConfigurationDto;
+  @ValidateNested() @Type(() => TwilioConfigurationDto)
+  configuration!: TwilioConfigurationDto | MetaWhatsAppConfigurationDto;
 }
 
 export class UpdateChannelDto {
   @IsOptional() @IsString() @Length(1, 160) name?: string;
   @IsOptional() @IsUUID() agentId?: string;
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ChannelConfigurationDto)
-  configuration?: ChannelConfigurationDto;
+  @IsOptional() @ValidateNested() @Type(() => TwilioConfigurationDto)
+  configuration?: TwilioConfigurationDto | MetaWhatsAppConfigurationDto;
 }
 
 export class ChannelPageDto {

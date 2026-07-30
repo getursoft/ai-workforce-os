@@ -1,9 +1,10 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import {
   ChannelConnectionStatus,
   ChannelMessageDirection,
   ChannelMessageStatus,
   PluginStatus,
+  Prisma,
   type ChannelMessage
 } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
@@ -14,7 +15,12 @@ import {
 } from "../identity/infrastructure/security/security-config";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 import { AgentService } from "../agents/agent.service";
+import type { AgentExecutionInput, ChannelContact } from "../agents/agent.runtime";
 import { normalizeWhatsAppAddress, TwilioClient, TwilioProviderError } from "./channel.runtime";
+import { sendMetaWhatsAppText } from "./whatsapp/meta-whatsapp.client";
+import { EmployeeRouterService } from "./employee-router.service";
+import type { ConversationRoutingState } from "./employee-router.types";
+import { DEFAULT_ACKNOWLEDGEMENT_MESSAGE, DEFAULT_FAILURE_MESSAGE } from "./employee-router.types";
 
 const MAX_ATTEMPTS = 5;
 const STALE_PROCESSING_MS = 2 * 60 * 1000;
@@ -37,7 +43,8 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly agents: AgentService,
     private readonly secrets: PluginSecretsEncryptionService,
     private readonly auditLogger: AuditEventLogger,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() private readonly employeeRouter?: EmployeeRouterService
   ) {}
 
   onModuleInit() {
@@ -151,45 +158,102 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const externalUserId = normalizeWhatsAppAddress(message.fromAddress).externalUserId;
-      const existingConversation = await this.prisma.conversation.findFirst({
-        where: {
-          organizationId: message.organizationId,
-          channelConnectionId: channel.id,
-          externalUserId,
-          status: "ACTIVE",
-          deletedAt: null
-        },
-        orderBy: { updatedAt: "desc" }
-      });
-      const result = await this.agents.execute({
-        organizationId: message.organizationId,
-        agentId: channel.pluginInstallationId,
-        ...(existingConversation ? { conversationId: existingConversation.id } : {}),
-        actor: { type: "CHANNEL", channelConnectionId: channel.id, externalUserId },
-        text: message.body,
-        source: { type: "CHANNEL", channelId: channel.id, externalUserId },
-        requestId: message.id,
-        metadata: { channelMessageId: message.id }
-      });
-      await this.prisma.channelMessage.update({
-        where: { id: message.id },
-        data: { conversationId: result.conversationId, agentExecutionId: result.executionId }
-      });
-      const configuration = (channel.configuration ?? {}) as { fromNumber?: string };
-      const outbound = await this.prisma.channelMessage.create({
-        data: {
-          organizationId: message.organizationId,
-          channelConnectionId: channel.id,
-          conversationId: result.conversationId,
-          agentExecutionId: result.executionId,
-          provider: "TWILIO",
-          direction: ChannelMessageDirection.OUTBOUND,
-          status: ChannelMessageStatus.PROCESSING,
-          fromAddress: normalizeWhatsAppAddress(configuration.fromNumber ?? "").address,
-          toAddress: message.fromAddress,
-          body: result.response
+      let agentId = channel.pluginInstallationId;
+      let conversationId = message.conversationId ?? undefined;
+      let routingResponseText: string | null = null;
+
+      if (!conversationId) {
+        const prevConvo = await this.prisma.conversation.findFirst({
+          where: { organizationId: message.organizationId, channelConnectionId: channel.id, externalUserId, status: "ACTIVE", deletedAt: null },
+          orderBy: { updatedAt: "desc" }
+        });
+        if (prevConvo) conversationId = prevConvo.id;
+      }
+
+      if (channel.routingMode === "INTENT_ROUTER" && this.employeeRouter) {
+        let conversation = await this.prisma.conversation.findFirst({
+          where: { organizationId: message.organizationId, channelConnectionId: channel.id, externalUserId, status: "ACTIVE", deletedAt: null },
+          orderBy: { updatedAt: "desc" }
+        });
+        const convMeta = conversation?.metadata as Record<string, unknown> | undefined;
+        const routingState = convMeta?.routingState as ConversationRoutingState | undefined;
+
+        if (!conversation || routingState?.routingStatus === "AWAITING_INTENT") {
+          if (!conversation) {
+            conversation = await this.prisma.conversation.create({
+              data: { organizationId: message.organizationId, pluginInstallationId: channel.pluginInstallationId, channelConnectionId: channel.id, externalUserId, title: externalUserId, metadata: { routingState: { routingStatus: "AWAITING_INTENT", selectedEmployeeId: null, detectedIntent: null, routingConfidence: 0, routedAt: null, lastRoutedAt: null, clarificationCount: 0 } } }
+            });
+          }
+          if (this.employeeRouter.isGreeting(message.body)) {
+            routingResponseText = this.employeeRouter.buildReceptionistGreeting(channel);
+            conversationId = conversation.id;
+          } else {
+            const routeResult = await this.employeeRouter.route(message.body, message.organizationId, channel, routingState ?? null);
+            if (routeResult.decision.status === "ROUTED" && routeResult.decision.employeeInstallationId) {
+              agentId = routeResult.decision.employeeInstallationId;
+              conversationId = conversation.id;
+              await this.prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { metadata: { routingState: { routingStatus: "ROUTED", selectedEmployeeId: agentId, detectedIntent: routeResult.decision.detectedIntent ?? null, routingConfidence: routeResult.decision.confidence, routedAt: new Date().toISOString(), lastRoutedAt: new Date().toISOString(), clarificationCount: (routingState?.clarificationCount ?? 0) } } }
+              });
+            } else {
+              routingResponseText = routeResult.responseText;
+              conversationId = conversation.id;
+            }
+          }
+        } else if (routingState?.routingStatus === "ROUTED" && routingState.selectedEmployeeId) {
+          agentId = routingState.selectedEmployeeId;
+          conversationId = conversation.id;
         }
-      });
+      }
+
+      const channelContact = channel.provider === "META_CLOUD_API" ? {
+        channel: "WHATSAPP" as const, provider: "META_CLOUD_API",
+        senderPhoneNumber: externalUserId, senderWhatsAppId: externalUserId,
+        verificationSource: "PROVIDER" as const, verified: true as const,
+        channelConnectionId: channel.id, organizationId: message.organizationId
+      } as ChannelContact : undefined;
+
+      let result: { conversationId: string; executionId: string; response: string } | null = null;
+      let responseText = routingResponseText ?? "";
+      if (!routingResponseText) {
+        const ackEnabled = channel.routingMode === "INTENT_ROUTER" && channel.processingAcknowledgementEnabled !== false && channel.processingAcknowledgementMode !== "DISABLED";
+        if (ackEnabled) {
+          const ackMsg = channel.processingAcknowledgementMessage ?? DEFAULT_ACKNOWLEDGEMENT_MESSAGE;
+          await this.prisma.channelMessage.create({ data: { organizationId: message.organizationId, channelConnectionId: channel.id, conversationId: conversationId ?? null, provider: channel.provider, direction: ChannelMessageDirection.OUTBOUND, status: ChannelMessageStatus.SENT, fromAddress: channel.displayPhoneNumber ?? channel.phoneNumberId ?? "", toAddress: message.fromAddress, body: ackMsg } as unknown as Prisma.ChannelMessageCreateInput });
+          await this.sendOutbound(channel as Parameters<typeof this.sendOutbound>[0], { id: `ack-${message.id}`, toAddress: message.fromAddress, body: ackMsg, provider: channel.provider } as Parameters<typeof this.sendOutbound>[1]);
+        }
+        try {
+          result = await this.agents.execute(Object.assign({ organizationId: message.organizationId, agentId, actor: { type: "CHANNEL" as const, channelConnectionId: channel.id, externalUserId }, text: message.body, source: { type: "CHANNEL" as const, channelId: channel.id, externalUserId }, requestId: message.id, metadata: { channelMessageId: message.id } }, conversationId ? { conversationId } : {}, channelContact ? { channelContact } : {}) as AgentExecutionInput);
+          responseText = result?.response ?? "";
+        } catch {
+          responseText = DEFAULT_FAILURE_MESSAGE;
+        }
+        if (ackEnabled && !responseText) responseText = DEFAULT_FAILURE_MESSAGE;
+      }
+      const resolvedConversationId = result?.conversationId ?? conversationId;
+      const agentExecutionId = result?.executionId;
+
+      const updateData: Record<string, unknown> = {};
+      if (resolvedConversationId) updateData.conversationId = resolvedConversationId;
+      if (agentExecutionId) updateData.agentExecutionId = agentExecutionId;
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.channelMessage.update({ where: { id: message.id }, data: updateData as unknown as Prisma.ChannelMessageUpdateInput });
+      }
+      const isMeta = channel.provider === "META_CLOUD_API";
+      const outboundData: Prisma.ChannelMessageCreateInput = {
+        organizationId: message.organizationId,
+        channelConnectionId: channel.id,
+        provider: isMeta ? "META_CLOUD_API" : "TWILIO",
+        direction: ChannelMessageDirection.OUTBOUND,
+        status: ChannelMessageStatus.PROCESSING,
+        fromAddress: isMeta ? (channel.displayPhoneNumber ?? channel.phoneNumberId ?? "") : normalizeWhatsAppAddress((channel.configuration as Record<string, unknown>)?.fromNumber as string ?? "").address,
+        toAddress: message.fromAddress,
+        body: responseText,
+        ...(resolvedConversationId ? { conversationId: resolvedConversationId } : {}),
+        ...(agentExecutionId ? { agentExecutionId } : {})
+      } as unknown as Prisma.ChannelMessageCreateInput;
+      const outbound = await this.prisma.channelMessage.create({ data: outboundData });
       const delivered = await this.sendOutbound(channel, outbound);
       await this.prisma.channelMessage.update({
         where: { id: message.id },
@@ -222,56 +286,89 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     await this.sendOutbound(channel, message);
   }
 
-  /** Sends (or resends) an outbound row via Twilio and persists the delivery/failure outcome. */
+  /** Sends (or resends) an outbound row and persists the delivery/failure outcome. Supports both Twilio
+   *  and Meta Cloud API providers. */
   private async sendOutbound(
+    channel: { id: string; configuration: unknown; encryptedSecrets: unknown; provider?: string; phoneNumberId?: string | null; displayPhoneNumber?: string | null },
+    outbound: ChannelMessage
+  ): Promise<boolean> {
+    const provider = channel.provider ?? "TWILIO";
+    if (provider === "META_CLOUD_API") return this.sendViaMeta(channel, outbound);
+    return this.sendViaTwilio(channel, outbound);
+  }
+
+  private async sendViaTwilio(
     channel: { id: string; configuration: unknown; encryptedSecrets: unknown },
     outbound: ChannelMessage
   ): Promise<boolean> {
     const configuration = (channel.configuration ?? {}) as { accountSid?: string; fromNumber?: string };
     const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
     if (!configuration.accountSid || !configuration.fromNumber || !secrets.authToken) {
-      await this.prisma.channelMessage.update({
-        where: { id: outbound.id },
-        data: {
-          status: ChannelMessageStatus.FAILED,
-          errorCode: "CHANNEL_CREDENTIALS_REQUIRED",
-          nextAttemptAt: null
-        }
-      });
+      await this.failOutbound(outbound, "CHANNEL_CREDENTIALS_REQUIRED");
       return false;
     }
     try {
       const sent = await this.twilio.sendWhatsAppMessage({
-        accountSid: configuration.accountSid,
-        authToken: secrets.authToken,
-        from: configuration.fromNumber,
-        to: outbound.toAddress,
-        body: outbound.body ?? ""
+        accountSid: configuration.accountSid, authToken: secrets.authToken,
+        from: configuration.fromNumber, to: outbound.toAddress, body: outbound.body ?? ""
       });
-      await this.prisma.channelMessage.update({
-        where: { id: outbound.id },
-        data: {
-          status: ChannelMessageStatus.SENT,
-          providerMessageSid: sent.providerMessageSid,
-          sentAt: new Date()
-        }
-      });
+      await this.markSent(outbound, sent.providerMessageSid);
       return true;
     } catch (error) {
       const code = error instanceof TwilioProviderError ? error.code : "CHANNEL_PROVIDER_UNAVAILABLE";
-      const attempts = outbound.processingAttempts;
-      const retryable = attempts < MAX_ATTEMPTS;
-      await this.prisma.channelMessage.update({
-        where: { id: outbound.id },
-        data: {
-          status: ChannelMessageStatus.FAILED,
-          errorCode: code,
-          errorMessage: "Outbound WhatsApp delivery failed",
-          nextAttemptAt: retryable ? backoff(attempts) : null
-        }
-      });
+      await this.failOrRetry(outbound, code);
       return false;
     }
+  }
+
+  private async sendViaMeta(
+    channel: { id: string; encryptedSecrets: unknown; phoneNumberId?: string | null },
+    outbound: ChannelMessage
+  ): Promise<boolean> {
+    const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
+    const accessToken = secrets.accessToken;
+    const phoneNumberId = channel.phoneNumberId;
+    if (!accessToken || !phoneNumberId) {
+      await this.failOutbound(outbound, "META_CREDENTIALS_REQUIRED");
+      return false;
+    }
+    try {
+      const result = await sendMetaWhatsAppText({
+        phoneNumberId, accessToken, to: outbound.toAddress, text: outbound.body ?? ""
+      });
+      await this.markSent(outbound, result.providerMessageId);
+      return true;
+    } catch {
+      await this.failOrRetry(outbound, "META_SEND_FAILED");
+      return false;
+    }
+  }
+
+  private async markSent(outbound: ChannelMessage, providerMessageSid: string): Promise<void> {
+    await this.prisma.channelMessage.update({
+      where: { id: outbound.id },
+      data: { status: ChannelMessageStatus.SENT, providerMessageSid, sentAt: new Date() }
+    });
+  }
+
+  private async failOutbound(outbound: ChannelMessage, errorCode: string): Promise<void> {
+    await this.prisma.channelMessage.update({
+      where: { id: outbound.id },
+      data: { status: ChannelMessageStatus.FAILED, errorCode, nextAttemptAt: null }
+    });
+  }
+
+  private async failOrRetry(outbound: ChannelMessage, errorCode: string): Promise<void> {
+    const attempts = outbound.processingAttempts;
+    const retryable = attempts < MAX_ATTEMPTS;
+    await this.prisma.channelMessage.update({
+      where: { id: outbound.id },
+      data: {
+        status: ChannelMessageStatus.FAILED, errorCode,
+        errorMessage: "Outbound WhatsApp delivery failed",
+        nextAttemptAt: retryable ? backoff(attempts) : null
+      }
+    });
   }
 
   private async retryOrFailInbound(message: ChannelMessage, code: string): Promise<void> {

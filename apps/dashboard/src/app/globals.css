@@ -1,22 +1,163 @@
+/* Tailwind, imported WITHOUT its preflight/base-reset layer (theme + utilities only) — the merged-in
+   marketing pages (src/app/(marketing)/*, src/marketing/*) use Tailwind utility classes, but the
+   dashboard's own existing pages rely on plain CSS with their own reset below (`* { box-sizing:
+   border-box }`, `body { margin: 0 }`, ...). Importing Tailwind's preflight on top of that would silently
+   restyle every existing dashboard/auth page (e.g. resetting heading font sizes) — see
+   node_modules/tailwindcss/preflight.css for what would otherwise apply globally.
+
+   Deliberately NOT using `layer(theme)`/`layer(utilities)` on these imports: an explicit
+   `@layer theme, base, utilities;` order-declaration was tried here to make our own plain CSS lose to
+   Tailwind utilities (matching normal specificity expectations — a class like `.text-white` should beat
+   an element selector like `a { color: inherit }`), but Next/Turbopack's CSS pipeline silently dropped
+   that bare `@layer` statement, leaving `base` (first encountered later in the file) ranked ABOVE
+   `utilities` — the opposite of what's needed, since any unlayered-vs-layered or wrongly-ordered-layer
+   rule always wins regardless of specificity. Importing both plainly (no layer at all) sidesteps the
+   whole layer-ordering question: it makes Tailwind's classes ordinary CSS rules again, so real
+   specificity (a class beats a bare element selector) decides, which is what every one of these
+   utility classes was written assuming. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
 :root {
   color-scheme: light;
-  --background: #eef3fa;
-  --background-2: #f7f9fd;
+  /* Brand palette shared with the marketing site (see Marketing App/app/globals.css) — same royal blue,
+     saffron accent, ivory background and ink text, so the dashboard reads as a continuation of the same
+     product after login, not a different one. Structural tokens (spacing, radii, shadows shape) are
+     unchanged; only the color values themselves move to the shared brand. */
+  --background: #fdf7ec;
+  --background-2: #fbeed7;
   --surface: rgba(255, 255, 255, 0.9);
   --surface-strong: #ffffff;
-  --surface-soft: #f4f7fc;
-  --foreground: #0f172a;
-  --muted: #5b6577;
-  --border: rgba(92, 109, 140, 0.18);
-  --border-strong: rgba(92, 109, 140, 0.28);
-  --shadow: 0 24px 80px rgba(15, 23, 42, 0.12);
-  --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.08);
-  --primary: #1d4ed8;
-  --primary-strong: #163bb6;
-  --primary-soft: #dce8ff;
-  --success: #0f9d58;
-  --warning: #b7791f;
-  --danger: #c2410c;
+  --surface-soft: #f7f1e3;
+  --foreground: #102247;
+  --muted: #586780;
+  --border: rgba(88, 103, 128, 0.18);
+  --border-strong: rgba(88, 103, 128, 0.28);
+  --shadow: 0 24px 80px rgba(16, 34, 71, 0.14);
+  --shadow-soft: 0 10px 30px rgba(16, 34, 71, 0.1);
+  --primary: #062b73;
+  --primary-strong: #031b46;
+  --primary-soft: #e3e8f2;
+  --accent: #f28c00;
+  --accent-strong: #d97b00;
+  --success: #1baa63;
+  --warning: #a15c00;
+  --danger: #b02a37;
+
+  /* Same brand token names the ported marketing components/Tailwind utilities expect (bg-royal,
+     text-ink, rounded-card, ...) — see Marketing App/app/globals.css. Values match --primary/--background/
+     etc above exactly; kept as separate names only because the marketing codebase's Tailwind classes
+     reference them directly. */
+  --brand-royal: #062b73;
+  --brand-navy: #031b46;
+  --brand-saffron: #f28c00;
+  --brand-gold: #f5b942;
+  --brand-ivory: #fdf7ec;
+  --brand-cream: #fbeed7;
+  --brand-white: #ffffff;
+  --brand-ink: #102247;
+  --brand-muted: #586780;
+  --brand-success: #1baa63;
+}
+
+@theme inline {
+  --radius-card: 18px;
+  --radius-modal: 24px;
+
+  --color-royal: var(--brand-royal);
+  --color-navy: var(--brand-navy);
+  --color-saffron: var(--brand-saffron);
+  --color-gold: var(--brand-gold);
+  --color-ivory: var(--brand-ivory);
+  --color-cream: var(--brand-cream);
+  --color-ink: var(--brand-ink);
+  --color-muted: var(--brand-muted);
+  --color-success: var(--brand-success);
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-poppins);
+
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.08);
+  --shadow-gold: 0 8px 30px rgba(242, 140, 0, 0.18);
+
+  --shadow-soft: var(--shadow-sm);
+  --shadow-card: var(--shadow-md);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-fade-in: fade-in 0.6s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.7s ease-out both;
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Used only by ported marketing components (HeritageWatermark, focus-visible rings on public pages). */
+.watermark-mandala {
+  background-image: radial-gradient(circle at 1px 1px, rgba(6, 43, 115, 0.12) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+::selection {
+  background: var(--brand-saffron);
+  color: var(--brand-white);
+}
+
+.focus-ring {
+  outline: none;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid var(--brand-saffron);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Marketing pages ((marketing)/layout.tsx's ".marketing-shell" wrapper) were authored assuming
+   Tailwind's preflight strips native <button>/<select> chrome — but preflight is deliberately NOT
+   imported above (see the Tailwind import note) so it never touches the dashboard's own existing pages.
+   This reimplements just that one piece of preflight, scoped to marketing pages only, via :where() so it
+   always loses to a real utility class (e.g. bg-royal) on the same element — exactly how preflight
+   itself behaves, just scoped instead of global. Without this, every unstyled nav/menu <button> renders
+   with the browser's native grey button chrome instead of blending into its container.
+   See: node_modules/tailwindcss/preflight.css. */
+:where(.marketing-shell button, .marketing-shell select) {
+  appearance: none;
+  background-color: transparent;
+  background-image: none;
+  border-width: 0;
+  border-style: solid;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: none;
+  cursor: pointer;
 }
 
 * {
@@ -37,10 +178,11 @@ body {
   margin: 0;
   color: var(--foreground);
   background:
-    radial-gradient(circle at top left, rgba(29, 78, 216, 0.16), transparent 36%),
-    radial-gradient(circle at bottom right, rgba(15, 157, 88, 0.12), transparent 30%),
+    radial-gradient(circle at top left, rgba(6, 43, 115, 0.14), transparent 36%),
+    radial-gradient(circle at bottom right, rgba(242, 140, 0, 0.1), transparent 30%),
     linear-gradient(180deg, var(--background), var(--background-2));
   font-family:
+    var(--font-inter),
     Inter,
     ui-sans-serif,
     system-ui,
@@ -48,6 +190,14 @@ body {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+}
+
+h1,
+h2,
+h3,
+h4,
+.font-display {
+  font-family: var(--font-poppins), var(--font-inter), Inter, ui-sans-serif, sans-serif;
 }
 
 a {
@@ -87,7 +237,7 @@ button {
   place-items: center;
   padding: 32px;
   background:
-    linear-gradient(110deg, rgba(3, 12, 32, 0.28), rgba(6, 20, 52, 0.05)),
+    linear-gradient(110deg, rgba(3, 27, 70, 0.3), rgba(3, 27, 70, 0.06)),
     url("/images/ai-network-background.png") center / cover no-repeat;
 }
 
@@ -97,8 +247,8 @@ button {
   z-index: -1;
   inset: 0;
   background:
-    radial-gradient(circle at 20% 30%, rgba(37, 99, 235, 0.16), transparent 34%),
-    linear-gradient(90deg, rgba(238, 243, 250, 0.78), rgba(238, 243, 250, 0.4));
+    radial-gradient(circle at 20% 30%, rgba(6, 43, 115, 0.18), transparent 34%),
+    linear-gradient(90deg, rgba(253, 247, 236, 0.78), rgba(253, 247, 236, 0.4));
   backdrop-filter: blur(1px);
 }
 
@@ -125,7 +275,7 @@ button {
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 28px;
   background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 28px 90px rgba(3, 12, 32, 0.26);
+  box-shadow: 0 28px 90px rgba(3, 27, 70, 0.26);
   backdrop-filter: blur(22px) saturate(135%);
 }
 
@@ -134,7 +284,7 @@ button {
   position: absolute;
   inset: 0 0 auto;
   height: 4px;
-  background: linear-gradient(90deg, #2563eb, #22d3ee, #0f766e);
+  background: linear-gradient(90deg, var(--primary), var(--accent));
 }
 
 .auth-card--wide {
@@ -226,7 +376,7 @@ button {
 }
 
 .password-requirements .is-met {
-  color: var(--success, #15803d);
+  color: var(--success, #1baa63);
 }
 
 .ui-label {
@@ -250,8 +400,8 @@ button {
 }
 
 .ui-input:focus {
-  border-color: rgba(29, 78, 216, 0.65);
-  box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.12);
+  border-color: rgba(6, 43, 115, 0.65);
+  box-shadow: 0 0 0 4px rgba(6, 43, 115, 0.12);
 }
 
 .ui-input:disabled {
@@ -482,7 +632,7 @@ button {
 .ui-button--primary {
   color: white;
   background: linear-gradient(135deg, var(--primary), var(--primary-strong));
-  box-shadow: 0 14px 34px rgba(29, 78, 216, 0.24);
+  box-shadow: 0 14px 34px rgba(6, 43, 115, 0.24);
 }
 
 .ui-button--secondary {
@@ -499,7 +649,7 @@ button {
 
 .ui-button--danger {
   color: white;
-  background: linear-gradient(135deg, #e11d48, #c2410c);
+  background: linear-gradient(135deg, var(--danger), #7a1c26);
 }
 
 .ui-spinner {
@@ -543,17 +693,17 @@ button {
 
 .ui-badge--success {
   color: var(--success);
-  background: rgba(15, 157, 88, 0.12);
+  background: rgba(27, 170, 99, 0.12);
 }
 
 .ui-badge--warning {
   color: var(--warning);
-  background: rgba(183, 121, 31, 0.12);
+  background: rgba(161, 92, 0, 0.12);
 }
 
 .ui-badge--danger {
   color: var(--danger);
-  background: rgba(194, 65, 12, 0.12);
+  background: rgba(176, 42, 55, 0.12);
 }
 
 .ui-avatar {
@@ -563,7 +713,7 @@ button {
   place-items: center;
   border-radius: 50%;
   color: white;
-  background: linear-gradient(135deg, var(--primary), #0f766e);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
   font-weight: 800;
   letter-spacing: 0.04em;
 }
@@ -605,7 +755,7 @@ button {
 }
 
 .ui-alert--success {
-  border-color: rgba(15, 157, 88, 0.2);
+  border-color: rgba(27, 170, 99, 0.2);
   background: rgba(240, 253, 244, 0.95);
 }
 
@@ -813,8 +963,8 @@ button {
   z-index: -1;
   inset: 0;
   background:
-    radial-gradient(circle at 92% 8%, rgba(37, 99, 235, 0.15), transparent 28%),
-    radial-gradient(circle at 74% 92%, rgba(15, 118, 110, 0.1), transparent 32%);
+    radial-gradient(circle at 92% 8%, rgba(6, 43, 115, 0.15), transparent 28%),
+    radial-gradient(circle at 74% 92%, rgba(242, 140, 0, 0.1), transparent 32%);
   pointer-events: none;
 }
 
@@ -822,9 +972,11 @@ button {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
-  border-right: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.78);
+  border-right: 1px solid var(--primary-strong);
+  background: linear-gradient(160deg, rgba(6, 43, 115, 0.97), rgba(3, 27, 70, 0.98));
   backdrop-filter: blur(18px);
   display: grid;
   align-content: start;
@@ -838,8 +990,32 @@ button {
   gap: 12px;
 }
 
+.dashboard-sidebar__brand-link {
+  display: block;
+  border-radius: 10px;
+  transition: opacity 160ms ease;
+}
+
+.dashboard-sidebar__brand-link:hover {
+  opacity: 0.85;
+}
+
 .dashboard-sidebar__brand h2 {
   font-size: 1.2rem;
+  color: #ffffff;
+}
+
+/* Brand-consistent (navy sidebar) overrides of the shared eyebrow/ghost-button rules above — scoped to
+   .dashboard-sidebar so nothing outside the sidebar (auth screens, page headers, summary cards, the
+   topbar's own ghost menu button, ...) changes. Deliberately NOT overriding .dashboard-sidebar__meta:
+   unlike the eyebrow (used directly on the navy background, in the brand block), .dashboard-sidebar__meta
+   is only ever used inside .dashboard-sidebar__status — a light Card floating on the navy background —
+   so it must keep its normal muted-dark color; a white override here would be white-on-white. */
+.dashboard-sidebar .dashboard-sidebar__eyebrow {
+  color: var(--accent);
+}
+.dashboard-sidebar .ui-button--ghost {
+  color: #ffffff;
 }
 
 .dashboard-sidebar__close,
@@ -858,7 +1034,7 @@ button {
   border-radius: 14px;
   display: flex;
   align-items: center;
-  color: var(--muted);
+  color: rgba(255, 255, 255, 0.72);
   font-weight: 700;
   transition:
     background-color 160ms ease,
@@ -866,13 +1042,17 @@ button {
 }
 
 .dashboard-nav__item:hover {
-  background: rgba(29, 78, 216, 0.08);
-  color: var(--foreground);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 .dashboard-nav__item--active {
-  color: var(--primary);
-  background: rgba(29, 78, 216, 0.12);
+  color: var(--accent);
+  background: rgba(242, 140, 0, 0.16);
+}
+
+.dashboard-nav__section {
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .dashboard-sidebar__status {
@@ -884,7 +1064,58 @@ button {
 .dashboard-main {
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
+}
+
+/* Thin ribbon above the existing topbar — its one job is a way back to the public website while
+   inside the authenticated app; deliberately not a copy of PublicHeader's full mega-menu nav. */
+.dashboard-ribbon {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 40px;
+  padding: 0 28px;
+  background: linear-gradient(90deg, var(--primary), var(--primary-strong));
+  border-bottom: 2px solid var(--accent);
+}
+
+.dashboard-ribbon__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.dashboard-ribbon__links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.dashboard-ribbon__links a {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.dashboard-ribbon__links a:hover {
+  color: #ffffff;
+}
+
+.dashboard-ribbon__links a.dashboard-ribbon__home {
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--accent);
+  color: #ffffff;
+}
+
+.dashboard-ribbon__home:hover {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .dashboard-topbar {
@@ -940,7 +1171,7 @@ button {
 
 .dashboard-user-menu a:hover,
 .dashboard-user-menu button:hover {
-  background: rgba(29, 78, 216, 0.08);
+  background: rgba(6, 43, 115, 0.08);
 }
 
 .dashboard-user-menu__logout {
@@ -952,6 +1183,32 @@ button {
   padding: 24px 28px 32px;
   display: grid;
   gap: 20px;
+}
+
+.dashboard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 28px;
+  background: linear-gradient(160deg, rgba(6, 43, 115, 0.97), rgba(3, 27, 70, 0.98));
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.82rem;
+}
+
+.dashboard-footer a {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
+.dashboard-footer a:hover {
+  color: #ffffff;
+}
+
+.dashboard-footer__links {
+  display: flex;
+  gap: 18px;
 }
 
 .dashboard-home {
@@ -970,7 +1227,7 @@ button {
   width: 360px;
   height: 360px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.14), transparent 68%);
+  background: radial-gradient(circle, rgba(6, 43, 115, 0.14), transparent 68%);
   pointer-events: none;
 }
 
@@ -982,9 +1239,9 @@ button {
   border-radius: 28px;
   color: #ffffff;
   background:
-    radial-gradient(circle at 88% 18%, rgba(96, 165, 250, 0.34), transparent 24%),
-    linear-gradient(135deg, #0b1736 0%, #173f9c 58%, #0f766e 135%);
-  box-shadow: 0 24px 60px rgba(15, 41, 97, 0.24);
+    radial-gradient(circle at 88% 18%, rgba(245, 185, 66, 0.3), transparent 24%),
+    linear-gradient(135deg, #031b46 0%, #062b73 58%, #f28c00 135%);
+  box-shadow: 0 24px 60px rgba(3, 27, 70, 0.28);
 }
 
 .dashboard-home > .ui-page-header::after {
@@ -1045,7 +1302,7 @@ button {
   height: 5px;
   border-radius: 999px;
   background: var(--card-accent, var(--primary));
-  box-shadow: 0 0 24px var(--card-glow, rgba(29, 78, 216, 0.28));
+  box-shadow: 0 0 24px var(--card-glow, rgba(6, 43, 115, 0.28));
 }
 
 .dashboard-home .ui-summary-card::after {
@@ -1056,7 +1313,7 @@ button {
   width: 128px;
   height: 128px;
   border-radius: 50%;
-  background: var(--card-wash, rgba(29, 78, 216, 0.08));
+  background: var(--card-wash, rgba(6, 43, 115, 0.08));
 }
 
 .dashboard-home .ui-summary-card:nth-child(2) {
@@ -1066,20 +1323,20 @@ button {
 }
 
 .dashboard-home .ui-summary-card:nth-child(3) {
-  --card-accent: #0f9d58;
-  --card-glow: rgba(15, 157, 88, 0.26);
-  --card-wash: rgba(15, 157, 88, 0.09);
+  --card-accent: var(--success);
+  --card-glow: rgba(27, 170, 99, 0.26);
+  --card-wash: rgba(27, 170, 99, 0.09);
 }
 
 .dashboard-home .ui-summary-card:nth-child(4) {
-  --card-accent: #ea580c;
-  --card-glow: rgba(234, 88, 12, 0.24);
-  --card-wash: rgba(234, 88, 12, 0.09);
+  --card-accent: var(--accent);
+  --card-glow: rgba(242, 140, 0, 0.24);
+  --card-wash: rgba(242, 140, 0, 0.09);
 }
 
 .dashboard-home .ui-summary-card:hover {
   transform: translateY(-4px);
-  border-color: rgba(29, 78, 216, 0.2);
+  border-color: rgba(6, 43, 115, 0.2);
   box-shadow: 0 20px 45px rgba(15, 23, 42, 0.12);
 }
 
@@ -1134,7 +1391,7 @@ button {
 
 .dashboard-list a:hover {
   transform: translateX(3px);
-  background: rgba(29, 78, 216, 0.06);
+  background: rgba(6, 43, 115, 0.06);
 }
 
 .dashboard-status {
@@ -1168,7 +1425,7 @@ button {
 }
 
 .dashboard-home > .ui-card {
-  background: linear-gradient(120deg, rgba(29, 78, 216, 0.045), transparent 42%), var(--surface);
+  background: linear-gradient(120deg, rgba(6, 43, 115, 0.045), transparent 42%), var(--surface);
 }
 
 .dashboard-home > .ui-card > .ui-empty {
@@ -1304,7 +1561,7 @@ button {
   z-index: 50;
   max-width: min(420px, calc(100vw - 36px));
   padding: 16px 20px;
-  border: 1px solid rgba(15, 157, 88, 0.24);
+  border: 1px solid rgba(27, 170, 99, 0.24);
   border-radius: 16px;
   color: #0b6b3d;
   background: rgba(240, 253, 244, 0.96);
@@ -1378,6 +1635,18 @@ button {
 @media (max-width: 960px) {
   .dashboard-shell {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-ribbon {
+    padding: 0 18px;
+  }
+
+  .dashboard-ribbon__brand span {
+    display: none;
+  }
+
+  .dashboard-ribbon__links a:not(.dashboard-ribbon__home) {
+    display: none;
   }
 
   .dashboard-sidebar {
@@ -1582,6 +1851,37 @@ button {
   font-size: 0.85rem;
 }
 
+.chat-sources {
+  margin-top: 6px;
+}
+
+.chat-sources summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  list-style: none;
+}
+
+.chat-sources summary::-webkit-details-marker {
+  display: none;
+}
+
+.chat-sources summary::before {
+  content: "▸ ";
+}
+
+.chat-sources[open] summary::before {
+  content: "▾ ";
+}
+
+.chat-sources ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
 .itinerary {
   display: grid;
   gap: 12px;
@@ -1625,4 +1925,62 @@ button {
   margin: 0;
   font-size: 0.85rem;
   color: var(--muted);
+}
+
+.admin-flex {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.admin-page__error {
+  color: var(--danger);
+}
+.admin-stat-large {
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+/* ── Usage Overview ── */
+.usage-date-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.usage-date-filter .ui-input {
+  width: 170px;
+}
+.usage-charts-compact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.usage-chart {
+  margin-top: 10px;
+}
+.usage-chart--pie {
+  max-width: 340px;
+  margin: 0 auto;
+}
+.usage-token-legend {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+.usage-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+@media (max-width: 800px) {
+  .usage-charts-compact {
+    grid-template-columns: 1fr;
+  }
 }

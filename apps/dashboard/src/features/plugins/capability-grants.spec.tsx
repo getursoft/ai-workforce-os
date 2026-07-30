@@ -32,4 +32,21 @@ describe("Capability Grants", () => {
     expect(runtimeReady("ACTIVE", [])).toBe(false);
     expect(runtimeReady("DISABLED", ["MEMORY"])).toBe(false);
   });
+  it("deduplicates declared capabilities — duplicate CRM from permissions+capabilities renders once", () => {
+    const html = renderToStaticMarkup(
+      <CapabilityGrants
+        declared={["CRM", "MEMORY", "CRM", "travel.search"]}
+        granted={["CRM"]}
+        canManage
+        onChange={vi.fn()}
+      />
+    );
+    // Each capability renders exactly once — no duplicate keys
+    expect(html.match(/data-capability="CRM"/g)).toHaveLength(1);
+    expect(html.match(/data-capability="MEMORY"/g)).toHaveLength(1);
+    expect(html.match(/data-capability="travel.search"/g)).toHaveLength(1);
+    expect(html).toContain("CRM");
+    expect(html).toContain("MEMORY");
+    expect(html).toContain("travel.search");
+  });
 });

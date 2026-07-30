@@ -1,10 +1,12 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 enum OrganizationStatus {
@@ -118,6 +120,48 @@ enum AgentToolExecutionStatus {
   @@map("agent_tool_execution_status")
 }
 
+enum SkillExecutionStatus {
+  ACTIVE
+  WAITING_FOR_INPUT
+  READY
+  COMPLETED
+  CANCELLED
+  FAILED
+
+  @@map("skill_execution_status")
+}
+
+/// Stage 9B: reusable, typed pending-workflow persistence — the smallest general mechanism for a
+/// multi-turn business workflow that must resume before intent classification / RAG / capability
+/// routing. CONTACT_CAPTURE is the first (and, for this stage, only) workflow using it.
+enum WorkflowType {
+  CONTACT_CAPTURE
+  BOOKING_HANDOFF
+  TRIP_SUBMISSION
+
+  @@map("workflow_type")
+}
+
+enum WorkflowStatus {
+  ACTIVE
+  WAITING_FOR_INPUT
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("workflow_status")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+
+  @@map("approval_status")
+}
+
 enum AgentMemoryScope {
   USER
   CONVERSATION
@@ -125,6 +169,17 @@ enum AgentMemoryScope {
   ORGANIZATION
 
   @@map("agent_memory_scope")
+}
+
+/// How a customer was identified for a conversation. ANONYMOUS identities are never persisted as a
+/// CustomerProfile row — only PHONE/CRM_ID/PORTAL_USER (durable, cross-conversation identities) are.
+enum CustomerIdentityType {
+  PHONE
+  CRM_ID
+  PORTAL_USER
+  ANONYMOUS
+
+  @@map("customer_identity_type")
 }
 
 enum PluginAiProviderType {
@@ -238,6 +293,7 @@ enum KnowledgeDocumentStatus {
 
 enum ChannelProvider {
   TWILIO
+  META_CLOUD_API
 
   @@map("channel_provider")
 }
@@ -250,7 +306,11 @@ enum ChannelType {
 
 enum ChannelConnectionStatus {
   DRAFT
+  CONNECTING
+  CONNECTED
   ACTIVE
+  DEGRADED
+  FAILED
   DISABLED
 
   @@map("channel_connection_status")
@@ -272,38 +332,145 @@ enum ChannelMessageStatus {
   @@map("channel_message_status")
 }
 
+/// A lead's progress through human follow-up, set by staff — the Conversation Completion framework itself
+/// only ever creates a lead as NEW; it never advances status on its own.
+enum TravelLeadStatus {
+  NEW
+  CONTACTED
+  CONVERTED
+  CLOSED
+
+  @@map("travel_lead_status")
+}
+
+/// Whether the best-effort external CRM mirror (see `TravelLeadService.createInternalLead` /
+/// `AgentService.syncLeadToCrmBestEffort`) has run for this lead — purely observational. The internal
+/// `TravelLead` row is always created first and is never rolled back or blocked by this outcome.
+enum TravelLeadCrmSyncStatus {
+  /// No CRM connector was configured, or the sync attempt hasn't run yet.
+  PENDING
+  /// Mirrored to the external CRM successfully.
+  SYNCED
+  /// The CRM connector threw, timed out, or rejected the payload — logged, never customer-facing.
+  FAILED
+  /// No CRM tool is available for this organization — mirroring was never attempted.
+  SKIPPED
+
+  @@map("travel_lead_crm_sync_status")
+}
+
 model Organization {
-  id                     String                  @id @default(uuid()) @db.Uuid
-  name                   String                  @db.VarChar(120)
-  slug                   String                  @unique @db.VarChar(100)
-  status                 OrganizationStatus      @default(ACTIVE)
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
-  users                  User[]
-  settings               OrganizationSetting?
-  roles                  Role[]
-  invitations            Invitation[]
-  teams                  Team[]
-  serviceAccounts        ServiceAccount[]
-  plugins                Plugin[]
-  pluginConfigurations   PluginConfiguration[]
-  conversations          Conversation[]
-  agentExecutions        AgentExecution[]
-  agentToolExecutions    AgentToolExecution[]
-  agentMemories          AgentMemory[]
-  pluginAiConfigurations PluginAiConfiguration[]
-  connectorInstallations ConnectorInstallation[]
-  connectorExecutions    ConnectorExecution[]
-  connectorEvents        ConnectorEvent[]
-  connectorAuditEvents   ConnectorAuditEvent[]
-  dummyCrmLeads          DummyCrmLead[]
-  knowledgeDocuments     KnowledgeDocument[]
-  knowledgeChunks        KnowledgeChunk[]
-  channelConnections     ChannelConnection[]
-  channelMessages        ChannelMessage[]
+  id                           String                        @id @default(uuid()) @db.Uuid
+  name                         String                        @db.VarChar(120)
+  slug                         String                        @unique @db.VarChar(100)
+  status                       OrganizationStatus            @default(ACTIVE)
+  createdAt                    DateTime                      @default(now()) @map("created_at")
+  updatedAt                    DateTime                      @updatedAt @map("updated_at")
+  users                        User[]
+  settings                     OrganizationSetting?
+  roles                        Role[]
+  invitations                  Invitation[]
+  teams                        Team[]
+  serviceAccounts              ServiceAccount[]
+  plugins                      Plugin[]
+  pluginConfigurations         PluginConfiguration[]
+  conversations                Conversation[]
+  agentExecutions              AgentExecution[]
+  agentToolExecutions          AgentToolExecution[]
+  agentMemories                AgentMemory[]
+  pluginAiConfigurations       PluginAiConfiguration[]
+  connectorInstallations       ConnectorInstallation[]
+  connectorExecutions          ConnectorExecution[]
+  connectorEvents              ConnectorEvent[]
+  connectorAuditEvents         ConnectorAuditEvent[]
+  dummyCrmLeads                DummyCrmLead[]
+  knowledgeCollections         KnowledgeCollection[]
+  knowledgeDocuments           KnowledgeDocument[]
+  knowledgeChunks              KnowledgeChunk[]
+  channelConnections           ChannelConnection[]
+  channelMessages              ChannelMessage[]
   travelEmployeeConfigurations TravelEmployeeConfiguration[]
+  customerProfiles             CustomerProfile[]
+  travelLeads                  TravelLead[]
+  skillExecutions              SkillExecution[]
+  workflowExecutions           WorkflowExecution[]
+  approvalRequests             ApprovalRequest[]
+  employeeRoutingProfiles      EmployeeRoutingProfile[]
+  usageEvents                  UsageEvent[]
+  subscription                 OrganisationSubscription?
 
   @@map("organizations")
+}
+
+model SubscriptionPlan {
+  id                     String   @id @default(uuid()) @db.Uuid
+  code                   String   @unique @db.VarChar(40)
+  name                   String   @db.VarChar(120)
+  description            String   @db.VarChar(500)
+  monthlyCreditAllowance Int      @map("monthly_credit_allowance")
+  overageEnabled         Boolean  @default(false) @map("overage_enabled")
+  overageRateMicrosPerCredit Int  @default(0) @map("overage_rate_micros_per_credit")
+  activeEmployeeLimit    Int?     @map("active_employee_limit")
+  isActive               Boolean  @default(true) @map("is_active")
+  metadataJson           Json     @default("{}") @map("metadata_json")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
+  subscriptions          OrganisationSubscription[]
+
+  @@map("subscription_plans")
+}
+
+model OrganisationSubscription {
+  id                          String             @id @default(uuid()) @db.Uuid
+  organizationId              String             @unique @map("organization_id") @db.Uuid
+  planId                      String             @map("plan_id") @db.Uuid
+  status                      String             @default("ACTIVE") @db.VarChar(24)
+  billingCycleStart           DateTime           @map("billing_cycle_start")
+  billingCycleEnd             DateTime           @map("billing_cycle_end")
+  monthlyCreditAllowanceOverride Int?             @map("monthly_credit_allowance_override")
+  overageEnabledOverride      Boolean?            @map("overage_enabled_override")
+  hardLimitEnabled            Boolean?            @default(false) @map("hard_limit_enabled")
+  spendingCapCredits          Int?                @map("spending_cap_credits")
+  createdAt                   DateTime            @default(now()) @map("created_at")
+  updatedAt                   DateTime            @updatedAt @map("updated_at")
+  organization                Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan                        SubscriptionPlan    @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@map("organisation_subscriptions")
+}
+
+model UsageEvent {
+  id                   String   @id @default(uuid()) @db.Uuid
+  organizationId       String   @map("organization_id") @db.Uuid
+  pluginInstallationId String?  @map("plugin_installation_id") @db.Uuid
+  agentExecutionId     String?  @map("agent_execution_id") @db.Uuid
+  conversationId       String?  @map("conversation_id") @db.Uuid
+  provider             String?  @db.VarChar(80)
+  model                String?  @db.VarChar(120)
+  usageType            String   @map("usage_type") @db.VarChar(60)
+  capability           String?  @db.VarChar(60)
+  inputTokens          Int      @default(0) @map("input_tokens")
+  cachedInputTokens    Int      @default(0) @map("cached_input_tokens")
+  outputTokens         Int      @default(0) @map("output_tokens")
+  reasoningTokens      Int      @default(0) @map("reasoning_tokens")
+  totalTokens          Int      @default(0) @map("total_tokens")
+  providerCostMicros   Int?     @map("provider_cost_micros")
+  creditsConsumed      Int      @default(0) @map("credits_consumed")
+  billable             Boolean  @default(true)
+  status               String   @default("FINAL") @db.VarChar(20)
+  occurredAt           DateTime @map("occurred_at")
+  idempotencyKey       String   @unique @map("idempotency_key") @db.VarChar(300)
+  metadataJson         Json?    @map("metadata_json")
+  createdAt            DateTime @default(now()) @map("created_at")
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin?     @relation(fields: [pluginInstallationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, pluginInstallationId, occurredAt])
+  @@index([organizationId, capability, occurredAt])
+  @@index([organizationId, provider, model, occurredAt])
+  @@index([agentExecutionId])
+  @@map("usage_events")
 }
 
 model OrganizationSetting {
@@ -320,47 +487,71 @@ model OrganizationSetting {
 }
 
 model User {
-  id                            String                  @id @default(uuid()) @db.Uuid
-  organizationId                String                  @map("organization_id") @db.Uuid
-  firstName                     String                  @map("first_name") @db.VarChar(80)
-  lastName                      String?                 @map("last_name") @db.VarChar(80)
-  email                         String                  @db.VarChar(320)
-  normalizedEmail               String                  @unique @map("normalized_email") @db.VarChar(320)
-  passwordHash                  String                  @map("password_hash") @db.VarChar(255)
-  role                          LegacyUserRole
-  status                        UserStatus
-  lastLoginAt                   DateTime?               @map("last_login_at")
-  createdAt                     DateTime                @default(now()) @map("created_at")
-  updatedAt                     DateTime                @updatedAt @map("updated_at")
-  organization                  Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  sessions                      AuthenticationSession[]
-  userRoles                     UserRole[]
-  invitationsSent               Invitation[]            @relation("InvitationSender")
-  managedTeams                  Team[]                  @relation("TeamManager")
-  teamMemberships               TeamMember[]
-  serviceAccountsCreated        ServiceAccount[]        @relation("ServiceAccountCreator")
-  apiKeysCreated                ApiKey[]                @relation("ApiKeyCreator")
-  apiKeysRevoked                ApiKey[]                @relation("ApiKeyRevoker")
-  pluginConfigurationsUpdated   PluginConfiguration[]   @relation("PluginConfigurationUpdater")
-  conversationsCreated          Conversation[]
-  agentExecutions               AgentExecution[]
-  agentMemories                 AgentMemory[]
-  pluginAiConfigurationsUpdated PluginAiConfiguration[] @relation("PluginAiConfigurationUpdater")
-  connectorInstallationsCreated ConnectorInstallation[] @relation("ConnectorInstallationCreator")
-  connectorAuditEvents          ConnectorAuditEvent[]
-  knowledgeDocumentsUploaded    KnowledgeDocument[]     @relation("KnowledgeDocumentUploader")
-  channelConnectionsCreated     ChannelConnection[]     @relation("ChannelConnectionCreator")
+  id                                  String                        @id @default(uuid()) @db.Uuid
+  organizationId                      String                        @map("organization_id") @db.Uuid
+  firstName                           String                        @map("first_name") @db.VarChar(80)
+  lastName                            String?                       @map("last_name") @db.VarChar(80)
+  email                               String                        @db.VarChar(320)
+  normalizedEmail                     String                        @unique @map("normalized_email") @db.VarChar(320)
+  passwordHash                        String                        @map("password_hash") @db.VarChar(255)
+  role                                LegacyUserRole
+  status                              UserStatus
+  lastLoginAt                         DateTime?                     @map("last_login_at")
+  createdAt                           DateTime                      @default(now()) @map("created_at")
+  updatedAt                           DateTime                      @updatedAt @map("updated_at")
+  organization                        Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  sessions                            AuthenticationSession[]
+  userRoles                           UserRole[]
+  invitationsSent                     Invitation[]                  @relation("InvitationSender")
+  managedTeams                        Team[]                        @relation("TeamManager")
+  teamMemberships                     TeamMember[]
+  serviceAccountsCreated              ServiceAccount[]              @relation("ServiceAccountCreator")
+  apiKeysCreated                      ApiKey[]                      @relation("ApiKeyCreator")
+  apiKeysRevoked                      ApiKey[]                      @relation("ApiKeyRevoker")
+  pluginConfigurationsUpdated         PluginConfiguration[]         @relation("PluginConfigurationUpdater")
+  conversationsCreated                Conversation[]
+  agentExecutions                     AgentExecution[]
+  agentMemories                       AgentMemory[]
+  pluginAiConfigurationsUpdated       PluginAiConfiguration[]       @relation("PluginAiConfigurationUpdater")
+  connectorInstallationsCreated       ConnectorInstallation[]       @relation("ConnectorInstallationCreator")
+  connectorAuditEvents                ConnectorAuditEvent[]
+  knowledgeDocumentsUploaded          KnowledgeDocument[]           @relation("KnowledgeDocumentUploader")
+  channelConnectionsCreated           ChannelConnection[]           @relation("ChannelConnectionCreator")
   travelEmployeeConfigurationsCreated TravelEmployeeConfiguration[] @relation("TravelEmployeeConfigurationCreator")
-  deletedAt                     DateTime?               @map("deleted_at")
+  deletedAt                           DateTime?                     @map("deleted_at")
 
   @@index([organizationId])
   @@index([organizationId, status])
   @@map("users")
 }
 
+/// Owns a slice of an AI Employee's knowledge base. Every KnowledgeDocument belongs to exactly one
+/// collection, and every collection belongs to exactly one AI Employee (Plugin installation) within
+/// one organization — this is the scoping boundary retrieval must never cross (see KnowledgeChunk).
+model KnowledgeCollection {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @map("organization_id") @db.Uuid
+  pluginInstallationId String              @map("plugin_installation_id") @db.Uuid
+  name                 String              @db.VarChar(160)
+  description          String?             @db.VarChar(1000)
+  domain               String?             @db.VarChar(80)
+  isDefault            Boolean             @default(false) @map("is_default")
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  deletedAt            DateTime?           @map("deleted_at")
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin              @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  documents            KnowledgeDocument[]
+
+  @@unique([pluginInstallationId, name])
+  @@index([organizationId, pluginInstallationId, deletedAt])
+  @@map("knowledge_collections")
+}
+
 model KnowledgeDocument {
   id               String                  @id @default(uuid()) @db.Uuid
   organizationId   String                  @map("organization_id") @db.Uuid
+  collectionId     String                  @map("collection_id") @db.Uuid
   title            String                  @db.VarChar(200)
   originalFilename String                  @map("original_filename") @db.VarChar(255)
   mimeType         String                  @map("mime_type") @db.VarChar(160)
@@ -376,71 +567,92 @@ model KnowledgeDocument {
   updatedAt        DateTime                @updatedAt @map("updated_at")
   deletedAt        DateTime?               @map("deleted_at")
   organization     Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  collection       KnowledgeCollection     @relation(fields: [collectionId], references: [id], onDelete: Cascade)
   uploadedBy       User                    @relation("KnowledgeDocumentUploader", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
   chunks           KnowledgeChunk[]
 
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
   @@index([organizationId, deletedAt])
+  @@index([collectionId, status, deletedAt])
   @@map("knowledge_documents")
 }
 
 model KnowledgeChunk {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String            @map("organization_id") @db.Uuid
-  documentId     String            @map("document_id") @db.Uuid
-  chunkIndex     Int               @map("chunk_index")
-  content        String            @db.Text
-  tokenCount     Int               @map("token_count")
-  pageNumber     Int?              @map("page_number")
-  sectionTitle   String?           @map("section_title") @db.VarChar(255)
-  embeddingJson  Json?             @map("embedding_json")
-  embeddingModel String?           @map("embedding_model") @db.VarChar(160)
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
-  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document       KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  id                   String                       @id @default(uuid()) @db.Uuid
+  organizationId       String                       @map("organization_id") @db.Uuid
+  /// Denormalized from the parent document's collection so retrieval can filter by employee with a
+  /// single indexed predicate instead of joining through KnowledgeDocument -> KnowledgeCollection on
+  /// every search. This is the field that makes cross-employee retrieval structurally impossible.
+  pluginInstallationId String                       @map("plugin_installation_id") @db.Uuid
+  collectionId         String                       @map("collection_id") @db.Uuid
+  documentId           String                       @map("document_id") @db.Uuid
+  chunkIndex           Int                          @map("chunk_index")
+  content              String                       @db.Text
+  tokenCount           Int                          @map("token_count")
+  pageNumber           Int?                         @map("page_number")
+  heading              String?                      @map("heading") @db.VarChar(255)
+  sectionTitle         String?                      @map("section_title") @db.VarChar(255)
+  isTable              Boolean                      @default(false) @map("is_table")
+  metadata             Json                         @default("{}")
+  /// Fixed-width embedding (see docs/enterprise-knowledge.md "Embedding dimensionality") queried via
+  /// raw SQL — Prisma has no native vector type, so this column is written/read with $executeRaw /
+  /// $queryRaw using the pgvector `<=>` cosine-distance operator instead of the generated client.
+  embedding            Unsupported("vector(1536)")?
+  embeddingModel       String?                      @map("embedding_model") @db.VarChar(160)
+  embeddingDimensions  Int?                         @map("embedding_dimensions")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+  organization         Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document             KnowledgeDocument            @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@unique([documentId, chunkIndex])
   @@index([organizationId, documentId])
   @@index([organizationId, createdAt])
+  @@index([pluginInstallationId, collectionId])
   @@map("knowledge_chunks")
 }
 
 model Plugin {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  organizationId      String                 @map("organization_id") @db.Uuid
-  name                String                 @db.VarChar(120)
-  slug                String                 @db.VarChar(100)
-  version             String                 @db.VarChar(50)
-  displayName         String                 @map("display_name") @db.VarChar(160)
-  description         String                 @db.VarChar(1000)
-  author              String                 @db.VarChar(160)
-  status              PluginStatus           @default(DISABLED)
-  entryPoint          String                 @map("entry_point") @db.VarChar(120)
-  manifest            Json
-  configSchema        Json?                  @map("config_schema")
-  grantedPermissions  Json                   @default("[]") @map("granted_permissions")
-  installedAt         DateTime               @default(now()) @map("installed_at")
-  enabledAt           DateTime?              @map("enabled_at")
-  disabledAt          DateTime?              @map("disabled_at")
-  lastStartedAt       DateTime?              @map("last_started_at")
-  lastStoppedAt       DateTime?              @map("last_stopped_at")
-  lastHealthStatus    String?                @map("last_health_status") @db.VarChar(32)
-  lastHealthCheckedAt DateTime?              @map("last_health_checked_at")
-  lastErrorCode       String?                @map("last_error_code") @db.VarChar(100)
-  lastErrorMessage    String?                @map("last_error_message") @db.VarChar(500)
-  createdAt           DateTime               @default(now()) @map("created_at")
-  updatedAt           DateTime               @updatedAt @map("updated_at")
-  deletedAt           DateTime?              @map("deleted_at")
-  organization        Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  configuration       PluginConfiguration?
-  conversations       Conversation[]
-  agentExecutions     AgentExecution[]
-  agentMemories       AgentMemory[]
-  aiConfiguration     PluginAiConfiguration?
-  channelConnections  ChannelConnection[]
+  id                          String                       @id @default(uuid()) @db.Uuid
+  organizationId              String                       @map("organization_id") @db.Uuid
+  name                        String                       @db.VarChar(120)
+  slug                        String                       @db.VarChar(100)
+  version                     String                       @db.VarChar(50)
+  displayName                 String                       @map("display_name") @db.VarChar(160)
+  description                 String                       @db.VarChar(1000)
+  author                      String                       @db.VarChar(160)
+  status                      PluginStatus                 @default(DISABLED)
+  entryPoint                  String                       @map("entry_point") @db.VarChar(120)
+  manifest                    Json
+  configSchema                Json?                        @map("config_schema")
+  grantedPermissions          Json                         @default("[]") @map("granted_permissions")
+  installedAt                 DateTime                     @default(now()) @map("installed_at")
+  enabledAt                   DateTime?                    @map("enabled_at")
+  disabledAt                  DateTime?                    @map("disabled_at")
+  lastStartedAt               DateTime?                    @map("last_started_at")
+  lastStoppedAt               DateTime?                    @map("last_stopped_at")
+  lastHealthStatus            String?                      @map("last_health_status") @db.VarChar(32)
+  lastHealthCheckedAt         DateTime?                    @map("last_health_checked_at")
+  lastErrorCode               String?                      @map("last_error_code") @db.VarChar(100)
+  lastErrorMessage            String?                      @map("last_error_message") @db.VarChar(500)
+  createdAt                   DateTime                     @default(now()) @map("created_at")
+  updatedAt                   DateTime                     @updatedAt @map("updated_at")
+  deletedAt                   DateTime?                    @map("deleted_at")
+  organization                Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  configuration               PluginConfiguration?
+  conversations               Conversation[]
+  agentExecutions             AgentExecution[]
+  agentMemories               AgentMemory[]
+  aiConfiguration             PluginAiConfiguration?
+  channelConnections          ChannelConnection[]
+  knowledgeCollections        KnowledgeCollection[]
   travelEmployeeConfiguration TravelEmployeeConfiguration?
+  travelLeads                 TravelLead[]
+  skillExecutions             SkillExecution[]
+  workflowExecutions          WorkflowExecution[]
+  employeeRoutingProfile      EmployeeRoutingProfile?
+  usageEvents                 UsageEvent[]
 
   @@index([organizationId, slug])
   @@index([organizationId])
@@ -450,31 +662,67 @@ model Plugin {
 }
 
 model Conversation {
-  id                  String                @id @default(uuid()) @db.Uuid
-  organizationId      String                @map("organization_id") @db.Uuid
-  pluginInstallationId String               @map("plugin_installation_id") @db.Uuid
-  createdByUserId     String?               @map("created_by_user_id") @db.Uuid
-  channelConnectionId String?               @map("channel_connection_id") @db.Uuid
-  externalUserId      String?               @map("external_user_id") @db.VarChar(64)
-  title               String                @db.VarChar(160)
-  status              ConversationStatus    @default(ACTIVE)
-  metadata            Json                  @default("{}")
-  createdAt           DateTime              @default(now()) @map("created_at")
-  updatedAt           DateTime              @updatedAt @map("updated_at")
-  deletedAt           DateTime?             @map("deleted_at")
-  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pluginInstallation  Plugin                @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
-  createdBy           User?                 @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
-  channelConnection   ChannelConnection?    @relation(fields: [channelConnectionId], references: [id], onDelete: Cascade)
-  messages            ConversationMessage[]
-  executions          AgentExecution[]
-  memories            AgentMemory[]
-  channelMessages     ChannelMessage[]
+  id                   String                @id @default(uuid()) @db.Uuid
+  organizationId       String                @map("organization_id") @db.Uuid
+  pluginInstallationId String                @map("plugin_installation_id") @db.Uuid
+  createdByUserId      String?               @map("created_by_user_id") @db.Uuid
+  channelConnectionId  String?               @map("channel_connection_id") @db.Uuid
+  externalUserId       String?               @map("external_user_id") @db.VarChar(64)
+  /// The customer this conversation belongs to, resolved via the CustomerIdentityService. Null means
+  /// the customer identity was anonymous/unknown for this conversation (e.g. a fresh dashboard test run
+  /// or a first-contact visitor) — distinct from `createdByUserId`, which is the staff member who ran it.
+  customerProfileId    String?               @map("customer_profile_id") @db.Uuid
+  title                String                @db.VarChar(160)
+  status               ConversationStatus    @default(ACTIVE)
+  metadata             Json                  @default("{}")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  deletedAt            DateTime?             @map("deleted_at")
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin                @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  createdBy            User?                 @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  channelConnection    ChannelConnection?    @relation(fields: [channelConnectionId], references: [id], onDelete: Cascade)
+  customerProfile      CustomerProfile?      @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
+  messages             ConversationMessage[]
+  executions           AgentExecution[]
+  memories             AgentMemory[]
+  channelMessages      ChannelMessage[]
+  travelLeads          TravelLead[]
+  skillExecutions      SkillExecution[]
+  workflowExecutions   WorkflowExecution[]
 
   @@index([organizationId, status, updatedAt])
   @@index([organizationId, pluginInstallationId])
   @@index([organizationId, channelConnectionId, externalUserId, status])
+  @@index([organizationId, customerProfileId])
   @@map("conversations")
+}
+
+/// A customer's durable identity and profile — independent of any single Conversation. One customer
+/// (a WhatsApp phone number, a CRM record, or a future logged-in portal user) may have many
+/// conversations over time, each starting with a clean ConversationMemory/TripState, but all of them
+/// resolving back to this same profile so returning customers can be recognized ("Welcome back Krishna")
+/// without conversations leaking context into one another. Reusable by any AI Employee, not just Travel.
+model CustomerProfile {
+  id             String               @id @default(uuid()) @db.Uuid
+  organizationId String               @map("organization_id") @db.Uuid
+  identityType   CustomerIdentityType @map("identity_type")
+  /// The identity's natural key within its type: E.164 phone number for PHONE, CRM record id for
+  /// CRM_ID, portal user id for PORTAL_USER. Never populated for ANONYMOUS (those aren't persisted).
+  externalId     String               @map("external_id") @db.VarChar(160)
+  displayName    String?              @map("display_name") @db.VarChar(160)
+  preferences    Json                 @default("{}")
+  currency       String?              @db.VarChar(8)
+  language       String?              @db.VarChar(16)
+  createdAt      DateTime             @default(now()) @map("created_at")
+  updatedAt      DateTime             @updatedAt @map("updated_at")
+  deletedAt      DateTime?            @map("deleted_at")
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
+
+  @@unique([organizationId, identityType, externalId])
+  @@index([organizationId, identityType])
+  @@map("customer_profiles")
 }
 
 model ConversationMessage {
@@ -498,37 +746,134 @@ model ConversationMessage {
 }
 
 model AgentExecution {
-  id                   String               @id @default(uuid()) @db.Uuid
-  organizationId       String               @map("organization_id") @db.Uuid
-  conversationId       String               @map("conversation_id") @db.Uuid
-  pluginInstallationId String               @map("plugin_installation_id") @db.Uuid
-  userId               String?              @map("user_id") @db.Uuid
-  status               AgentExecutionStatus @default(QUEUED)
-  modelProvider        String?              @map("model_provider") @db.VarChar(80)
-  model                String?              @db.VarChar(120)
-  startedAt            DateTime?            @map("started_at")
-  completedAt          DateTime?            @map("completed_at")
-  latencyMs            Int?                 @map("latency_ms")
-  inputTokens          Int                  @default(0) @map("input_tokens")
-  outputTokens         Int                  @default(0) @map("output_tokens")
-  totalTokens          Int                  @default(0) @map("total_tokens")
-  estimatedCost        Decimal?             @map("estimated_cost") @db.Decimal(12, 6)
-  errorCode            String?              @map("error_code") @db.VarChar(100)
-  errorMessage         String?              @map("error_message") @db.VarChar(500)
-  requestId            String?              @map("request_id") @db.VarChar(100)
-  metadata             Json                 @default("{}")
-  createdAt            DateTime             @default(now()) @map("created_at")
-  updatedAt            DateTime             @updatedAt @map("updated_at")
-  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  pluginInstallation   Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
-  user                 User?                @relation(fields: [userId], references: [id], onDelete: Restrict)
-  toolExecutions       AgentToolExecution[]
+  id                        String               @id @default(uuid()) @db.Uuid
+  organizationId            String               @map("organization_id") @db.Uuid
+  conversationId            String               @map("conversation_id") @db.Uuid
+  pluginInstallationId      String               @map("plugin_installation_id") @db.Uuid
+  userId                    String?              @map("user_id") @db.Uuid
+  status                    AgentExecutionStatus @default(QUEUED)
+  modelProvider             String?              @map("model_provider") @db.VarChar(80)
+  model                     String?              @db.VarChar(120)
+  startedAt                 DateTime?            @map("started_at")
+  completedAt               DateTime?            @map("completed_at")
+  latencyMs                 Int?                 @map("latency_ms")
+  inputTokens               Int                  @default(0) @map("input_tokens")
+  outputTokens              Int                  @default(0) @map("output_tokens")
+  totalTokens               Int                  @default(0) @map("total_tokens")
+  estimatedCost             Decimal?             @map("estimated_cost") @db.Decimal(12, 6)
+  errorCode                 String?              @map("error_code") @db.VarChar(100)
+  errorMessage              String?              @map("error_message") @db.VarChar(500)
+  requestId                 String?              @map("request_id") @db.VarChar(100)
+  metadata                  Json                 @default("{}")
+  createdAt                 DateTime             @default(now()) @map("created_at")
+  updatedAt                 DateTime             @updatedAt @map("updated_at")
+  organization              Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation              Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  pluginInstallation        Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  user                      User?                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  toolExecutions            AgentToolExecution[]
+  originatedSkillExecutions SkillExecution[]     @relation("SkillExecutionOrigin")
+  latestSkillExecutions     SkillExecution[]     @relation("SkillExecutionLatest")
 
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
   @@index([conversationId])
   @@map("agent_executions")
+}
+
+/// Durable mirror of a multi-turn schema-driven skill lifecycle. During Phase 4 this row is strictly
+/// observational: AgentMemory["travel.trip_state"] and the legacy Travel runtime remain authoritative.
+model SkillExecution {
+  id                          String               @id @default(uuid()) @db.Uuid
+  organizationId              String               @map("organization_id") @db.Uuid
+  pluginInstallationId        String               @map("plugin_installation_id") @db.Uuid
+  conversationId              String               @map("conversation_id") @db.Uuid
+  skillId                     String               @map("skill_id") @db.VarChar(160)
+  skillVersion                String               @map("skill_version") @db.VarChar(50)
+  schemaVersion               Int                  @map("schema_version")
+  status                      SkillExecutionStatus @default(ACTIVE)
+  state                       Json
+  pendingInput                String?              @map("pending_input") @db.VarChar(100)
+  originatingAgentExecutionId String?              @map("originating_agent_execution_id") @db.Uuid
+  latestAgentExecutionId      String?              @map("latest_agent_execution_id") @db.Uuid
+  revision                    Int                  @default(0)
+  /// Stable request/turn identifiers already applied to this mirror, bounded by the persistence service.
+  processedTurnIds            Json                 @default("[]") @map("processed_turn_ids")
+  /// Non-null only while active; its unique constraint prevents two live executions for one scoped skill.
+  activeKey                   String?              @unique @map("active_key") @db.VarChar(500)
+  startedAt                   DateTime             @default(now()) @map("started_at")
+  completedAt                 DateTime?            @map("completed_at")
+  completionReason            String?              @map("completion_reason") @db.VarChar(160)
+  createdAt                   DateTime             @default(now()) @map("created_at")
+  updatedAt                   DateTime             @updatedAt @map("updated_at")
+  organization                Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation          Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  conversation                Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  originatingAgentExecution   AgentExecution?      @relation("SkillExecutionOrigin", fields: [originatingAgentExecutionId], references: [id], onDelete: SetNull)
+  latestAgentExecution        AgentExecution?      @relation("SkillExecutionLatest", fields: [latestAgentExecutionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, pluginInstallationId, conversationId, skillId])
+  @@index([organizationId, status, updatedAt])
+  @@index([conversationId, skillId, skillVersion])
+  @@map("skill_executions")
+}
+
+/// Stage 9B: the smallest tenant- and plugin-installation-scoped persistence for a pending, multi-turn
+/// business workflow (e.g. Contact Capture) that must resume before classification/RAG/capability
+/// routing. Mirrors SkillExecution's revision/activeKey/processedTurnIds conventions for optimistic
+/// locking, "one active workflow per conversation+type", and idempotent turn processing. Never stores
+/// raw provider prompts or secrets — `state` holds only the typed, workflow-specific structured fields.
+model WorkflowExecution {
+  id                   String         @id @default(uuid()) @db.Uuid
+  organizationId       String         @map("organization_id") @db.Uuid
+  pluginInstallationId String         @map("plugin_installation_id") @db.Uuid
+  conversationId       String         @map("conversation_id") @db.Uuid
+  workflowType         WorkflowType   @map("workflow_type")
+  status               WorkflowStatus @default(ACTIVE)
+  currentStep          String         @map("current_step") @db.VarChar(100)
+  pendingInput         String?        @map("pending_input") @db.VarChar(100)
+  state                Json
+  revision             Int            @default(0)
+  /// Stable request/turn identifiers already applied, bounded by the persistence service — idempotent
+  /// replay of the same turn never re-transitions the workflow.
+  processedTurnIds     Json           @default("[]") @map("processed_turn_ids")
+  /// Non-null only while active; its unique constraint enforces one active workflow per
+  /// organization+plugin installation+conversation+workflowType.
+  activeKey            String?        @unique @map("active_key") @db.VarChar(500)
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+  completedAt          DateTime?      @map("completed_at")
+  organization         Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin            @relation(fields: [pluginInstallationId], references: [id], onDelete: Restrict)
+  conversation         Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  approvalRequests     ApprovalRequest[]
+
+  @@index([organizationId, pluginInstallationId, conversationId, workflowType])
+  @@index([organizationId, status, updatedAt])
+  @@map("workflow_executions")
+}
+
+model ApprovalRequest {
+  id                 String         @id @default(uuid()) @db.Uuid
+  organizationId     String         @map("organization_id") @db.Uuid
+  workflowExecutionId String        @map("workflow_execution_id") @db.Uuid
+  agentId            String         @map("agent_id") @db.Uuid
+  requestedBy        String         @map("requested_by") @db.VarChar(200)
+  status             ApprovalStatus @default(PENDING)
+  title              String         @db.VarChar(300)
+  description        String         @db.Text
+  payload            Json           @default("{}")
+  comments           Json           @default("[]")
+  approvedAt         DateTime?      @map("approved_at")
+  approvedBy         String?        @map("approved_by") @db.VarChar(200)
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  organization       Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowExecution  WorkflowExecution @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([workflowExecutionId])
+  @@map("approval_requests")
 }
 
 model AgentToolExecution {
@@ -987,6 +1332,40 @@ model ChannelConnection {
   configuration        Json                    @default("{}")
   encryptedSecrets     Json                    @map("encrypted_secrets")
   secretMetadata       Json                    @default("{}") @map("secret_metadata")
+  /// Meta Cloud API: WhatsApp Business Account ID
+  whatsappBusinessAccountId String?             @map("whatsapp_business_account_id") @db.VarChar(100)
+  /// Meta Cloud API: phone number ID for this connection
+  phoneNumberId        String?                 @unique @map("phone_number_id") @db.VarChar(100)
+  /// Meta Cloud API: display phone number in E.164 format
+  displayPhoneNumber   String?                 @map("display_phone_number") @db.VarChar(24)
+  /// The plugin/employee this channel is assigned to
+  assignedAgentId      String?                 @map("assigned_agent_id") @db.Uuid
+  /// Meta Embedded Signup or manual
+  onboardingMode       String?                 @default("MANUAL") @map("onboarding_mode") @db.VarChar(24)
+  /// Token expiry timestamp for Meta access tokens
+  tokenExpiresAt       DateTime?               @map("token_expires_at")
+  /// When the last webhook was received
+  lastWebhookReceivedAt DateTime?              @map("last_webhook_received_at")
+  /// FIXED = single employee, INTENT_ROUTER = multi-employee receptionist
+  routingMode          String?                 @default("FIXED") @map("routing_mode") @db.VarChar(24)
+  /// Default employee for FIXED mode
+  defaultEmployeeId    String?                 @map("default_employee_id") @db.Uuid
+  /// Employees permitted for routing (JSON array of plugin IDs)
+  allowedEmployeeIds   Json                    @default("[]") @map("allowed_employee_ids")
+  /// Customisable receptionist greeting
+  receptionistGreeting String?                 @map("receptionist_greeting") @db.VarChar(500)
+  /// Customisable intent question
+  intentQuestion       String?                 @map("intent_question") @db.VarChar(500)
+  /// Message when request is out of scope
+  outOfScopeMessage    String?                 @map("out_of_scope_message") @db.VarChar(500)
+  /// Message when intent is unclear
+  ambiguousIntentMessage String?               @map("ambiguous_intent_message") @db.VarChar(500)
+  /// Send processing acknowledgement after successful routing
+  processingAcknowledgementEnabled Boolean?    @default(true) @map("processing_acknowledgement_enabled")
+  /// Custom processing acknowledgement text
+  processingAcknowledgementMessage String?     @map("processing_acknowledgement_message") @db.VarChar(500)
+  /// ALWAYS_AFTER_ROUTING, ONLY_FOR_SLOW_OPERATIONS, DISABLED
+  processingAcknowledgementMode String?        @default("ALWAYS_AFTER_ROUTING") @map("processing_acknowledgement_mode") @db.VarChar(32)
   lastTestedAt         DateTime?               @map("last_tested_at")
   lastTestStatus       String?                 @map("last_test_status") @db.VarChar(32)
   lastErrorCode        String?                 @map("last_error_code") @db.VarChar(100)
@@ -1003,6 +1382,7 @@ model ChannelConnection {
 
   @@index([organizationId, status, deletedAt])
   @@index([organizationId, provider, channelType])
+  @@index([organizationId, whatsappBusinessAccountId])
   @@map("channel_connections")
 }
 
@@ -1040,26 +1420,107 @@ model ChannelMessage {
   @@map("channel_messages")
 }
 
+model EmployeeRoutingProfile {
+  id                       String   @id @default(uuid()) @db.Uuid
+  organizationId           String   @map("organization_id") @db.Uuid
+  pluginInstallationId     String   @unique @map("plugin_installation_id") @db.Uuid
+  displayName              String   @map("display_name") @db.VarChar(160)
+  employeeType             String?  @map("employee_type") @db.VarChar(80)
+  summary                  String?  @db.VarChar(500)
+  supportedDomains         Json     @default("[]") @map("supported_domains")
+  supportedIntents         Json     @default("[]") @map("supported_intents")
+  exampleQueries           Json     @default("[]") @map("example_queries")
+  excludedIntents          Json     @default("[]") @map("excluded_intents")
+  routingKeywords          Json     @default("[]") @map("routing_keywords")
+  enabledForChannelRouting Boolean  @default(true) @map("enabled_for_channel_routing")
+  routingPriority          Int      @default(0) @map("routing_priority")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  organization             Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation       Plugin      @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, enabledForChannelRouting])
+  @@map("employee_routing_profiles")
+}
+
 model TravelEmployeeConfiguration {
-  id                     String    @id @default(uuid()) @db.Uuid
-  organizationId         String    @map("organization_id") @db.Uuid
-  pluginInstallationId   String    @unique @map("plugin_installation_id") @db.Uuid
-  persona                String    @default("") @db.VarChar(2000)
-  welcomeMessage         String    @default("Hi! I'm your AI travel assistant. Where would you like to travel to?") @map("welcome_message") @db.VarChar(1000)
-  businessHoursTimezone  String?   @map("business_hours_timezone") @db.VarChar(64)
-  businessHoursStart     String?   @map("business_hours_start") @db.VarChar(5)
-  businessHoursEnd       String?   @map("business_hours_end") @db.VarChar(5)
-  escalationContact      String    @default("") @map("escalation_contact") @db.VarChar(255)
-  brandTone              String    @default("FRIENDLY") @map("brand_tone") @db.VarChar(40)
-  defaultCurrency        String    @default("USD") @map("default_currency") @db.VarChar(3)
-  defaultLanguage        String    @default("en") @map("default_language") @db.VarChar(10)
-  createdByUserId        String?   @map("created_by_user_id") @db.Uuid
-  createdAt              DateTime  @default(now()) @map("created_at")
-  updatedAt              DateTime  @updatedAt @map("updated_at")
-  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pluginInstallation     Plugin       @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
-  createdBy               User?       @relation("TravelEmployeeConfigurationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  id                    String       @id @default(uuid()) @db.Uuid
+  organizationId        String       @map("organization_id") @db.Uuid
+  pluginInstallationId  String       @unique @map("plugin_installation_id") @db.Uuid
+  persona               String       @default("") @db.VarChar(2000)
+  welcomeMessage        String       @default("Hi! I'm your AI travel assistant. Where would you like to travel to?") @map("welcome_message") @db.VarChar(1000)
+  businessHoursTimezone String?      @map("business_hours_timezone") @db.VarChar(64)
+  businessHoursStart    String?      @map("business_hours_start") @db.VarChar(5)
+  businessHoursEnd      String?      @map("business_hours_end") @db.VarChar(5)
+  escalationContact     String       @default("") @map("escalation_contact") @db.VarChar(255)
+  brandTone             String       @default("FRIENDLY") @map("brand_tone") @db.VarChar(40)
+  defaultCurrency       String       @default("USD") @map("default_currency") @db.VarChar(3)
+  defaultLanguage       String       @default("en") @map("default_language") @db.VarChar(10)
+  createdByUserId       String?      @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation    Plugin       @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  createdBy             User?        @relation("TravelEmployeeConfigurationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@map("travel_employee_configurations")
+}
+
+/// A travel enquiry captured through the Conversation Completion & Lead Capture framework (see
+/// `apps/api/src/conversation/conversation-completion.ts`) — created only after the traveler has
+/// explicitly consented and provided a phone number, never silently. This is a guaranteed, always-on
+/// capture path independent of any external CRM connector (contrast with the connector-backed
+/// `crm.create_lead` tool / `DummyCrmLead`, which stays optional and org-configured). Every future AI
+/// Employee that adopts the same framework owns its own equivalent model (SalesLead, HospitalAppointment,
+/// ...) with the same `conversationId` + `reference` + `status` + `source` shape.
+model TravelLead {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  organizationId       String                  @map("organization_id") @db.Uuid
+  pluginInstallationId String                  @map("plugin_installation_id") @db.Uuid
+  conversationId       String                  @map("conversation_id") @db.Uuid
+  /// The in-memory multi-city Journey.id this lead was captured for, if any — null for a plain single-leg
+  /// trip. Part of the idempotency key (see `idempotencyKey`): a genuinely new journey always gets its own
+  /// lead, while repeated capture attempts for the SAME journey collapse onto the same row.
+  journeyId            String?                 @map("journey_id") @db.VarChar(64)
+  /// Short human-readable reference shown to the traveler (e.g. "TRV-4F2B91") — see `generateLeadReference`.
+  reference            String                  @unique @db.VarChar(20)
+  customerName         String?                 @map("customer_name") @db.VarChar(160)
+  phoneNumber          String                  @map("phone_number") @db.VarChar(24)
+  email                String?                 @db.VarChar(160)
+  departureCity        String?                 @map("departure_city") @db.VarChar(160)
+  /// The complete current route, including every multi-city leg (e.g. "Delhi -> London -> New York ->
+  /// Delhi") — never just the currently active leg. A plain single-leg trip stores just the destination.
+  destination          String?                 @db.VarChar(160)
+  travelDates          String?                 @map("travel_dates") @db.VarChar(160)
+  passengers           String?                 @db.VarChar(80)
+  tripPurpose          String?                 @map("trip_purpose") @db.VarChar(120)
+  budgetAmount         Decimal?                @map("budget_amount") @db.Decimal(12, 2)
+  budgetCurrency       String?                 @map("budget_currency") @db.VarChar(8)
+  /// The traveler's chosen DISPLAY currency for cost figures, if different from `budgetCurrency` — see
+  /// `TravelConversationMemory.displayCurrency`.
+  displayCurrency      String?                 @map("display_currency") @db.VarChar(8)
+  conversationSummary  String                  @map("conversation_summary") @db.Text
+  /// Set once, at creation — every lead-capture entry point only ever calls `TravelLeadService.
+  /// createInternalLead` after consent + contact details were already collected, so consent is implicit in
+  /// the row existing at all; this timestamp records exactly when.
+  consentGivenAt       DateTime?               @map("consent_given_at")
+  /// Tenant-scoped dedup key: `organizationId:conversationId:journeyId (or "single"):LEAD_CAPTURE` — see
+  /// `TravelLeadService.buildIdempotencyKey`. Nullable+unique so older rows (predating this column) are
+  /// unaffected; every new row always sets one.
+  idempotencyKey       String?                 @unique @map("idempotency_key") @db.VarChar(300)
+  status               TravelLeadStatus        @default(NEW)
+  /// Best-effort external CRM mirror outcome — see `TravelLeadCrmSyncStatus`. Never gates or rolls back
+  /// this row; purely observational.
+  crmSyncStatus        TravelLeadCrmSyncStatus @default(PENDING) @map("crm_sync_status")
+  source               String                  @default("TravelEmployee") @db.VarChar(60)
+  createdAt            DateTime                @default(now()) @map("created_at")
+  updatedAt            DateTime                @updatedAt @map("updated_at")
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin                  @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  conversation         Conversation            @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([conversationId])
+  @@map("travel_leads")
 }

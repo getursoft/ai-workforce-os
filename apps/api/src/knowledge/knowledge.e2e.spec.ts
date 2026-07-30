@@ -17,13 +17,20 @@ for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), 
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 
+/**
+ * Exercises the employee-scoped knowledge hierarchy end to end: Organization -> AI Employee ->
+ * Collection -> Document -> Chunk (see docs/enterprise-knowledge.md). Requires a Postgres instance
+ * with the pgvector extension (pgvector/pgvector:pg16, see docker-compose.yml) reachable via
+ * TEST_DATABASE_URL — skipped entirely otherwise, matching the existing e2e convention in this repo.
+ */
 suite("Knowledge HTTP", () => {
   let app: INestApplication,
     prisma: PrismaService,
     token: string,
     otherToken: string,
-    documentId: string,
-    pluginId: string;
+    employeeId: string,
+    collectionId: string,
+    documentId: string;
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
     app.setGlobalPrefix("api/v1");
@@ -35,8 +42,31 @@ suite("Knowledge HTTP", () => {
     prisma = app.get(PrismaService);
     await prisma.knowledgeChunk.deleteMany();
     await prisma.knowledgeDocument.deleteMany();
+    await prisma.knowledgeCollection.deleteMany();
     token = await register("Knowledge Owner");
     otherToken = await register("Other Knowledge Owner");
+    const installed = await request(app.getHttpServer())
+      .post("/api/v1/plugins/install")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        pluginId: "dummy-echo",
+        grantedPermissions: ["MEMORY"],
+        configuration: { config: {}, secrets: {} },
+        enable: true
+      })
+      .expect(201);
+    employeeId = installed.body.id;
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${employeeId}/ai-configuration`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
+      .expect(200);
+    const collection = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${employeeId}/collections`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "Travel Policies", domain: "TRAVEL" })
+      .expect(201);
+    collectionId = collection.body.id;
   });
   afterAll(async () => {
     if (prisma) {
@@ -50,6 +80,7 @@ suite("Knowledge HTTP", () => {
       await prisma.plugin.deleteMany();
       await prisma.knowledgeChunk.deleteMany();
       await prisma.knowledgeDocument.deleteMany();
+      await prisma.knowledgeCollection.deleteMany();
     }
     await app?.close();
   });
@@ -65,9 +96,9 @@ suite("Knowledge HTTP", () => {
       .expect(201);
     return result.body.data.tokens.accessToken as string;
   }
-  it("uploads, indexes, lists, searches and never exposes embeddings", async () => {
+  it("uploads, indexes, lists, searches within one employee's collection and never exposes the embedding", async () => {
     const uploaded = await request(app.getHttpServer())
-      .post("/api/v1/knowledge/documents")
+      .post(`/api/v1/knowledge/employees/${employeeId}/collections/${collectionId}/documents`)
       .set("Authorization", `Bearer ${token}`)
       .attach(
         "file",
@@ -79,9 +110,10 @@ suite("Knowledge HTTP", () => {
       .expect(201);
     documentId = uploaded.body.id;
     expect(uploaded.body.status).toBe("INDEXED");
+    expect(uploaded.body.collectionId).toBe(collectionId);
     expect(uploaded.body.chunkCount).toBe(1);
     const list = await request(app.getHttpServer())
-      .get("/api/v1/knowledge/documents")
+      .get(`/api/v1/knowledge/employees/${employeeId}/documents`)
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
     expect(list.body.items).toHaveLength(1);
@@ -90,19 +122,41 @@ suite("Knowledge HTTP", () => {
       .set("Authorization", `Bearer ${token}`)
       .expect(200);
     expect(detail.body.chunks[0].embeddingJson).toBeUndefined();
+    expect(detail.body.chunks[0].embedding).toBeUndefined();
     const search = await request(app.getHttpServer())
-      .post("/api/v1/knowledge/search")
+      .post(`/api/v1/knowledge/employees/${employeeId}/search`)
       .set("Authorization", `Bearer ${token}`)
       .send({ query: "business class policy", topK: 5, scoreThreshold: 0 })
       .expect(201);
     expect(search.body[0].title).toBe("travel-policy");
     const unrelated = await request(app.getHttpServer())
-      .post("/api/v1/knowledge/search")
+      .post(`/api/v1/knowledge/employees/${employeeId}/search`)
       .set("Authorization", `Bearer ${token}`)
       .send({ query: "quantum gardening", topK: 5, scoreThreshold: 0.95 })
       .expect(201);
     expect(unrelated.body).toEqual([]);
-    const installed = await request(app.getHttpServer())
+    const run = await request(app.getHttpServer())
+      .post("/api/v1/agents/run")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        pluginInstallationId: employeeId,
+        message: "What is the company business class travel policy?"
+      })
+      .expect(201);
+    expect(run.body.sources[0]).toMatchObject({
+      documentId,
+      title: "travel-policy"
+    });
+    expect(run.body.response).toContain("business class");
+    const execution = await prisma.agentExecution.findUniqueOrThrow({
+      where: { id: run.body.executionId }
+    });
+    expect(execution.metadata).toMatchObject({
+      retrieval: [expect.objectContaining({ documentId })]
+    });
+  });
+  it("never lets a second AI Employee in the same organization retrieve this employee's knowledge", async () => {
+    const otherEmployee = await request(app.getHttpServer())
       .post("/api/v1/plugins/install")
       .set("Authorization", `Bearer ${token}`)
       .send({
@@ -112,30 +166,12 @@ suite("Knowledge HTTP", () => {
         enable: true
       })
       .expect(201);
-    pluginId = installed.body.id;
-    await request(app.getHttpServer())
-      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+    const search = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${otherEmployee.body.id}/search`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
-      .expect(200);
-    const run = await request(app.getHttpServer())
-      .post("/api/v1/agents/run")
-      .set("Authorization", `Bearer ${token}`)
-      .send({
-        pluginInstallationId: pluginId,
-        message: "What is the company business class travel policy?"
-      })
+      .send({ query: "business class policy", topK: 5, scoreThreshold: 0 })
       .expect(201);
-    expect(run.body.sources[0]).toMatchObject({
-      documentId,
-      title: "travel-policy"
-    });
-    const execution = await prisma.agentExecution.findUniqueOrThrow({
-      where: { id: run.body.executionId }
-    });
-    expect(execution.metadata).toMatchObject({
-      retrieval: [expect.objectContaining({ documentId })]
-    });
+    expect(search.body).toEqual([]);
   });
   it("enforces tenant isolation, validation, authentication, re-index and soft deletion", async () => {
     await request(app.getHttpServer())
@@ -143,18 +179,24 @@ suite("Knowledge HTTP", () => {
       .set("Authorization", `Bearer ${otherToken}`)
       .expect(404);
     await request(app.getHttpServer())
+      .get(`/api/v1/knowledge/employees/${employeeId}/collections`)
+      .set("Authorization", `Bearer ${otherToken}`)
+      .expect(404);
+    await request(app.getHttpServer())
       .post(`/api/v1/knowledge/documents/${documentId}/reindex`)
       .set("Authorization", `Bearer ${token}`)
       .expect(201);
     await request(app.getHttpServer())
-      .post("/api/v1/knowledge/documents")
+      .post(`/api/v1/knowledge/employees/${employeeId}/collections/${collectionId}/documents`)
       .set("Authorization", `Bearer ${token}`)
       .attach("file", Buffer.from("bad"), {
         filename: "bad.exe",
         contentType: "application/octet-stream"
       })
       .expect(415);
-    await request(app.getHttpServer()).get("/api/v1/knowledge/documents").expect(401);
+    await request(app.getHttpServer())
+      .get(`/api/v1/knowledge/employees/${employeeId}/documents`)
+      .expect(401);
     await request(app.getHttpServer())
       .delete(`/api/v1/knowledge/documents/${documentId}`)
       .set("Authorization", `Bearer ${token}`)
@@ -163,5 +205,9 @@ suite("Knowledge HTTP", () => {
       await prisma.knowledgeDocument.count({ where: { id: documentId, deletedAt: { not: null } } })
     ).toBe(1);
     expect(await prisma.knowledgeChunk.count({ where: { documentId } })).toBe(0);
+    await request(app.getHttpServer())
+      .delete(`/api/v1/knowledge/collections/${collectionId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
   });
 });

@@ -29,4 +29,10 @@ describe("TravelEmployeeController RBAC wiring", () => {
       permissions: ["travel.conversation.reset"]
     });
   });
+  it("requires travel.leads.read for listing leads", () => {
+    expect(permissionFor("leads")).toEqual({ mode: "all", permissions: ["travel.leads.read"] });
+  });
+  it("requires travel.leads.update for updating a lead's status", () => {
+    expect(permissionFor("updateLeadStatus")).toEqual({ mode: "all", permissions: ["travel.leads.update"] });
+  });
 });

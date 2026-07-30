@@ -8,6 +8,16 @@ import { buildLoginRedirectPath } from "../../lib/return-url";
 import { Avatar, Badge, Button, Card, DropdownMenu, PageHeader, Skeleton } from "../ui";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
 import { useEffectivePermissions } from "../../features/admin/authorization";
+import { LogoMark } from "@/components/shared/logo-mark";
+
+// Quick links back to the public marketing site — deliberately just these three (not the full
+// Platform/AI Employees/Solutions/Resources mega-menus from PublicHeader), since an already-authenticated
+// user browsing their dashboard needs a way back to the website, not the full pre-signup navigation.
+const RIBBON_LINKS: readonly { href: string; label: string }[] = [
+  { href: "/customers", label: "Customers" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/contact", label: "Contact" }
+];
 
 const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[] = [
   { href: "/dashboard", label: "Dashboard" },
@@ -35,7 +45,9 @@ export const ADMIN_ITEMS = [
   { href: "/dashboard/settings/users", label: "Users", permission: "users.read" },
   { href: "/dashboard/settings/roles", label: "Roles", permission: "roles.read" },
   { href: "/dashboard/settings/permissions", label: "Permissions", permission: "roles.read" },
-  { href: "/dashboard/settings/invitations", label: "Invitations", permission: "invitations.read" }
+  { href: "/dashboard/settings/invitations", label: "Invitations", permission: "invitations.read" },
+  { href: "/dashboard/approvals", label: "Approvals", permission: "approvals.read" },
+  { href: "/usage", label: "Usage & Billing", permission: "usage.read" }
 ] as const;
 
 export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {
@@ -97,10 +109,10 @@ export function DashboardShell({
     <div className="dashboard-shell">
       <aside className={`dashboard-sidebar ${mobileOpen ? "dashboard-sidebar--open" : ""}`}>
         <div className="dashboard-sidebar__brand">
-          <div>
+          <Link href="/" className="dashboard-sidebar__brand-link" aria-label="Go to the AI Workforce OS website">
             <p className="dashboard-sidebar__eyebrow">AI Workforce OS</p>
             <h2>{state.organization?.name ?? "Organization"}</h2>
-          </div>
+          </Link>
           <Button
             type="button"
             variant="ghost"
@@ -149,6 +161,23 @@ export function DashboardShell({
       <div className="dashboard-overlay" onClick={() => setMobileOpen(false)} aria-hidden="true" />
 
       <div className="dashboard-main">
+        <div className="dashboard-ribbon">
+          <Link href="/" className="dashboard-ribbon__brand">
+            <LogoMark className="h-6 w-6 flex-shrink-0" />
+            <span>AI Workforce OS</span>
+          </Link>
+          <nav className="dashboard-ribbon__links" aria-label="Website">
+            {RIBBON_LINKS.map((link) => (
+              <Link key={link.href} href={link.href}>
+                {link.label}
+              </Link>
+            ))}
+            <Link href="/" className="dashboard-ribbon__home">
+              Back to Website
+            </Link>
+          </nav>
+        </div>
+
         <header className="dashboard-topbar">
           <Button
             type="button"
@@ -198,6 +227,15 @@ export function DashboardShell({
         </header>
 
         <main className="dashboard-content">{children}</main>
+
+        <footer className="dashboard-footer">
+          <span>&copy; {new Date().getFullYear()} AI Workforce OS</span>
+          <div className="dashboard-footer__links">
+            <Link href="/privacy">Privacy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/contact">Contact</Link>
+          </div>
+        </footer>
       </div>
     </div>
   );

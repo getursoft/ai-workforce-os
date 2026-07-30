@@ -9,6 +9,16 @@ import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { withTimeout } from "../agents/agent.runtime";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 
+/**
+ * Every embedding written to KnowledgeChunk.embedding shares this width, matching the pgvector
+ * column (`vector(1536)`, see database/prisma/schema.prisma). 1536 is the OpenAI/Azure
+ * `text-embedding-3-small` width, the default for both real providers below; the deterministic
+ * dev/test provider also produces 1536-dim vectors so every provider type can write into the same
+ * column. A configured embedding model that returns a different width fails fast with
+ * EMBEDDING_PROVIDER_DIMENSION_MISMATCH rather than corrupting the ANN index.
+ */
+export const KNOWLEDGE_EMBEDDING_DIMENSIONS = 1536;
+
 export interface EmbeddingResult {
   vectors: number[][];
   model: string;
@@ -22,7 +32,7 @@ export interface EmbeddingProvider {
 
 export class DeterministicEmbeddingProvider implements EmbeddingProvider {
   readonly type = "DETERMINISTIC";
-  constructor(private readonly dimensions = 64) {}
+  constructor(private readonly dimensions = KNOWLEDGE_EMBEDDING_DIMENSIONS) {}
   async embedTexts(input: { texts: string[]; organizationId: string }): Promise<EmbeddingResult> {
     const vectors = input.texts.map((text) => deterministicVector(text, this.dimensions));
     return { vectors, model: "deterministic-knowledge-v1", dimensions: this.dimensions };
@@ -81,22 +91,32 @@ export class KnowledgeEmbeddingService {
     private readonly encryption: PluginSecretsEncryptionService,
     @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
   ) {}
-  async embed(organizationId: string, texts: string[]): Promise<EmbeddingResult> {
+  /**
+   * `employeeId` (a Plugin installation id) scopes which AI Employee's own AI-provider credentials
+   * back the embedding call — never "whichever plugin in the org was configured most recently".
+   * Two employees in the same organization may use different embedding providers/models entirely.
+   */
+  async embed(
+    organizationId: string,
+    employeeId: string,
+    texts: string[]
+  ): Promise<EmbeddingResult> {
     if (!texts.length || texts.length > 64)
       throw new BadRequestException("EMBEDDING_PROVIDER_REQUEST_FAILED");
-    const provider = await this.provider(organizationId);
+    const provider = await this.provider(organizationId, employeeId);
     const result = await provider.embedTexts({ texts, organizationId });
     if (
       result.vectors.length !== texts.length ||
       result.vectors.some((vector) => vector.some((value) => !Number.isFinite(value)))
     )
       throw new BadRequestException("EMBEDDING_PROVIDER_RESPONSE_INVALID");
+    if (result.dimensions !== KNOWLEDGE_EMBEDDING_DIMENSIONS)
+      throw new BadRequestException("EMBEDDING_PROVIDER_DIMENSION_MISMATCH");
     return result;
   }
-  private async provider(organizationId: string): Promise<EmbeddingProvider> {
+  private async provider(organizationId: string, employeeId: string): Promise<EmbeddingProvider> {
     const stored = await this.prisma.pluginAiConfiguration.findFirst({
-      where: { organizationId },
-      orderBy: { updatedAt: "desc" }
+      where: { organizationId, pluginInstallationId: employeeId }
     });
     if (!stored) {
       if (this.security.allowDevelopmentImplementations)

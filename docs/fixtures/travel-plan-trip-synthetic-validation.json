@@ -1,0 +1,26 @@
+{
+  "dataSource": "SYNTHETIC_TEST_FIXTURES_ONLY",
+  "skillId": "travel.plan-trip",
+  "skillVersion": "1.0.0",
+  "totalEvaluations": 10,
+  "agreements": 6,
+  "disagreements": 4,
+  "agreementRate": 60,
+  "reasonCodeDistribution": {
+    "EXISTING_READY_SHADOW_MISSING_TRAVEL_YEAR": 2,
+    "EXISTING_READY_SHADOW_MISSING_DURATION": 1,
+    "ADAPTER_INCOMPLETE": 1
+  },
+  "blockingDisagreementCount": 2,
+  "productPolicyReviewCount": 2,
+  "expectedNonEquivalenceCount": 0,
+  "executionsReachingReady": 4,
+  "readinessRate": 40,
+  "persistenceFailures": 0,
+  "revisionConflicts": 0,
+  "adapterWarningCounts": {
+    "NO_CANONICAL_TRIP_FIELDS": 1,
+    "DETERMINISTIC_TRANSCRIPT_DERIVED": 3
+  },
+  "productionMetric": false
+}

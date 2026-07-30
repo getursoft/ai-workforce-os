@@ -28,10 +28,12 @@ export class KnowledgeIndexingService {
   ) {}
   async index(organizationId: string, documentId: string, reindex = false) {
     const document = await this.prisma.knowledgeDocument.findFirst({
-      where: { id: documentId, organizationId, deletedAt: null }
+      where: { id: documentId, organizationId, deletedAt: null },
+      include: { collection: { select: { id: true, pluginInstallationId: true } } }
     });
     if (!document) throw new NotFoundException("KNOWLEDGE_DOCUMENT_NOT_FOUND");
     if (!document.storageKey) throw new BadRequestException("KNOWLEDGE_FILE_INVALID");
+    const employeeId = document.collection.pluginInstallationId;
     const started = Date.now();
     await this.prisma.knowledgeDocument.update({
       where: { id: document.id },
@@ -47,11 +49,13 @@ export class KnowledgeIndexingService {
         const batch = chunks.slice(start, start + 32);
         const result = await this.embeddings.embed(
           organizationId,
+          employeeId,
           batch.map((chunk) => chunk.content)
         );
         for (const vector of result.vectors) embedded.push({ vector, model: result.model });
       }
       if (embedded.length !== chunks.length) throw new Error("EMBEDDING_PROVIDER_RESPONSE_INVALID");
+      const chunkIds = chunks.map(() => randomUUID());
       await this.prisma.$transaction(async (transaction) => {
         await transaction.knowledgeChunk.deleteMany({
           where: { documentId: document.id, organizationId }
@@ -59,20 +63,37 @@ export class KnowledgeIndexingService {
         await transaction.knowledgeChunk.createMany({
           data: chunks.map((chunk, index) => {
             const embedding = embedded[index];
-            if (!embedding) throw new Error("EMBEDDING_PROVIDER_RESPONSE_INVALID");
+            const chunkId = chunkIds[index];
+            if (!embedding || !chunkId) throw new Error("EMBEDDING_PROVIDER_RESPONSE_INVALID");
             return {
+              id: chunkId,
               organizationId,
+              pluginInstallationId: employeeId,
+              collectionId: document.collectionId,
               documentId: document.id,
               chunkIndex: index,
               content: chunk.content,
               tokenCount: chunk.tokenCount,
               ...(chunk.pageNumber ? { pageNumber: chunk.pageNumber } : {}),
+              ...(chunk.heading ? { heading: chunk.heading } : {}),
               ...(chunk.sectionTitle ? { sectionTitle: chunk.sectionTitle } : {}),
-              embeddingJson: embedding.vector as Prisma.InputJsonValue,
-              embeddingModel: embedding.model
+              isTable: chunk.isTable ?? false,
+              metadata: chunk.metadata as Prisma.InputJsonValue,
+              embeddingModel: embedding.model,
+              embeddingDimensions: embedding.vector.length
             };
           })
         });
+        for (const [index] of chunks.entries()) {
+          const embedding = embedded[index];
+          const id = chunkIds[index];
+          if (!embedding || !id) continue;
+          await transaction.$executeRaw`
+            UPDATE knowledge_chunks
+            SET embedding = ${`[${embedding.vector.join(",")}]`}::vector
+            WHERE id = ${id}::uuid
+          `;
+        }
         await transaction.knowledgeDocument.update({
           where: { id: document.id },
           data: {
@@ -87,6 +108,7 @@ export class KnowledgeIndexingService {
       this.logger.log({
         event: "KNOWLEDGE_DOCUMENT_INDEXED",
         organizationId,
+        employeeId,
         documentId,
         chunkCount: chunks.length,
         durationMs: Date.now() - started
@@ -140,10 +162,13 @@ export class KnowledgeService {
   ) {}
   async upload(
     organizationId: string,
+    employeeId: string,
+    collectionId: string,
     userId: string,
     requestId: string,
     file?: UploadedKnowledgeFile
   ) {
+    await this.assertCollection(organizationId, employeeId, collectionId);
     const validated = this.validate(file);
     await this.scanner.scan(validated.buffer);
     const id = randomUUID();
@@ -151,6 +176,7 @@ export class KnowledgeService {
       data: {
         id,
         organizationId,
+        collectionId,
         title: titleFromFilename(validated.originalname),
         originalFilename: safeFilename(validated.originalname),
         mimeType: validated.mimetype,
@@ -187,10 +213,12 @@ export class KnowledgeService {
       throw error;
     }
   }
-  async list(organizationId: string, query: KnowledgePageDto) {
+  async list(organizationId: string, employeeId: string, query: KnowledgePageDto) {
     const where: Prisma.KnowledgeDocumentWhereInput = {
       organizationId,
+      collection: { pluginInstallationId: employeeId },
       deletedAt: null,
+      ...(query.collectionId ? { collectionId: query.collectionId } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.search
         ? {
@@ -235,7 +263,9 @@ export class KnowledgeService {
         content: true,
         tokenCount: true,
         pageNumber: true,
-        sectionTitle: true
+        heading: true,
+        sectionTitle: true,
+        isTable: true
       },
       orderBy: { chunkIndex: "asc" },
       skip: (page - 1) * pageSize,
@@ -270,6 +300,16 @@ export class KnowledgeService {
       targetId: id
     });
   }
+  private async assertCollection(
+    organizationId: string,
+    employeeId: string,
+    collectionId: string
+  ): Promise<void> {
+    const count = await this.prisma.knowledgeCollection.count({
+      where: { id: collectionId, organizationId, pluginInstallationId: employeeId, deletedAt: null }
+    });
+    if (!count) throw new NotFoundException("KNOWLEDGE_COLLECTION_NOT_FOUND");
+  }
   private validate(file?: UploadedKnowledgeFile): UploadedKnowledgeFile {
     if (!file) throw new BadRequestException("KNOWLEDGE_FILE_REQUIRED");
     if (!file.size || !file.buffer.length) throw new BadRequestException("KNOWLEDGE_FILE_INVALID");
@@ -287,6 +327,7 @@ export class KnowledgeService {
 
 const documentSelection = {
   id: true,
+  collectionId: true,
   title: true,
   originalFilename: true,
   mimeType: true,
@@ -321,7 +362,8 @@ function safeProcessingCode(error: unknown): string {
     "KNOWLEDGE_TEXT_NOT_EXTRACTABLE",
     "EMBEDDING_PROVIDER_NOT_CONFIGURED",
     "EMBEDDING_PROVIDER_REQUEST_FAILED",
-    "EMBEDDING_PROVIDER_RESPONSE_INVALID"
+    "EMBEDDING_PROVIDER_RESPONSE_INVALID",
+    "EMBEDDING_PROVIDER_DIMENSION_MISMATCH"
   ].includes(code)
     ? code
     : "KNOWLEDGE_INDEXING_FAILED";
@@ -331,5 +373,7 @@ function processingMessage(code: string): string {
     return "No extractable text was found. Scanned documents require OCR, which is not available.";
   if (code === "EMBEDDING_PROVIDER_NOT_CONFIGURED")
     return "An embedding provider is not configured.";
+  if (code === "EMBEDDING_PROVIDER_DIMENSION_MISMATCH")
+    return "The configured embedding model does not match the required embedding dimensions.";
   return "The document could not be indexed safely.";
 }

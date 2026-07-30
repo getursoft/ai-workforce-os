@@ -41,10 +41,27 @@ export interface KnowledgeVirusScanner {
 export interface KnowledgeSource {
   chunkId: string;
   documentId: string;
+  collectionId: string;
   title: string;
   content: string;
   chunkIndex: number;
   pageNumber: number | null;
+  heading: string | null;
   sectionTitle: string | null;
+  isTable: boolean;
+  /** Full ancestor chain from the chunk's metadata (document-root heading down to this chunk's own
+   * heading, inclusive) — see `metadata.headingPath` in knowledge.chunking.ts. Used by the
+   * response-generation layer (knowledge.prompt.ts) to detect sibling chunks under the same section
+   * for section-summary answers, without re-deriving anything about ranking. */
+  headingPath: string[];
+  /** Final blended score (see knowledge.search.ts hybridScore) used for ranking and threshold cutoff. */
   score: number;
+  /** Score breakdown, present only when retrieval debug logging is enabled (see KNOWLEDGE_RETRIEVAL_DEBUG_LOGGING). */
+  scoreBreakdown?: {
+    semantic: number;
+    keywordOverlap: number;
+    titleBoost: number;
+    metadataBoost: number;
+    exactPhraseBoost: number;
+  };
 }

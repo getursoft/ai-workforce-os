@@ -1,4 +1,5 @@
 import Ajv, { type ValidateFunction } from "ajv";
+import { EMPLOYEE_SYSTEM_IDENTITY_PROMPT } from "../knowledge/knowledge.prompt";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool";
 export interface ModelMessage {
@@ -107,12 +108,27 @@ export type AgentActor =
   | { type: "USER"; userId: string }
   | { type: "CHANNEL"; channelConnectionId: string; externalUserId: string };
 
+/** Verified channel-contact identity, passed by the channel adapter when the sender identity is
+ *  cryptographically or provider-verified (e.g. WhatsApp sender number from Meta webhook). The Agent
+ *  Runtime and contact-capture workflows consume this to avoid redundant phone-number collection. */
+export interface ChannelContact {
+  channel: "WHATSAPP";
+  provider: string;
+  senderPhoneNumber: string;
+  senderWhatsAppId?: string;
+  verificationSource: "PROVIDER";
+  verified: true;
+  channelConnectionId: string;
+  organizationId: string;
+}
+
 /** Provider-neutral execution request shared by dashboard chat and channel adapters (e.g. Twilio WhatsApp). */
 export interface AgentExecutionInput {
   organizationId: string;
   agentId: string;
   conversationId?: string;
   actor: AgentActor;
+  channelContact?: ChannelContact;
   text: string;
   source: { type: "DASHBOARD" } | { type: "CHANNEL"; channelId: string; externalUserId: string };
   requestId: string;
@@ -197,18 +213,26 @@ export class ToolExecutor {
   }
 }
 
+/**
+ * Assembles the final prompt in the order required by docs/enterprise-knowledge.md "Prompt
+ * construction": System -> Employee Identity -> Retrieved Knowledge -> Conversation -> User.
+ * Retrieved knowledge is placed before conversation history so it is never "buried" behind (and
+ * therefore outweighed by) turns of prior chat when the model weighs recency.
+ */
 export class PromptBuilder {
   build(input: {
     organizationPrompt?: string;
     pluginPrompt: string;
     memories: string[];
-    enterpriseKnowledge?: string;
+    retrievedKnowledge?: string;
     history: ModelMessage[];
     message: string;
     tools: ToolDefinition[];
   }): ModelRequest {
     const messages: ModelMessage[] = [
-      { role: "system", content: "You are an AI employee operating inside AI Workforce OS." },
+      // System: base grounding rules and identity, shared by every AI Employee.
+      { role: "system", content: EMPLOYEE_SYSTEM_IDENTITY_PROMPT },
+      // Employee Identity: this specific employee's configured persona/org context.
       ...(input.organizationPrompt
         ? [{ role: "system" as const, content: limit(input.organizationPrompt) }]
         : []),
@@ -217,6 +241,10 @@ export class PromptBuilder {
         role: "system",
         content: "Use only the supplied tools. Never invent tool results or tenant identifiers."
       },
+      // Retrieved Knowledge: must appear before conversation history, never after.
+      ...(input.retrievedKnowledge
+        ? [{ role: "system" as const, content: limit(input.retrievedKnowledge) }]
+        : []),
       ...(input.memories.length
         ? [
             {
@@ -225,15 +253,9 @@ export class PromptBuilder {
             }
           ]
         : []),
-      ...(input.enterpriseKnowledge
-        ? [
-            {
-              role: "system" as const,
-              content: limit(input.enterpriseKnowledge)
-            }
-          ]
-        : []),
+      // Conversation: prior turns.
       ...input.history.map((message) => ({ ...message, content: limit(message.content) })),
+      // User: the current turn.
       { role: "user", content: limit(input.message) }
     ];
     return { model: "deterministic-v1", messages, tools: input.tools };

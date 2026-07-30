@@ -2,6 +2,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   OnModuleInit,
   UnprocessableEntityException
@@ -68,6 +69,21 @@ export class PluginService implements OnModuleInit {
     );
     this.discoveryErrors = discovered.errors;
     await this.synchronizeRegistry();
+    await this.checkRoutingProfilesAtStartup();
+  }
+
+  private async checkRoutingProfilesAtStartup(): Promise<void> {
+    try {
+      const plugins = await this.prisma.plugin.findMany({ where: { deletedAt: null } });
+      for (const plugin of plugins) {
+        const existing = await this.prisma.employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
+        if (!existing) {
+          await this.ensureRoutingProfile(plugin, "STARTUP");
+        }
+      }
+    } catch (error) {
+      this.logger.warn({ event: "RoutingProfileStartupCheckFailed", error: String(error) });
+    }
   }
 
   async available(organizationId: string) {
@@ -155,6 +171,7 @@ export class PluginService implements OnModuleInit {
           });
           this.registry.register(organizationId, plugin.slug, instance);
         }
+        await this.ensureRoutingProfile(plugin, "INSTALLATION", tx);
         return this.sanitize(await tx.plugin.findUniqueOrThrow({ where: { id: plugin.id } }));
       });
     } catch (error) {
@@ -532,4 +549,127 @@ export class PluginService implements OnModuleInit {
       plugin.manifest as unknown as PluginManifest
     );
   }
+
+  private readonly logger = new Logger(PluginService.name);
+
+  // ---- EmployeeRoutingProfile lifecycle ----
+
+  private async ensureRoutingProfile(
+    plugin: { id: string; organizationId: string; slug: string; displayName: string; description: string; manifest: unknown },
+    source: "INSTALLATION" | "STARTUP" | "BACKFILL",
+    tx?: Prisma.TransactionClient
+  ): Promise<void> {
+    const prisma = tx ?? this.prisma;
+    const existing = await (prisma as typeof this.prisma).employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
+    if (existing) {
+      this.logger.log({ event: "RoutingProfileAlreadyExists", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source });
+      return;
+    }
+    const manifest = (plugin.manifest as Record<string, unknown>) ?? {};
+    const routing = manifest.routing as Record<string, unknown> | undefined;
+    const defaults = this.defaultRoutingProfile(plugin);
+    try {
+      await (prisma as typeof this.prisma).employeeRoutingProfile.create({
+        data: {
+          organizationId: plugin.organizationId,
+          pluginInstallationId: plugin.id,
+          displayName: (routing?.displayName as string) ?? defaults.displayName,
+          employeeType: (routing?.employeeType as string) ?? defaults.employeeType,
+          summary: (routing?.summary as string) ?? defaults.summary,
+          supportedDomains: (routing?.supportedDomains ?? defaults.supportedDomains) as unknown as Prisma.InputJsonValue,
+          supportedIntents: (routing?.supportedIntents ?? defaults.supportedIntents) as unknown as Prisma.InputJsonValue,
+          exampleQueries: (routing?.exampleQueries ?? defaults.exampleQueries) as unknown as Prisma.InputJsonValue,
+          excludedIntents: (routing?.excludedIntents ?? defaults.excludedIntents) as unknown as Prisma.InputJsonValue,
+          routingKeywords: (routing?.routingKeywords ?? defaults.routingKeywords) as unknown as Prisma.InputJsonValue,
+          enabledForChannelRouting: true,
+          routingPriority: (routing?.routingPriority as number) ?? defaults.routingPriority
+        }
+      });
+      this.logger.log({ event: "RoutingProfileCreated", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source, profileSource: routing ? "MANIFEST" : "DEFAULTS" });
+    } catch (error: unknown) {
+      if ((error as { code?: string }).code === "P2002") return;
+      this.logger.error({ event: "RoutingProfileCreationFailed", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source, error: String(error) });
+      throw error;
+    }
+  }
+
+  private defaultRoutingProfile(plugin: { slug: string; displayName: string; description: string }): {
+    displayName: string; employeeType: string | null; summary: string;
+    supportedDomains: string[]; supportedIntents: string[]; exampleQueries: string[];
+    excludedIntents: string[]; routingKeywords: string[]; routingPriority: number;
+  } {
+    const slug = plugin.slug.toLowerCase();
+    const desc = (plugin.description ?? "").toLowerCase();
+    const displayName = plugin.displayName;
+
+    if (/travel|trip|holiday|booking|flight|hotel|vacation|tour/i.test(slug) || /travel|trip|booking|holiday|vacation/i.test(desc)) {
+      return {
+        displayName, employeeType: "TRAVEL",
+        summary: `Helps customers with: trip planning, hotels, visas, itinerary, travel budget.`,
+        supportedDomains: ["Travel"], supportedIntents: ["Trip Planning", "Hotel Booking", "Visa", "Budget", "Itinerary"],
+        exampleQueries: ["Plan my Dubai trip", "Suggest hotels", "Estimate travel budget"],
+        excludedIntents: ["HR", "Payroll", "IT Support", "Finance", "Legal"],
+        routingKeywords: ["travel", "hotel", "visa", "flight", "holiday", "trip", "booking", "vacation", "tour"],
+        routingPriority: 100
+      };
+    }
+    if (/it|tech|support|helpdesk|vpn|network|computer|software|hardware/i.test(slug) || /it|tech|support|helpdesk|vpn|network/i.test(desc)) {
+      return {
+        displayName, employeeType: "IT_SUPPORT",
+        summary: `Helps customers with: IT support, VPN, network, software, hardware, password reset.`,
+        supportedDomains: ["IT"], supportedIntents: ["VPN Troubleshooting", "Password Reset", "Software Installation", "Network Issue", "Hardware Support"],
+        exampleQueries: ["My VPN is not working", "I forgot my password", "My laptop is slow"],
+        excludedIntents: ["HR", "Payroll", "Travel", "Finance", "Legal"],
+        routingKeywords: ["vpn", "computer", "laptop", "password", "network", "software", "it support", "tech support", "helpdesk"],
+        routingPriority: 100
+      };
+    }
+    if (/hr|human.?resource|policy|leave|payroll|benefit|hiring|recruit/i.test(slug) || /hr|human.?resource|policy|leave|payroll|benefit/i.test(desc)) {
+      return {
+        displayName, employeeType: "HR_POLICY",
+        summary: `Helps customers with: HR policies, leave, payroll, benefits, hiring.`,
+        supportedDomains: ["HR"], supportedIntents: ["Leave Policy", "Payroll Inquiry", "Benefits", "Hiring Process", "Employee Relations"],
+        exampleQueries: ["What is the maternity leave policy?", "How do I apply for leave?", "What are my benefits?"],
+        excludedIntents: ["Travel", "IT Support", "Finance", "Legal", "Sales"],
+        routingKeywords: ["hr", "human resource", "leave", "maternity", "paternity", "policy", "payroll", "benefit", "hiring"],
+        routingPriority: 100
+      };
+    }
+    if (/sales|crm|sell|purchase|product|pricing|quote|order|invoice/i.test(slug) || /sales|crm|sell|purchase|pricing|quote|order|invoice/i.test(desc)) {
+      return {
+        displayName, employeeType: "SALES",
+        summary: `Helps customers with: product information, pricing, quotes, orders, invoices.`,
+        supportedDomains: ["Sales"], supportedIntents: ["Product Inquiry", "Pricing", "Quote Request", "Order Status", "Invoice"],
+        exampleQueries: ["What products do you offer?", "I need a quote", "Where is my order?"],
+        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Legal"],
+        routingKeywords: ["sales", "product", "pricing", "quote", "order", "invoice", "purchase"],
+        routingPriority: 100
+      };
+    }
+    // Conservative default
+    return {
+      displayName, employeeType: null,
+      summary: `Helps customers with requests related to ${displayName}.`,
+      supportedDomains: [], supportedIntents: [], exampleQueries: [],
+      excludedIntents: [],
+      routingKeywords: plugin.slug ? [plugin.slug.toLowerCase()] : [],
+      routingPriority: 100
+    };
+  }
+
+  async backfillRoutingProfiles(): Promise<number> {
+    const plugins = await this.prisma.plugin.findMany({ where: { deletedAt: null } });
+    let count = 0;
+    for (const plugin of plugins) {
+      const existing = await this.prisma.employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
+      if (!existing) {
+        await this.ensureRoutingProfile(plugin, "BACKFILL");
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Wire startup consistency check
+  // Note: onModuleInit already calls synchronizeRegistry. The check below is separate.
 }

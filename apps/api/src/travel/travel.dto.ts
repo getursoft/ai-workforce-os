@@ -1,4 +1,6 @@
-import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from "class-validator";
+import { Type } from "class-transformer";
+import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Max, MaxLength, Min } from "class-validator";
+import { TravelLeadStatus } from "@prisma/client";
 
 const BRAND_TONES = ["FRIENDLY", "FORMAL", "CASUAL", "PROFESSIONAL"] as const;
 
@@ -32,4 +34,14 @@ export class UpdateTravelConfigurationDto {
   @IsString()
   @Matches(/^[a-z]{2}(-[A-Z]{2})?$/, { message: "defaultLanguage must be an ISO language tag, e.g. en or en-US" })
   defaultLanguage?: string;
+}
+
+export class ListTravelLeadsDto {
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) pageSize = 20;
+  @IsOptional() @IsIn(Object.values(TravelLeadStatus)) status?: TravelLeadStatus;
+}
+
+export class UpdateTravelLeadStatusDto {
+  @IsIn(Object.values(TravelLeadStatus)) status!: TravelLeadStatus;
 }

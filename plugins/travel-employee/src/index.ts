@@ -29,7 +29,11 @@ export const travelEmployeeManifest: PluginManifest = {
   tools: [
     { name: "travel.search_flights", description: "Search placeholder flight options" },
     { name: "travel.search_hotels", description: "Search placeholder hotel options" },
-    { name: "travel.escalate", description: "Escalate the conversation to a human team member" }
+    { name: "travel.escalate", description: "Escalate the conversation to a human team member" },
+    {
+      name: "travel.create_lead",
+      description: "Persist a travel lead after the traveler consents and shares a contact number"
+    }
   ]
 };
 

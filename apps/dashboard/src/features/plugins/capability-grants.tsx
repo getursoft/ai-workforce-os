@@ -38,7 +38,7 @@ export function CapabilityGrants({
       <h3 id="capability-grants-title">Capability Grants</h3>
       <p>Grants control which platform services this installed plugin can use.</p>
       {declared.length ? (
-        declared.map((capability) => {
+        Array.from(new Set(declared)).map((capability) => {
           const isGranted = granted.includes(capability),
             isPending = pending === capability;
           return (

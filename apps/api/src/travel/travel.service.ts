@@ -3,7 +3,7 @@ import { AgentMemoryScope, ConversationStatus } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
 import { AgentService } from "../agents/agent.service";
-import type { UpdateTravelConfigurationDto } from "./travel.dto";
+import type { ListTravelLeadsDto, UpdateTravelConfigurationDto, UpdateTravelLeadStatusDto } from "./travel.dto";
 import {
   DEFAULT_TRAVEL_EMPLOYEE_CONFIG,
   TRAVEL_EMPLOYEE_PLUGIN_SLUG,
@@ -123,6 +123,50 @@ export class TravelEmployeeService {
       targetId: conversationId
     });
     return result;
+  }
+
+  async leads(organizationId: string, pluginInstallationId: string, query: ListTravelLeadsDto) {
+    await this.requirePlugin(organizationId, pluginInstallationId);
+    const where = {
+      organizationId,
+      pluginInstallationId,
+      ...(query.status ? { status: query.status } : {})
+    };
+    const [items, total] = await Promise.all([
+      this.prisma.travelLead.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize
+      }),
+      this.prisma.travelLead.count({ where })
+    ]);
+    return { items, total, page: query.page, pageSize: query.pageSize };
+  }
+
+  async updateLeadStatus(
+    organizationId: string,
+    userId: string,
+    requestId: string,
+    pluginInstallationId: string,
+    leadId: string,
+    dto: UpdateTravelLeadStatusDto
+  ) {
+    await this.requirePlugin(organizationId, pluginInstallationId);
+    const existing = await this.prisma.travelLead.findFirst({
+      where: { id: leadId, organizationId, pluginInstallationId }
+    });
+    if (!existing) throw new NotFoundException("TRAVEL_LEAD_NOT_FOUND");
+    const updated = await this.prisma.travelLead.update({
+      where: { id: leadId },
+      data: { status: dto.status }
+    });
+    this.auditLogger.record("TRAVEL_LEAD_STATUS_UPDATED", requestId, {
+      organizationId,
+      userId,
+      targetId: leadId
+    });
+    return updated;
   }
 
   private async requirePlugin(organizationId: string, pluginInstallationId: string) {

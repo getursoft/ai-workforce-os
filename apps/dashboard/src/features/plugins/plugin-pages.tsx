@@ -434,7 +434,7 @@ function ConfigurationDialog({
     >
       <div className="plugin-configuration-dialog">
         <CapabilityGrants
-          declared={[...plugin.manifest.permissions, ...plugin.manifest.capabilities]}
+          declared={Array.from(new Set([...plugin.manifest.permissions, ...plugin.manifest.capabilities]))}
           granted={currentGrants}
           canManage={state.user?.role === "OWNER" || state.user?.role === "ADMIN"}
           {...(grants.isPending && grants.variables?.capability

@@ -58,6 +58,7 @@ export const DEFAULT_PERMISSIONS = {
     "knowledge.delete",
     "knowledge.reindex",
     "knowledge.search",
+    "knowledge.collection.manage",
     "channel.read",
     "channel.create",
     "channel.update",
@@ -66,7 +67,11 @@ export const DEFAULT_PERMISSIONS = {
     "channel.message.read",
     "travel.config.read",
     "travel.config.update",
-    "travel.conversation.reset"
+    "travel.conversation.reset",
+    "travel.leads.read",
+    "travel.leads.update",
+    "usage.read",
+    "billing.read"
   ],
   Admin: [
     "users.read",
@@ -123,6 +128,7 @@ export const DEFAULT_PERMISSIONS = {
     "knowledge.delete",
     "knowledge.reindex",
     "knowledge.search",
+    "knowledge.collection.manage",
     "channel.read",
     "channel.create",
     "channel.update",
@@ -131,7 +137,9 @@ export const DEFAULT_PERMISSIONS = {
     "channel.message.read",
     "travel.config.read",
     "travel.config.update",
-    "travel.conversation.reset"
+    "travel.conversation.reset",
+    "travel.leads.read",
+    "travel.leads.update"
   ],
   Manager: [
     "users.read",
@@ -167,7 +175,8 @@ export const DEFAULT_PERMISSIONS = {
     "channel.test",
     "channel.message.read",
     "travel.config.read",
-    "travel.conversation.reset"
+    "travel.conversation.reset",
+    "travel.leads.read"
   ],
   Member: [
     "users.read",
@@ -249,6 +258,7 @@ const descriptions: Record<string, string> = {
   "knowledge.delete": "Delete knowledge documents",
   "knowledge.reindex": "Re-index knowledge documents",
   "knowledge.search": "Search organization knowledge",
+  "knowledge.collection.manage": "Create and manage AI Employee knowledge collections",
   "channel.read": "View messaging channel connections and configuration",
   "channel.create": "Create messaging channel connections",
   "channel.update": "Update messaging channel configuration and credentials",
@@ -257,7 +267,9 @@ const descriptions: Record<string, string> = {
   "channel.message.read": "View channel conversations and messages",
   "travel.config.read": "View Travel Employee configuration",
   "travel.config.update": "Update Travel Employee configuration",
-  "travel.conversation.reset": "Reset a Travel Employee conversation"
+  "travel.conversation.reset": "Reset a Travel Employee conversation",
+  "travel.leads.read": "View travel leads captured by the AI Employee",
+  "travel.leads.update": "Update travel lead status"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
@@ -309,6 +321,23 @@ export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
         return role ? [{ userId: user.id, roleId: role.id }] : [];
       }),
       skipDuplicates: true
+    });
+  }
+  // Seed subscription plan and org subscription for the first organisation
+  const org = await client.organization.findFirst();
+  if (org) {
+    const plan = await client.subscriptionPlan.upsert({
+      where: { code: "GROWTH" },
+      update: {},
+      create: { code: "GROWTH", name: "Growth", description: "Shared AI credit pool for growing teams", monthlyCreditAllowance: 500000, overageEnabled: true, overageRateMicrosPerCredit: 1000 }
+    });
+    const now = new Date();
+    const cycleStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const cycleEnd = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999);
+    await client.organisationSubscription.upsert({
+      where: { organizationId: org.id },
+      update: {},
+      create: { organizationId: org.id, planId: plan.id, status: "ACTIVE", billingCycleStart: cycleStart, billingCycleEnd: cycleEnd }
     });
   }
 }
