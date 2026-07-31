@@ -90,7 +90,8 @@ const NO_TRIP_SIGNALS: TripSubmissionStartSignals = {
   itineraryPresented: false,
   hasActiveTripContext: false,
   tripState: TRIP_STATE,
-  legacyPendingContactValue: null
+  legacyPendingContactValue: null,
+  legacyPendingAction: null
 };
 
 function dispatchSignals(overrides: Partial<TripSubmissionStartSignals> = {}): WorkflowDispatchSignals {

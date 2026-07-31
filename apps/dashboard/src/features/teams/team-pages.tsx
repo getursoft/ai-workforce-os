@@ -5,6 +5,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  BackLink,
   Badge,
   Button,
   Card,
@@ -154,7 +155,7 @@ export function NewTeamPage() {
   return (
     <AccessGate permission="TEAM_CREATE">
       <section className="admin-page">
-        <Link href="/teams">← Teams</Link>
+        <BackLink href="/teams" label="Back to Teams" />
         <h1>Create team</h1>
         <form className="admin-form" onSubmit={submit}>
           <Label htmlFor="name">Name</Label>
@@ -225,9 +226,9 @@ export function TeamDetailsPage() {
   return (
     <AccessGate permission="TEAM_READ">
       <section className="admin-page">
-        <Link href="/teams">← Teams</Link>
         <header className="admin-page__header">
           <div>
+            <BackLink href="/teams" label="Back to Teams" />
             <h1>{t.name}</h1>
             <p>{t.description}</p>
           </div>
@@ -236,14 +237,14 @@ export function TeamDetailsPage() {
         <div className="admin-grid">
           <Card>
             <h2>Hierarchy</h2>
-            <p>Parent: {t.parentTeam?.name ?? "Root"}</p>
+            <p style={{ marginBottom: 8, color: "var(--muted)", fontSize: "0.9rem" }}>Parent: {t.parentTeam?.name ?? "Root"}</p>
             {t.childTeams?.map((c) => (
-              <p key={c.id}>
+              <p key={c.id} style={{ margin: "4px 0", fontSize: "0.9rem" }}>
                 ↳ <Link href={`/team/${c.id}`}>{c.name}</Link>
               </p>
             ))}
             <Can permission="TEAM_UPDATE">
-              <Label htmlFor="parent">Move under</Label>
+              <Label htmlFor="parent" style={{ marginTop: 12 }}>Move under</Label>
               <select
                 id="parent"
                 className="ui-input"
@@ -277,11 +278,13 @@ export function TeamDetailsPage() {
                 ))}
               </select>
             </Can>
-            <p>Created {new Date(t.createdAt).toLocaleDateString()}</p>
+            <p style={{ marginTop: 8, color: "var(--muted)", fontSize: "0.85rem" }}>Created {new Date(t.createdAt).toLocaleDateString()}</p>
           </Card>
         </div>
         <Card>
-          <h2>Members</h2>
+          <div className="admin-section-header">
+            <h2>Members</h2>
+          </div>
           <Can permission="TEAM_MEMBER_ADD">
             <form
               className="admin-actions"

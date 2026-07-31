@@ -1,0 +1,15 @@
+{
+  "id": "marketing-employee",
+  "name": "Marketing Employee",
+  "version": "1.0.0",
+  "displayName": "Marketing Employee",
+  "description": "AI marketing employee. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["marketing.chat", "CRM"],
+  "tools": [
+    { "name": "marketing.create_campaign", "description": "Persist a campaign request after the requester consents and shares a contact number" },
+    { "name": "marketing.escalate", "description": "Escalate the conversation to a human marketing team member" }
+  ]
+}

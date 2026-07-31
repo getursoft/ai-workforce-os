@@ -85,6 +85,14 @@ export interface TripSubmissionStartSignals {
    *  so a migrated conversation can still resolve "yes, use it" without re-asking for the number. Null for
    *  every other legacy pending-input action (nothing to carry forward). */
   legacyPendingContactValue: string | null;
+  /** Travel Runtime's own `TravelConversationMemory.pendingAction` (the booking-options/passenger-
+   *  details/ticket-contact/resend-ticket flow — see travel.runtime.ts) — when this names one of those
+   *  states, this turn's text is understood to be an answer to that flow's own question (an option
+   *  number, a passenger list, or literally an email/phone volunteered for ticket delivery), never a
+   *  standalone contact volunteered out of the blue. Without this, `shouldStart` misread every such email/
+   *  phone reply as `STANDALONE_CONTACT` and hijacked the turn into a TRIP_SUBMISSION workflow before
+   *  Travel Runtime's own routing ever ran. */
+  legacyPendingAction: string | null;
 }
 
 /** Read-only trip reference used to build submission text and the internal lead. */

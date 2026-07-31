@@ -133,6 +133,9 @@ export interface AgentExecutionInput {
   source: { type: "DASHBOARD" } | { type: "CHANNEL"; channelId: string; externalUserId: string };
   requestId: string;
   metadata?: Record<string, unknown>;
+  /** Ids of uploaded conversation attachments whose extracted text should be injected into this turn's
+   *  context so the AI Employee can read the file contents (PDF/DOCX/TXT/JPG/PNG). */
+  attachmentIds?: string[];
 }
 export interface ToolHandler {
   definition: ToolDefinition;

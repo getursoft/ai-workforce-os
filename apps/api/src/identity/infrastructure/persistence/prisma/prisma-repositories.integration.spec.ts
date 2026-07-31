@@ -13,6 +13,7 @@ import { OrganizationSetting } from "../../../domain/organization/organization-s
 import { OrganizationSettingId } from "../../../domain/organization/organization-setting-id";
 import { OrganizationSlug } from "../../../domain/organization/organization-slug";
 import { Email } from "../../../domain/user/email";
+import { deleteAllOrganizationScopedRows } from "../../../../test/cleanup";
 import { PasswordHash } from "../../../domain/user/password-hash";
 import { User } from "../../../domain/user/user";
 import { UserId } from "../../../domain/user/user-id";
@@ -109,12 +110,7 @@ integration("Prisma identity repositories", () => {
   });
 
   beforeEach(async () => {
-    await client().$transaction([
-      client().authenticationSession.deleteMany(),
-      client().user.deleteMany(),
-      client().organizationSetting.deleteMany(),
-      client().organization.deleteMany()
-    ]);
+    await deleteAllOrganizationScopedRows(client());
   });
 
   it("saves and loads an organization", async () => {

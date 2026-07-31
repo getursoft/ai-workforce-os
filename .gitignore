@@ -16,3 +16,4 @@ node_modules
 tsconfig*.tsbuildinfo
 .aider*
 storage/
+*.traineddata

@@ -45,6 +45,9 @@ export class AgentController {
   ) {
     return this.agents.employees(org(p));
   }
+  @Get("agents/tools") @RequirePermission("agents.run") tools() {
+    return this.agents.toolCatalog();
+  }
   @Post("agents/run") @RequirePermission("agents.run") async run(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Req() req: IdentityRequest,

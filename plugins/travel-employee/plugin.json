@@ -18,6 +18,10 @@
     {
       "name": "travel.create_lead",
       "description": "Persist a travel lead after the traveler consents and shares a contact number"
+    },
+    {
+      "name": "travel.resend_ticket",
+      "description": "Look up an already-ticketed booking by email (and optionally travel date) and resend the ticket by email/WhatsApp"
     }
   ]
 }

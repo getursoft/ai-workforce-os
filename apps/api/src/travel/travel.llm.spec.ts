@@ -1470,7 +1470,12 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     const result = await orchestrator.complete({
       messages: [ITINERARY_PRESENTED_MESSAGE, { role: "user", content: "Melbourne" }]
@@ -1509,7 +1514,12 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       capturedLeadReference: null,
       displayCurrency: null,
       pendingRouteClarification: null,
-      pendingDepartureDate: { day: 1, month: 10, year: null, source: "USER_EXPLICIT" }
+      pendingDepartureDate: { day: 1, month: 10, year: null, source: "USER_EXPLICIT" },
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     const result = await orchestrator.complete({
       messages: [
@@ -1559,7 +1569,12 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     const { content } = await orchestrator.complete({
       messages: [ITINERARY_PRESENTED_MESSAGE, { role: "user", content: "Tokyo ka trip plan kro" }]
@@ -1731,7 +1746,12 @@ describe("resolveShortAnswerForLastAskedField (context-sensitive short-input dis
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     await orchestratorA.complete({ messages: [{ role: "user", content: "5" }] });
     expect(orchestratorA.lastEntities.totalTravellers).toBe(5);
@@ -1754,7 +1774,12 @@ describe("resolveShortAnswerForLastAskedField (context-sensitive short-input dis
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     await orchestratorB.complete({ messages: [{ role: "user", content: "5" }] });
     expect(orchestratorB.lastEntities.days).toBe(5);
@@ -1819,7 +1844,12 @@ describe("intent enhancement (structured action intents rather than generic conv
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     const result = await orchestrator.complete({
       messages: [{ role: "user", content: "i need plan from you" }],
@@ -1895,7 +1925,12 @@ describe("conversation memory persistence (confirmation, pending clarification, 
       completionStage: "NOT_OFFERED",
       capturedLeadReference: null,
       displayCurrency: null,
-      pendingRouteClarification: null
+      pendingRouteClarification: null,
+      pendingRecommendations: null,
+      selectedRecommendationId: null,
+      passengerDetails: null,
+      pendingResendLookup: null,
+      ticketContact: null
     });
     const restoredMemory = memoryFromStoredState(stored);
     expect(restoredMemory.confirmation).toEqual(confirmation);
@@ -4024,9 +4059,28 @@ describe("live-conversation regression: provider failure must never intercept an
     expect(result.content).toContain("sightseeing");
   });
 
-  it("search failure -> '1' -> acknowledges and continues, never repeats the menu", async () => {
+  // Real UAT bug: accepting the indicative numbers used to just acknowledge ("Anything else you'd like to
+  // adjust?") and dead-end there, requiring a separate explicit "book my flight" before ever seeing
+  // bookable options. Accepting IS the traveler saying "let's move forward" — this must go straight to the
+  // same structured, selectable Option 1/2/3 packages an explicit booking request would show.
+  it("search failure -> '1' -> goes straight to structured Option 1/2/3 packages (every required field is already known) — never the old dead-end acknowledgement", async () => {
     const real = fakeProvider({ extraction: {}, intent: "ask_question" });
     const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, readyTrip, failedMemory);
+    const result = await orchestrator.complete({ messages: [{ role: "user", content: "1" }], tools });
+    expect(result.toolCalls).toEqual([]);
+    expect(result.content).toMatch(/Option 1 — Value/);
+    expect(result.content).toMatch(/Option 2 — Recommended/);
+    expect(result.content).toMatch(/Option 3 — Premium/);
+    expect(result.content).not.toBe(buildRecoveryContinuationMessage("ENGLISH"));
+    expect(orchestrator.lastMemory.pendingAction).toBe("AWAITING_OPTION_SELECTION");
+    expect(orchestrator.lastMemory.pendingRecommendations).toHaveLength(3);
+    expect(orchestrator.providerFailure?.selectedRecoveryAction).toBe("INDICATIVE_RECOMMENDATIONS");
+  });
+
+  it("search failure -> '1' -> falls back to the plain acknowledgement (never fabricated packages) when a required field is still genuinely missing", async () => {
+    const incompleteTrip: TravelEntities = { ...readyTrip, budget: null, budgetCurrency: null };
+    const real = fakeProvider({ extraction: {}, intent: "ask_question" });
+    const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, incompleteTrip, failedMemory);
     const result = await orchestrator.complete({ messages: [{ role: "user", content: "1" }], tools });
     expect(result.toolCalls).toEqual([]);
     expect(result.content).toBe(buildRecoveryContinuationMessage("ENGLISH"));
@@ -6400,6 +6454,137 @@ describe("classifyRouteRelationship (route-extension vs new-trip vs multileg-cor
   });
   it("returns NONE when there's no active trip to relate to", () => {
     expect(classifyRouteRelationship("Tokyo to London", null, null)).toBe("NONE");
+  });
+  // Real UAT bug: after "plan trip to Dubai" set the confirmed destination to Dubai, a follow-up message
+  // restating the SAME trip with more detail ("Delhi to Dubai on 12 August for 2 adults for 5 days") was
+  // classified AMBIGUOUS purely because it happens to parse as a route ("Delhi -> Dubai") — producing the
+  // nonsensical "Should I add Dubai after Dubai in the same trip?" question, and then (once the traveler
+  // answered "same trip") silently discarding the dates/passenger count already given by routing into the
+  // NEXT-leg-collection flow instead of the normal entity-merge path.
+  it("classifies a message restating the SAME already-confirmed destination as NONE — never AMBIGUOUS, never 'add Dubai after Dubai'", () => {
+    expect(classifyRouteRelationship("delhi to dubai on 12 august for 2 adult for 5 days book my round trip flight", "Dubai", null)).toBe(
+      "NONE"
+    );
+    expect(classifyRouteRelationship("Delhi to Dubai", "Dubai", null)).toBe("NONE");
+  });
+});
+
+describe("UAT regression: restating the same destination with more detail must never trigger the route-relationship clarification or lose already-given details", () => {
+  it("'plan trip to Dubai' then 'Delhi to Dubai on 12 August for 2 adults for 5 days' merges straight into the SAME trip — never asks 'add Dubai after Dubai', never drops the dates/passenger count on a later turn", async () => {
+    const tools = [
+      { name: "travel.search_flights", description: "", inputSchema: {} },
+      { name: "travel.search_hotels", description: "", inputSchema: {} }
+    ];
+
+    // Turn 1: "plan trip to dubai"
+    const real1 = fakeProvider({ extraction: { destinationCity: "Dubai" }, intent: "provide_trip_details" });
+    const o1 = new TravelEmployeeLlmOrchestrator(real1, config, { ...EMPTY_TRAVEL_ENTITIES, customerName: "Krishna" });
+    await o1.complete({ messages: [{ role: "user", content: "plan trip to dubai" }], tools });
+    expect(o1.lastEntities.destinationCity).toBe("Dubai");
+
+    // Turn 2: "delhi to dubai on 12 august 2026 for 2 adult for 5 days book my round trip flight" — restates
+    // the SAME Dubai trip with full detail (a year included, so this test isolates the route-relationship/
+    // fast-path bugs from the separate, legitimate "no year stated" AWAITING_TRAVEL_YEAR clarification flow).
+    // Must be classified NONE (see classifyRouteRelationship above) and merge directly via the full
+    // extraction path, never asking whether to "add Dubai after Dubai" and never silently dropping the
+    // origin/date/days/adults already stated in this very message (the real UAT bug: the deterministic
+    // fast-path bypass — triggered because "travel dates" was the pending asked field — has no route/city-
+    // pair handling of its own and was dropping the origin city and demoting the full date to a bare month).
+    const real2 = fakeProvider({
+      extraction: {
+        originCity: "Delhi",
+        destinationCity: "Dubai",
+        days: 5,
+        adults: 2,
+        departureDate: "2026-08-12",
+        tripType: "ROUND_TRIP"
+      },
+      intent: "provide_trip_details"
+    });
+    const o2 = new TravelEmployeeLlmOrchestrator(real2, config, o1.lastEntities, o1.lastMemory);
+    const result2 = await o2.complete({
+      messages: [{ role: "user", content: "delhi to dubai on 12 august 2026 for 2 adult for 5 days book my round trip flight" }],
+      tools
+    });
+    expect(result2.content).not.toMatch(/add dubai after dubai/i);
+    expect(result2.content).not.toMatch(/separate trip/i);
+    expect(o2.pendingRouteClarification).toBeNull();
+    expect(o2.lastEntities).toMatchObject({
+      originCity: "Delhi",
+      destinationCity: "Dubai",
+      days: 5,
+      adults: 2,
+      departureDate: "2026-08-12"
+    });
+
+    // Turn 3: a later "go ahead"-style turn must see all of this already captured — no missing-fields
+    // re-ask for dates/days/travelers that were already given two turns ago.
+    const missing = computeMissingEntityFields(o2.lastEntities, o2.budgetMode);
+    expect(missing).not.toContain("days");
+    expect(missing).not.toContain("adults");
+    expect(missing).not.toContain("departureDate");
+  });
+
+  it("still preserves origin/days/adults when the SAME message omits the year — only the year itself is asked for (never a full re-ask of everything already given)", async () => {
+    const tools = [
+      { name: "travel.search_flights", description: "", inputSchema: {} },
+      { name: "travel.search_hotels", description: "", inputSchema: {} }
+    ];
+    const real1 = fakeProvider({ extraction: { destinationCity: "Dubai" }, intent: "provide_trip_details" });
+    const o1 = new TravelEmployeeLlmOrchestrator(real1, config, { ...EMPTY_TRAVEL_ENTITIES, customerName: "Krishna" });
+    await o1.complete({ messages: [{ role: "user", content: "plan trip to dubai" }], tools });
+
+    const real2 = fakeProvider({
+      extraction: { originCity: "Delhi", destinationCity: "Dubai", days: 5, adults: 2, travelMonth: "August", tripType: "ROUND_TRIP" },
+      intent: "provide_trip_details"
+    });
+    const o2 = new TravelEmployeeLlmOrchestrator(real2, config, o1.lastEntities, o1.lastMemory);
+    const result2 = await o2.complete({
+      messages: [{ role: "user", content: "delhi to dubai on 12 august for 2 adult for 5 days book my round trip flight" }],
+      tools
+    });
+
+    expect(result2.content).not.toMatch(/add dubai after dubai/i);
+    expect(o2.pendingRouteClarification).toBeNull();
+    // Origin/days/adults survive even though the year is genuinely still unknown — a legitimate, narrow
+    // "which year?" follow-up is fine; silently re-asking origin/days/adults/dates from scratch is not.
+    expect(o2.lastEntities).toMatchObject({ originCity: "Delhi", destinationCity: "Dubai", days: 5, adults: 2 });
+    expect(o2.pendingInputAction).toBe("AWAITING_TRAVEL_YEAR");
+  });
+});
+
+describe("UAT regression: missing-field prompts always use the real AI provider, even once the conversation is established", () => {
+  // Real UAT bug: a deliberate latency/cost optimization skipped the provider entirely for every
+  // "please share the next missing detail" turn once the conversation was past its first message —
+  // always returning the deterministic bullet-list template (buildFallbackAskMessage) regardless of
+  // whether a real, working AI provider was configured. This is what made the bot sound robotic on every
+  // turn AFTER the first, even with valid credentials — the LLM (and its warm-human-consultant system
+  // prompt) was simply never being called for these turns.
+  it("calls the real provider (not the deterministic fallback) for a missing-field prompt on a later turn, once the customer's name is already known", async () => {
+    const tools = [
+      { name: "travel.search_flights", description: "", inputSchema: {} },
+      { name: "travel.search_hotels", description: "", inputSchema: {} }
+    ];
+    // Turn 1: establishes the conversation (name known, no trip details yet).
+    const real1 = fakeProvider({ extraction: {}, intent: "provide_trip_details" });
+    const o1 = new TravelEmployeeLlmOrchestrator(real1, config, { ...EMPTY_TRAVEL_ENTITIES, customerName: "Krishna" });
+    await o1.complete({ messages: [{ role: "user", content: "hi" }], tools });
+
+    // Turn 2 (not the first turn, no name just learned): a destination is given, days/adults/budget/dates
+    // are still missing — this must go through the real provider, using its own scripted natural reply,
+    // never the hardcoded bullet-list fallback text.
+    const real2 = fakeProvider({
+      extraction: { destinationCity: "Dubai" },
+      intent: "provide_trip_details",
+      reply: "Dubai's a great choice, Krishna! When are you thinking of travelling, and for how many days?"
+    });
+    const o2 = new TravelEmployeeLlmOrchestrator(real2, config, o1.lastEntities, o1.lastMemory);
+    const result2 = await o2.complete({ messages: [{ role: "user", content: "plan trip to dubai" }], tools });
+
+    expect(real2.calls.length).toBeGreaterThan(0);
+    expect(result2.content).toBe("Dubai's a great choice, Krishna! When are you thinking of travelling, and for how many days?");
+    expect(result2.content).not.toMatch(/To plan this well, could you share:/);
+    expect(result2.content).not.toContain("•");
   });
 });
 

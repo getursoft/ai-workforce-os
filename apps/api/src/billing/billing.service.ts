@@ -150,16 +150,26 @@ export class BillingService {
       by: ["modelProvider"], where: { organizationId, status: "COMPLETED", createdAt: { gte: start, lte: end } },
       _sum: { totalTokens: true }, orderBy: { _sum: { totalTokens: "desc" } }
     });
-    const totalCredits = groups.reduce((s, g) => s + Math.ceil(((g._sum.totalTokens ?? 0) * 4) / 1000), 0);
-    return groups.map((g) => {
+    // Multiple raw modelProvider values (different providers/models, or the same provider recorded with
+    // different casing across executions) can map to the SAME coarse capability bucket below — merge by
+    // that bucket before returning, or the same "Chat Generation" label appears as several separate rows
+    // with different percentages (a real bug: 97%/1.8%/1% "Chat Generation" rows that should have been one).
+    const byCapability = new Map<string, number>();
+    for (const g of groups) {
       const cap = g.modelProvider?.toUpperCase() === "DETERMINISTIC" ? "TOOL_EXECUTION" : "CHAT_GENERATION";
-      const credits = Math.ceil(((g._sum.totalTokens ?? 0) * 4) / 1000);
-      return {
-        capability: cap, displayName: CAPABILITY_LABELS[cap] ?? cap,
-        creditsConsumed: credits,
-        sharePercentage: totalCredits > 0 ? Math.round((credits / totalCredits) * 10000) / 100 : 0
-      };
-    });
+      byCapability.set(cap, (byCapability.get(cap) ?? 0) + (g._sum.totalTokens ?? 0));
+    }
+    const totalCredits = [...byCapability.values()].reduce((s, tokens) => s + Math.ceil((tokens * 4) / 1000), 0);
+    return [...byCapability.entries()]
+      .map(([cap, tokens]) => {
+        const credits = Math.ceil((tokens * 4) / 1000);
+        return {
+          capability: cap, displayName: CAPABILITY_LABELS[cap] ?? cap,
+          creditsConsumed: credits,
+          sharePercentage: totalCredits > 0 ? Math.round((credits / totalCredits) * 10000) / 100 : 0
+        };
+      })
+      .sort((a, b) => b.creditsConsumed - a.creditsConsumed);
   }
 
   async byModel(organizationId: string, start: Date, end: Date): Promise<ModelUsage[]> {

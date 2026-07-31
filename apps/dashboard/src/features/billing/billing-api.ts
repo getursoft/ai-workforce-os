@@ -63,6 +63,22 @@ export interface UserUsage {
   executions: number;
 }
 
+export interface CreditPackage {
+  credits: number;
+  amountMinor: number;
+  currency: string;
+}
+
+export interface CreditPurchaseOrder {
+  id: string;
+  credits: number;
+  amountMinor: number;
+  currency: string;
+  status: string;
+  gatewayOrderId: string | null;
+  razorpayKeyId: string;
+}
+
 function qs(start?: string, end?: string): string {
   return start && end ? `?start=${start}&end=${end}` : "";
 }
@@ -80,6 +96,21 @@ export function createBillingApi(client: ApiClient) {
     trend: (start?: string, end?: string) =>
       client.request<TrendPoint[]>(`/billing/usage/trend${qs(start, end)}`),
     byUser: (start?: string, end?: string) =>
-      client.request<UserUsage[]>(`/billing/usage/by-user${qs(start, end)}`)
+      client.request<UserUsage[]>(`/billing/usage/by-user${qs(start, end)}`),
+    creditPackages: () =>
+      client.request<{ currency: string; packages: CreditPackage[] }>("/billing/credit-purchase/packages"),
+    createCreditPurchaseOrder: (credits: number) =>
+      client.request<CreditPurchaseOrder>("/billing/credit-purchase/orders", {
+        method: "POST",
+        body: JSON.stringify({ credits })
+      }),
+    verifyCreditPurchaseOrder: (
+      orderId: string,
+      body: { razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string }
+    ) =>
+      client.request<{ status: string; credits: number }>(`/billing/credit-purchase/orders/${orderId}/verify`, {
+        method: "POST",
+        body: JSON.stringify(body)
+      })
   };
 }

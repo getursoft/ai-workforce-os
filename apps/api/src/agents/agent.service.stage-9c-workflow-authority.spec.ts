@@ -270,7 +270,7 @@ describe("AgentService Stage 9C: BOOKING_HANDOFF via a real READY_FOR_BOOKING tu
     });
 
     expect(result.response).toMatch(/booking request/i);
-    expect(result.response).toMatch(/shall i proceed/i);
+    expect(result.response).toMatch(/shall i send it for confirmation/i);
     expect(workflowRows).toHaveLength(1);
     expect(workflowRows[0]).toMatchObject({
       workflowType: "BOOKING_HANDOFF",
@@ -302,9 +302,11 @@ describe("AgentService Stage 9C: BOOKING_HANDOFF via a real READY_FOR_BOOKING tu
       message: "yes, please proceed"
     });
 
-    expect(result.response).toMatch(/booking request has been saved/i);
-    expect(result.response).toMatch(/no reservation or payment has been made/i);
-    expect(result.response).not.toMatch(/booking confirmed|seat reserved|payment initiated|advisor assigned/i);
+    expect(result.response).toMatch(/booking request/i);
+    expect(result.response).toMatch(/approved and saved/i);
+    // The confirmation records the saved *intent* only — it must never claim a real booking, seat,
+    // payment, or advisor assignment happened.
+    expect(result.response).not.toMatch(/booking confirmed|seat reserved|payment initiated|advisor assigned|ticket/i);
     expect(workflowRows[0]?.status).toBe("COMPLETED");
   });
 

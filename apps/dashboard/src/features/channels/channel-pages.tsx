@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccessGate, Can } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
 import { createAgentApi } from "../agents/agent-api";
-import { Alert, Badge, Button, Card, EmptyState, Input, Label, Skeleton } from "../../components/ui";
+import { Alert, Badge, BackLink, Button, Card, EmptyState, Input, Label, Skeleton } from "../../components/ui";
 import { createChannelApi, type ChannelConfigurationInput, type MetaChannelConfigurationInput } from "./channel-api";
 
 const key = ["channels"] as const;
@@ -135,8 +135,12 @@ export function NewChannelPage() {
   return (
     <AccessGate permission="channel.create">
       <section className="admin-page">
-        <Link href="/channels">← Channels</Link>
-        <header className="admin-page__header"><div><h1>New WhatsApp channel</h1></div></header>
+        <header className="admin-page__header">
+          <div>
+            <BackLink href="/channels" label="Back to Channels" />
+            <h1>New WhatsApp channel</h1>
+          </div>
+        </header>
         <Card>
           <div className="admin-toolbar">
             <Label>Provider</Label>
@@ -251,9 +255,12 @@ export function ChannelDetailPage() {
   return (
     <AccessGate permission="channel.read">
       <section className="admin-page">
-        <Link href="/channels">← Channels</Link>
         <header className="admin-page__header">
-          <div><h1>{item.name}</h1><p><ProviderBadge provider={item.provider} /> · bound to {item.agent.displayName}</p></div>
+          <div>
+            <BackLink href="/channels" label="Back to Channels" />
+            <h1>{item.name}</h1>
+            <p><ProviderBadge provider={item.provider} /> · bound to {item.agent.displayName}</p>
+          </div>
           <StatusBadge status={item.status} />
         </header>
         <Card className="admin-toolbar">

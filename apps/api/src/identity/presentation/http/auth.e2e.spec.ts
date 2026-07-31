@@ -7,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../../../app.module";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
+import { deleteAllOrganizationScopedRows } from "../../../test/cleanup";
 import {
   SECURITY_CONFIG,
   type SecurityConfig
@@ -92,20 +93,12 @@ suite("Identity HTTP API", () => {
     app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
     prisma = app.get(PrismaService);
-    await prisma.$transaction([
-      prisma.authenticationSession.deleteMany(),
-      prisma.user.deleteMany(),
-      prisma.organization.deleteMany()
-    ]);
+    await deleteAllOrganizationScopedRows(prisma);
   });
 
   afterAll(async () => {
     if (prisma) {
-      await prisma.$transaction([
-        prisma.authenticationSession.deleteMany(),
-        prisma.user.deleteMany(),
-        prisma.organization.deleteMany()
-      ]);
+      await deleteAllOrganizationScopedRows(prisma);
     }
     await app?.close();
   });

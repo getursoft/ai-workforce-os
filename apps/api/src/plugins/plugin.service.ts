@@ -646,6 +646,50 @@ export class PluginService implements OnModuleInit {
         routingPriority: 100
       };
     }
+    if (/finance|expense|invoice|budget|report|reimburse|accounting/i.test(slug) || /finance|expense|invoice|budget|report|reimburse/i.test(desc)) {
+      return {
+        displayName, employeeType: "FINANCE",
+        summary: `Helps customers with: reports, invoices, expense classification, budgets, reimbursements.`,
+        supportedDomains: ["Finance"], supportedIntents: ["Expense Classification", "Invoice Support", "Budget Summary", "Report", "Approval Threshold"],
+        exampleQueries: ["Classify this expense", "What is our budget?", "Check an invoice status"],
+        excludedIntents: ["HR", "IT Support", "Travel", "Sales", "Legal"],
+        routingKeywords: ["finance", "expense", "invoice", "budget", "report", "reimburse", "spend", "tax"],
+        routingPriority: 100
+      };
+    }
+    if (/marketing|campaign|content|brand|social|advert/i.test(slug) || /marketing|campaign|content|brand|social/i.test(desc)) {
+      return {
+        displayName, employeeType: "MARKETING",
+        summary: `Helps customers with: campaign planning, content, brand, social, performance.`,
+        supportedDomains: ["Marketing"], supportedIntents: ["Campaign Planning", "Content", "Social", "Performance Summary"],
+        exampleQueries: ["Plan an email campaign", "Draft social content", "Summarise performance"],
+        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal"],
+        routingKeywords: ["marketing", "campaign", "content", "brand", "social", "email marketing", "webinar"],
+        routingPriority: 100
+      };
+    }
+    if (/legal|notice|compliance|regulatory|gst|income.?tax|advocat|ca\b/i.test(slug) || /legal|notice|compliance|regulatory|gst|income.?tax/i.test(desc)) {
+      return {
+        displayName, employeeType: "LEGAL",
+        summary: `Helps customers with: legal and regulatory notices, reply drafting, deadlines.`,
+        supportedDomains: ["Legal"], supportedIntents: ["Notice Summarisation", "Reply Drafting", "Deadline Tracking"],
+        exampleQueries: ["Summarise this GST notice", "Draft a reply to a show-cause notice", "When is the deadline?"],
+        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Marketing"],
+        routingKeywords: ["legal", "notice", "gst", "income tax", "scrutiny", "compliance", "regulatory", "advocate", "ca"],
+        routingPriority: 100
+      };
+    }
+    if (/customer.?support|support|helpdesk|ticket|help/i.test(slug) || /customer.?support|helpdesk|ticket/i.test(desc)) {
+      return {
+        displayName, employeeType: "CUSTOMER_SUPPORT",
+        summary: `Helps customers with: order status, refunds, returns, billing, accounts, troubleshooting.`,
+        supportedDomains: ["Customer Support"], supportedIntents: ["Order Status", "Refund", "Return", "Billing", "Account", "Troubleshooting"],
+        exampleQueries: ["Where is my order?", "Request a refund", "Reset my password"],
+        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal", "Marketing"],
+        routingKeywords: ["customer support", "support", "help", "refund", "order status", "billing", "ticket", "complaint"],
+        routingPriority: 100
+      };
+    }
     // Conservative default
     return {
       displayName, employeeType: null,

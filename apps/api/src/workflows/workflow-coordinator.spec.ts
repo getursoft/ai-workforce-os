@@ -50,7 +50,8 @@ const NO_TRIP_SUBMISSION_SIGNALS: TripSubmissionStartSignals = {
   itineraryPresented: false,
   hasActiveTripContext: false,
   tripState: TRIP_STATE,
-  legacyPendingContactValue: null
+  legacyPendingContactValue: null,
+  legacyPendingAction: null
 };
 
 const TRIP_SUBMISSION_TRIP_CONTEXT: TripSubmissionTripContext = {

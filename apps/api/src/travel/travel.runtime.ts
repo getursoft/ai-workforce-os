@@ -22,9 +22,55 @@ import {
   type ConversationCompletionStage,
   type SuggestedAction
 } from "../conversation/conversation-completion";
+import {
+  mergeEntitiesWithPriorState,
+  detectSprintIntent,
+  determineMissingFields,
+  type ConversationPhase
+} from "./sprint-4.4b-integration";
+// travel-package-options.ts also imports FROM this file (addDays/estimateBudgetRange) — a circular
+// module reference, but a safe one: every value below is only ever called from inside a method body
+// (never evaluated at module top-level on either side), so both modules finish initializing before either
+// value is actually invoked.
+import {
+  generateSimulatedPackageOptions,
+  formatPackageOptionsMessage,
+  detectOptionSelection,
+  isOptionSetExpired,
+  buildBookingConfirmationSummary,
+  buildPassengerDetailsRequestMessage,
+  parsePassengerDetailsReply,
+  isChangeOptionRequest,
+  isExplicitBookingConfirmationReply,
+  packageOptionSeed,
+  type SimulatedPackageOption,
+  type PassengerDetail
+} from "./travel-package-options";
+import {
+  buildAttachmentReadMessage,
+  detectOutOfScopeEmployee,
+  parseAttachmentBlocks,
+  type EmployeeDomainSpec
+} from "../employees/employee-runtime";
 
 export const TRAVEL_EMPLOYEE_PLUGIN_SLUG = "travel-employee";
 export const TRAVEL_TRIP_STATE_MEMORY_KEY = "travel.trip_state";
+
+/** Minimal domain spec for the Travel Employee, used only so the shared attachment-read helper can decide
+ *  whether an attached document belongs to Travel or to a different employee. */
+const TRAVEL_ATTACHMENT_SPEC: EmployeeDomainSpec = {
+  slug: TRAVEL_EMPLOYEE_PLUGIN_SLUG,
+  memoryKey: TRAVEL_TRIP_STATE_MEMORY_KEY,
+  providerName: "travel-employee",
+  modelName: "travel-employee-v1",
+  referencePrefix: "TRV",
+  artifactNoun: "trip",
+  artifactToolName: "travel.create_lead",
+  escalationContact: "support@ai-workforce-os.example",
+  fields: [],
+  buildRecommendation: () => "",
+  buildSummary: () => ""
+};
 
 export type TravelStage =
   | "GREETING"
@@ -221,6 +267,27 @@ export type TravelPendingAction =
   | "MODIFY_HOTEL_BUDGET"
   | "BOOK_FLIGHT"
   | "BOOK_HOTEL"
+  | "BOOK_TRIP"
+  /** Three simulated package options have been shown; waiting for the traveler to pick Option 1/2/3 —
+   *  see travel-package-options.ts. */
+  | "AWAITING_OPTION_SELECTION"
+  /** An option has been selected; waiting for the full name, age, and gender of every traveller before a
+   *  booking summary — and, eventually, a real ticket — can be produced. See travel-package-options.ts's
+   *  `PassengerDetail`/`parsePassengerDetailsReply`. */
+  | "AWAITING_PASSENGER_DETAILS"
+  /** Every traveller's details are collected; waiting for an email and/or WhatsApp number to actually
+   *  send the ticket to once the booking is approved — without this, `TravelBooking.customerEmail`/
+   *  `customerPhone` stay empty and there is nowhere for the real email/WhatsApp delivery to send the
+   *  PDF (it can still be downloaded from the chat attachment or dashboard). "skip" bypasses this. */
+  | "AWAITING_TICKET_CONTACT"
+  /** An option has been selected and every traveller's details collected; the final booking summary is
+   *  shown, waiting for an explicit "Confirm booking" before the BOOKING_HANDOFF workflow (and,
+   *  downstream, customer approval + provider booking) is started. */
+  | "AWAITING_BOOKING_CONFIRMATION"
+  /** A returning customer asked to resend their ticket but hasn't yet given enough to look it up —
+   *  waiting for the booking email (required) and, ideally, the travel date. See
+   *  `pendingResendLookup`/`isResendTicketRequest`. */
+  | "AWAITING_RESEND_TICKET_DETAILS"
   | null;
 
 /**
@@ -319,6 +386,11 @@ export function classifyRouteRelationship(
   if (parsedLegs.length === 0) return "NONE";
   const firstLeg = parsedLegs[0];
   if (!firstLeg) return "NONE";
+  // The message restates the SAME destination already confirmed (e.g. "plan trip to Dubai" followed later
+  // by "Delhi to Dubai on 12 August for 2 adults for 5 days") — this is the traveler filling in more detail
+  // for the trip already in progress, never a second "Dubai after Dubai" leg to add and never ambiguous.
+  // Checked before `continuesFromDestination`/AMBIGUOUS below so it can never be misread as either.
+  if (confirmedDestination !== null && sameCity(firstLeg.destination, confirmedDestination)) return "NONE";
   const continuesFromDestination = confirmedDestination !== null && sameCity(firstLeg.origin, confirmedDestination);
   const returnsHome =
     homeOriginCity !== null && parsedLegs.some((leg) => sameCity(leg.destination, homeOriginCity));
@@ -814,6 +886,25 @@ export interface TravelConversationMemory {
    * resolve this by itself — see the routing priority order's "resolve active clarification" stage.
    */
   pendingRouteClarification: { originalMessage: string; fromDestination: string | null; toDestination: string | null } | null;
+  /** The three simulated package options most recently shown, if any — see
+   * `travel-package-options.ts`'s `SimulatedPackageOption`. Selection ("Option 2") is validated against
+   * THIS persisted array, never against re-parsed prior chat prose. Cleared once a booking is confirmed
+   * (a fresh "book" ask always regenerates a new set rather than resurrecting a stale one). */
+  pendingRecommendations: SimulatedPackageOption[] | null;
+  /** `recommendationId` of the option the traveler picked from `pendingRecommendations`, if any. */
+  selectedRecommendationId: string | null;
+  /** Name/age/gender collected so far for the current booking's travellers (see
+   *  `AWAITING_PASSENGER_DETAILS`) — cleared once the booking is confirmed (or abandoned via a fresh
+   *  "book" ask), never carried over into an unrelated later booking. */
+  passengerDetails: PassengerDetail[] | null;
+  /** Partial identity given so far for a "resend my ticket" request (see
+   *  `AWAITING_RESEND_TICKET_DETAILS`) — cleared once the lookup tool call is issued or the request is
+   *  abandoned. */
+  pendingResendLookup: { email: string | null; travelDate: string | null } | null;
+  /** Email/WhatsApp number to actually send the confirmed ticket to (see `AWAITING_TICKET_CONTACT`) —
+   *  either field alone is enough; both null only if the traveler explicitly skipped this step. Carried
+   *  through to `TravelBooking.customerEmail`/`customerPhone`. */
+  ticketContact: { email: string | null; phone: string | null } | null;
 }
 
 /**
@@ -962,7 +1053,12 @@ export const EMPTY_TRAVEL_CONVERSATION_MEMORY: TravelConversationMemory = {
   completionStage: "NOT_OFFERED",
   capturedLeadReference: null,
   displayCurrency: null,
-  pendingRouteClarification: null
+  pendingRouteClarification: null,
+  pendingRecommendations: null,
+  selectedRecommendationId: null,
+  passengerDetails: null,
+  pendingResendLookup: null,
+  ticketContact: null
 };
 
 export interface TravelEmployeeRuntimeConfig {
@@ -1014,7 +1110,7 @@ const MONTHS = [
   "december"
 ];
 
-const KNOWN_DESTINATIONS = [
+export const KNOWN_DESTINATIONS = [
   "dubai",
   "paris",
   "london",
@@ -1620,10 +1716,22 @@ export function deriveNextLegDepartureDate(priorLeg: {
   return { departureDate: derived, isAssumption: derived !== null };
 }
 
+/** 3-4 letter month abbreviations this file already recognizes elsewhere (`monthIndexOf`/`MONTH_ABBREVIATIONS`
+ * further down, used by `parseAbsoluteDate`) — kept here as a plain list (not the number-keyed map, which
+ * is declared later and used via `monthIndexOf`) purely to build the matching regex below. */
+const MONTH_ABBREVIATION_WORDS = ["jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"];
+
+/** A message like "10 Sept 2026" or "1 Oct 2026" previously matched full month names only, so this
+ * returned null and the caller re-asked "which month?" forever, even though the user had already
+ * answered — every later reply, including "book"/"confirm booking", kept getting reinterpreted as an
+ * answer to that same stuck question. Delegates the abbreviation -> full-name resolution to `monthIndexOf`
+ * (declared later in this file) so there is exactly one abbreviation table, not two. */
 export function extractTravelMonth(text: string): string | null {
   const lower = text.toLowerCase();
-  for (const month of MONTHS) if (new RegExp(`\\b${month}\\b`, "i").test(lower)) return titleCase(month);
-  return null;
+  const match = new RegExp(`\\b(${[...MONTHS, ...MONTH_ABBREVIATION_WORDS].join("|")})\\b`, "i").exec(lower);
+  if (!match?.[1]) return null;
+  const index = monthIndexOf(match[1]);
+  return index === null ? null : titleCase(MONTHS[index] ?? "");
 }
 
 export function extractDurationDays(text: string): number | null {
@@ -1724,6 +1832,15 @@ export function extractBudget(
   const postfix = /(\d[\d,]*(?:\.\d+)?)\s*(usd|inr|eur|aed|gbp|sgd|cad|aud|thb|jpy)\b/i.exec(text);
   if (postfix?.[1] && postfix[2])
     return { amount: Math.round(parseFloat(postfix[1].replace(/,/g, ""))), currency: postfix[2].toUpperCase() };
+  // An unrecognized 3-letter currency code (IDR, VND, KRW, ...) sitting right next to the number must
+  // never fall through to the generic "just a number" path below and get silently mislabeled with
+  // `fallbackCurrency` — a stated "IDR 20000000" is not a $20,000,000 budget (off by a factor of ~1,300).
+  // Only the fixed SUPPORTED_CURRENCIES set (currency.service.ts) has a known exchange rate; an
+  // unsupported code means the amount is genuinely unrecognized, so this returns null rather than guessing
+  // — the caller's normal "what's your approximate budget (in USD)?" follow-up then re-asks correctly.
+  const adjacentCode =
+    /\b([a-z]{3})\s+[\d,]{2,}(?:\.\d+)?\b/i.exec(text) ?? /\b[\d,]{2,}(?:\.\d+)?\s+([a-z]{3})\b/i.exec(text);
+  if (adjacentCode?.[1] && !isSupportedCurrency(adjacentCode[1])) return null;
   const generic = /budget\D{0,12}?([\d,]{2,}(?:\.\d+)?)/i.exec(text);
   if (generic?.[1])
     return { amount: Math.round(parseFloat(generic[1].replace(/,/g, ""))), currency: fallbackCurrency };
@@ -1766,6 +1883,49 @@ const ESCALATION_PATTERN =
   /\b(human|real person|representative|talk to (?:a )?(?:person|human|agent)|speak to (?:a )?(?:person|human|agent)|escalate|customer service)\b/i;
 export function isEscalationRequest(text: string): boolean {
   return ESCALATION_PATTERN.test(text);
+}
+
+// A returning customer asking for their ticket again — in a brand-new conversation days/weeks after
+// booking, not a follow-up within the same session (that case is already covered by the PDF chat
+// attachment shown right after confirmation). Deliberately checked ahead of the name-collection gate in
+// `complete()`, so it works even before the traveler has re-introduced themselves.
+const RESEND_TICKET_PATTERN =
+  /\b(resend|re-?send|send\s+(?:me\s+)?(?:my\s+)?(?:the\s+)?ticket\s+again|send\s+(?:me\s+)?(?:my\s+)?ticket|share\s+(?:my\s+)?ticket|get\s+(?:my\s+)?ticket|need\s+my\s+ticket|lost\s+my\s+ticket|can'?t\s+find\s+my\s+ticket|where'?s\s+my\s+ticket)\b/i;
+export function isResendTicketRequest(text: string): boolean {
+  return RESEND_TICKET_PATTERN.test(text);
+}
+
+const SKIP_TICKET_CONTACT_PATTERN = /\b(skip|no\s+thanks?|none|not\s+now|later|don'?t\s+have)\b/i;
+/** An explicit decline of the ticket-contact ask — proceeds to booking confirmation with no email/WhatsApp
+ *  captured (the ticket then only ever reachable via the chat attachment or dashboard). */
+export function isSkipTicketContactRequest(text: string): boolean {
+  return SKIP_TICKET_CONTACT_PATTERN.test(text);
+}
+
+export function buildTicketContactRequestMessage(): string {
+  return "Where should I send your ticket once it's confirmed? Please share your email and/or WhatsApp number (or reply 'skip' to download it from chat instead).";
+}
+
+// A deliberately NARROWER subset of sprint-4.4b-integration.ts's own `bookingPatterns` — used only by
+// `TravelEmployeeLlmOrchestrator`'s booking-options trigger (see its own doc comment for why): that class
+// already has a tested "go ahead"/"yes" resume flow for an unrelated pending offer, so the broader phrases
+// there (bare "option 1/2", "go ahead", "proceed") are excluded here on purpose.
+const LLM_ORCHESTRATOR_BOOKING_INTENT_PATTERN =
+  /\bbook\s+(?:the\s+|this\s+|my\s+|that\s+)?(?:ticket|trip|flight|booking|itinerary|option|package|hotels?|flights?)\b|\bi\s+want\s+(?:to\s+)?book\b|^\s*(?:ok(?:ay)?[,.]?\s*)?(?:please\s+)?book\s*(?:it|this|now)?\s*[!.]?\s*$/i;
+
+/** The email the ticket should be looked up/resent against — the same pattern `extractContactValue`
+ *  (conversation-completion.ts) uses for a standalone email, kept local here since this file already has
+ *  its own `EMAIL_CONTACT_PATTERN` for the same shape. */
+export function extractEmailAddress(text: string): string | null {
+  return EMAIL_CONTACT_PATTERN.exec(text)?.[0] ?? null;
+}
+
+/** An exact travel date for resend lookup — deliberately only the EXPLICIT-date parser (never
+ *  `interpretDatePhrase`'s relative phrases like "next week"): a resend request is about a trip that may
+ *  already be in the past, where "next Friday" is meaningless. Returns null (never guesses) when no full
+ *  date is stated. */
+export function extractResendTicketDate(text: string): string | null {
+  return parseExplicitTravelDate(text)?.normalizedDate ?? null;
 }
 
 // Hinglish affirmatives (ji/jee/haan/ha/theek hai/kar do) count as a booking confirmation too — a bare "ji"
@@ -2611,6 +2771,28 @@ export function buildBookingConfirmedMessage(
   return `Thanks! Your booking intent has been recorded${reference ? ` (reference ${reference})` : ""}. Our team will follow up to complete the booking. No payment has been taken and no reservation is final.`;
 }
 
+/** Deterministic, honest reply for the `travel.resend_ticket` tool's result — never claims a resend
+ *  succeeded on a channel it didn't actually go out on (see DeliveryRecorderService, which reports real
+ *  per-channel SENT/FAILED/SKIPPED status, never a fabricated blanket "delivered"). */
+export function buildResendTicketReply(output: {
+  found?: unknown;
+  pnr?: unknown;
+  emailStatus?: unknown;
+  whatsappStatus?: unknown;
+}): string {
+  if (!output.found) {
+    return "I couldn't find a ticketed booking matching those details. Could you double-check the email address and travel date?";
+  }
+  const pnr = typeof output.pnr === "string" ? output.pnr : null;
+  const channels: string[] = [];
+  if (output.emailStatus === "SENT") channels.push("email");
+  if (output.whatsappStatus === "SENT") channels.push("WhatsApp");
+  if (channels.length === 0) {
+    return `I found your booking${pnr ? ` (PNR: ${pnr})` : ""}, but I wasn't able to resend it just now — please contact support and we'll get it to you directly.`;
+  }
+  return `I've resent your ticket${pnr ? ` (PNR: ${pnr})` : ""} via ${channels.join(" and ")}. This is a simulated booking in the AI Workforce OS demo environment.`;
+}
+
 /** Deterministic, non-LLM closing line for a tool-continuation turn that matched no known output shape. */
 export function buildGenericContinuationMessage(language: TravelResponseLanguage = "ENGLISH"): string {
   if (language === "HINGLISH") return "Dhanyavad — batayein aapki trip ke saath aage kaise badhna hai.";
@@ -2936,9 +3118,12 @@ export type TravelRuntimeExecutionMode = "PLATFORM_MANAGED" | "STANDALONE_COMPAT
  * `WorkflowSignal` before handing it to `WorkflowCoordinator.dispatchSignal`. Currently only one Travel
  * Runtime business result (BELOW_MINIMUM budget feasibility) emits one of these.
  */
+export type TravelWorkflowSignalDraftType = "START_TRIP_SUBMISSION" | "START_BOOKING_HANDOFF";
+
 export interface TravelWorkflowSignalDraft {
-  signalType: "START_TRIP_SUBMISSION";
-  trigger: "BELOW_MINIMUM_BUDGET";
+  signalType: TravelWorkflowSignalDraftType;
+  trigger: string;
+  payload?: Record<string, unknown>;
 }
 
 /**
@@ -2965,6 +3150,16 @@ export class TravelEmployeeProvider implements AiProvider {
     return this.memory;
   }
 
+  /** The full merged trip state after the just-completed turn (see `mergeEntitiesWithPriorState`) —
+   *  includes fields (originCity, tripType, preferences, ...) that the older `TravelState`/`TravelSlots`
+   *  shape `deriveTravelState` produces does NOT have at all. AgentService must persist THIS, not a
+   *  `deriveTravelState` reconstruction, or those fields are silently dropped between turns (a "from
+   *  Delhi"-only origin statement, a stated round-trip type, or a vegetarian preference would never
+   *  survive to the next turn even though this provider itself tracked it correctly all along). */
+  get lastEntities(): TravelEntities {
+    return this.priorEntities;
+  }
+
   /** Stage 9E: non-null only the turn Travel Runtime's own business calculation (currently only the
    *  BELOW_MINIMUM budget result) decided a workflow should start — see `TravelRuntimeExecutionMode`.
    *  AgentService reads this once per turn and hands it to `WorkflowCoordinator.dispatchSignal`; it is
@@ -2979,7 +3174,52 @@ export class TravelEmployeeProvider implements AiProvider {
     const last = messages.at(-1);
     const userMessages = messages.filter((message) => message.role === "user").map((message) => message.content);
     const currentText = userMessages.at(-1) ?? "";
-    const slots = extractTravelSlots(userMessages, this.config.defaultCurrency);
+
+    // Attached document (PDF/DOCX/TXT/JPG/PNG): the extracted text arrives as `[Attachment: ...]` blocks.
+    // Acknowledge reading the document and summarise what it's about; if the document clearly belongs to a
+    // different employee's domain, route it instead of treating the file's text as ordinary trip input.
+    const attachmentBlocks = parseAttachmentBlocks(currentText);
+    if (attachmentBlocks.length > 0) {
+      return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, attachmentBlocks));
+    }
+    // Out-of-scope routing for ordinary messages: a reimbursement/expense/HR/legal request that has nothing
+    // to do with trip planning is answered with a polite "not my area — I can route you" reply instead of
+    // forcing the traveler through trip-detail questions. Never interrupts an active pending action or
+    // contact capture (e.g. a phone number being collected for a real trip).
+    if (
+      this.memory.pendingAction === null &&
+      this.memory.completionStage !== "AWAITING_CONTACT" &&
+      this.memory.completionStage !== "CAPTURED"
+    ) {
+      const travelOutOfScope = detectOutOfScopeEmployee(TRAVEL_ATTACHMENT_SPEC, currentText);
+      if (travelOutOfScope) {
+        return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, [
+          { filename: "your request", mimeType: "text/plain", content: currentText }
+        ]));
+      }
+    }
+
+    const lastAssistantMessage =
+      [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null;
+
+    const mergedEntities = mergeEntitiesWithPriorState(
+      this.priorEntities,
+      currentText,
+      userMessages,
+      lastAssistantMessage,
+      this.config.defaultCurrency || "USD"
+    );
+    this.priorEntities = mergedEntities;
+
+    const rawSlots = extractTravelSlots(userMessages, this.config.defaultCurrency);
+    const slots: TravelSlots = {
+      destination: mergedEntities.destinationCity ?? rawSlots.destination,
+      travelMonth: mergedEntities.travelMonth ?? rawSlots.travelMonth,
+      durationDays: mergedEntities.days ?? mergedEntities.nights ?? rawSlots.durationDays,
+      passengers: mergedEntities.adults ?? mergedEntities.totalTravellers ?? rawSlots.passengers,
+      budgetAmount: mergedEntities.budget ?? rawSlots.budgetAmount,
+      budgetCurrency: mergedEntities.budgetCurrency ?? rawSlots.budgetCurrency
+    };
 
     if (last?.role === "tool") {
       const result = this.continueAfterTool(messages, last, slots, request.tools);
@@ -2994,6 +3234,76 @@ export class TravelEmployeeProvider implements AiProvider {
           capturedLeadReference: output.reference
         };
       return result;
+    }
+
+    // Resend Ticket: a returning customer asking for their ticket again — checked ahead of BOTH
+    // `resolveTravelInput` (which would otherwise misclassify a message containing an email as
+    // STANDALONE_CONTACT/lead-capture before this ever runs) and the name-collection gate further below,
+    // so it works even in a brand-new conversation, before the traveler has re-introduced themselves.
+    // Only ever needs an email (the definitive lookup key); the travel date narrows an ambiguous match but
+    // is never required, and the customer's name is only used for a friendlier confirmation once the
+    // booking is actually found downstream.
+    if (this.memory.pendingAction === "AWAITING_RESEND_TICKET_DETAILS" || isResendTicketRequest(currentText)) {
+      const priorLookup = this.memory.pendingResendLookup;
+      const email = extractEmailAddress(currentText) ?? priorLookup?.email ?? null;
+      const travelDate = extractResendTicketDate(currentText) ?? priorLookup?.travelDate ?? null;
+      if (!email) {
+        this.memory = {
+          ...this.memory,
+          pendingAction: "AWAITING_RESEND_TICKET_DETAILS" as TravelPendingAction,
+          pendingResendLookup: { email, travelDate }
+        };
+        return textResult(
+          "I can resend your ticket — could you share the email address you booked with, and your travel date if you remember it?"
+        );
+      }
+      this.memory = { ...this.memory, pendingAction: null, pendingResendLookup: null };
+      return toolResult("travel.resend_ticket", {
+        email,
+        travelDate,
+        customerName: extractCustomerName(userMessages)
+      });
+    }
+
+    // Ticket Contact: every traveller's details are recorded and the traveler is now being asked where to
+    // send the confirmed ticket — checked ahead of `resolveTravelInput` for the same reason as Resend
+    // Ticket above: an email or phone number typed here would otherwise be misclassified as
+    // STANDALONE_CONTACT/lead-capture before this pending state is ever consulted.
+    if (this.memory.pendingAction === "AWAITING_TICKET_CONTACT") {
+      const pendingOptions = this.memory.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.memory.selectedRecommendationId);
+      if (!selected) {
+        this.memory = {
+          ...this.memory,
+          pendingAction: null,
+          selectedRecommendationId: null,
+          passengerDetails: null,
+          ticketContact: null
+        };
+        return textResult("Something went wrong with your booking options — please ask to book your trip again.");
+      }
+      const confirmedPassengers = this.memory.passengerDetails ?? [];
+      if (isChangeOptionRequest(currentText)) {
+        this.memory = { ...this.memory, pendingAction: "AWAITING_OPTION_SELECTION" as TravelPendingAction, selectedRecommendationId: null };
+        return textResult(formatPackageOptionsMessage(pendingOptions));
+      }
+      if (isSkipTicketContactRequest(currentText)) {
+        this.memory = {
+          ...this.memory,
+          ticketContact: { email: null, phone: null },
+          pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction
+        };
+        return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, confirmedPassengers));
+      }
+      const contactEmail = extractEmailAddress(currentText);
+      const contactPhone = extractPhoneNumber(currentText);
+      if (!contactEmail && !contactPhone) return textResult(buildTicketContactRequestMessage());
+      this.memory = {
+        ...this.memory,
+        ticketContact: { email: contactEmail, phone: contactPhone },
+        pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction
+      };
+      return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, confirmedPassengers));
     }
 
     const resolvedInput = resolveTravelInput(currentText, {
@@ -3161,24 +3471,211 @@ export class TravelEmployeeProvider implements AiProvider {
       return textResult(buildContactRequestMessage());
     }
 
+    const sprintPhase: ConversationPhase =
+      wasLeadCaptured(messages) ? "BOOKED" :
+      this.memory.completionStage === "AWAITING_CONTACT" ? "BOOKING_APPROVAL_PENDING" :
+      this.memory.pendingAction === "AWAITING_OPTION_SELECTION" ||
+      this.memory.pendingAction === "AWAITING_PASSENGER_DETAILS" ||
+      this.memory.pendingAction === "AWAITING_BOOKING_CONFIRMATION" ||
+      this.memory.pendingAction === "BOOK_TRIP" ? "AWAITING_SELECTION" :
+      "COLLECTING_DETAILS";
+
+    const sprintIntent = detectSprintIntent(currentText, sprintPhase);
+
+    // Routing priority 1: CANCELLATION
+    if (sprintIntent.intent === "CANCELLATION_INTENT") {
+      return textResult(
+        `I understand you'd like to cancel. A manager will need to approve this cancellation. Please confirm you'd like to proceed.`
+      );
+    }
+
+    // Routing priority 2a: OPTION SELECTION — a package-options menu is active; this must win over a
+    // generic BOOKING_INTENT re-match (bookingPatterns includes "option 1"/"pick 2" itself) and over
+    // everything else, since the traveler is answering a specific, already-pending question.
+    if (this.memory.pendingAction === "AWAITING_OPTION_SELECTION" && this.memory.pendingRecommendations?.length) {
+      const pendingOptions = this.memory.pendingRecommendations;
+      if (isChangeOptionRequest(currentText)) {
+        return textResult(formatPackageOptionsMessage(pendingOptions));
+      }
+      const picked = detectOptionSelection(currentText);
+      if (picked !== null) {
+        if (isOptionSetExpired(pendingOptions)) {
+          const fresh = generateSimulatedPackageOptions(this.priorEntities, this.config, packageOptionSeed(this.priorEntities));
+          this.memory = { ...this.memory, pendingRecommendations: fresh, selectedRecommendationId: null };
+          return textResult(
+            `Those options have expired — here is a fresh set:\n\n${formatPackageOptionsMessage(fresh)}`
+          );
+        }
+        const selected = pendingOptions.find((option) => option.optionNumber === picked);
+        if (selected) {
+          // Passenger details already gathered (e.g. the traveler switched between options after already
+          // providing them — every option has the same traveller count) go straight to the confirmation
+          // summary; otherwise a real ticket can't be produced without a name for every seat, so this asks
+          // for them before anything else.
+          const alreadyCollected = this.memory.passengerDetails ?? [];
+          if (alreadyCollected.length >= selected.travellers) {
+            this.memory = { ...this.memory, selectedRecommendationId: selected.recommendationId };
+            if (this.memory.ticketContact === null) {
+              this.memory = { ...this.memory, pendingAction: "AWAITING_TICKET_CONTACT" as TravelPendingAction };
+              return textResult(buildTicketContactRequestMessage());
+            }
+            this.memory = { ...this.memory, pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction };
+            return textResult(
+              buildBookingConfirmationSummary(this.priorEntities, selected, alreadyCollected.slice(0, selected.travellers))
+            );
+          }
+          this.memory = {
+            ...this.memory,
+            pendingAction: "AWAITING_PASSENGER_DETAILS" as TravelPendingAction,
+            selectedRecommendationId: selected.recommendationId
+          };
+          return textResult(buildPassengerDetailsRequestMessage(selected.travellers, alreadyCollected));
+        }
+      }
+      return textResult("Please select Option 1, Option 2 or Option 3.");
+    }
+
+    // Routing priority 2a-bis: PASSENGER DETAILS — an option is selected; the traveler must supply every
+    // traveller's full name, age, and gender before the booking summary (and, eventually, a real ticket)
+    // can be produced. See travel-package-options.ts's `parsePassengerDetailsReply`.
+    if (this.memory.pendingAction === "AWAITING_PASSENGER_DETAILS") {
+      const pendingOptions = this.memory.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.memory.selectedRecommendationId);
+      if (!selected) {
+        this.memory = { ...this.memory, pendingAction: null, selectedRecommendationId: null, passengerDetails: null };
+        return textResult("Something went wrong with your booking options — please ask to book your trip again.");
+      }
+      if (isChangeOptionRequest(currentText)) {
+        this.memory = { ...this.memory, pendingAction: "AWAITING_OPTION_SELECTION" as TravelPendingAction, selectedRecommendationId: null };
+        return textResult(formatPackageOptionsMessage(pendingOptions));
+      }
+      const newlyParsed = parsePassengerDetailsReply(currentText);
+      const collected = [...(this.memory.passengerDetails ?? []), ...newlyParsed].slice(0, selected.travellers);
+      if (collected.length < selected.travellers) {
+        this.memory = { ...this.memory, passengerDetails: collected.length ? collected : null };
+        return textResult(buildPassengerDetailsRequestMessage(selected.travellers, collected));
+      }
+      this.memory = { ...this.memory, passengerDetails: collected };
+      if (this.memory.ticketContact === null) {
+        this.memory = { ...this.memory, pendingAction: "AWAITING_TICKET_CONTACT" as TravelPendingAction };
+        return textResult(buildTicketContactRequestMessage());
+      }
+      this.memory = { ...this.memory, pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction };
+      return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, collected));
+    }
+
+    // Routing priority 2b: BOOKING CONFIRMATION — the final summary is pending an explicit "Confirm
+    // booking" (never a generic "yes" from anywhere else — this branch is only reachable while that exact
+    // question is the pending action, i.e. pending-input context, not free-floating affirmative parsing).
+    if (this.memory.pendingAction === "AWAITING_BOOKING_CONFIRMATION") {
+      const pendingOptions = this.memory.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.memory.selectedRecommendationId);
+      const confirmedPassengers = this.memory.passengerDetails ?? [];
+      if (isChangeOptionRequest(currentText) && pendingOptions.length) {
+        this.memory = {
+          ...this.memory,
+          pendingAction: "AWAITING_OPTION_SELECTION" as TravelPendingAction,
+          selectedRecommendationId: null
+        };
+        return textResult(formatPackageOptionsMessage(pendingOptions));
+      }
+      if (isExplicitBookingConfirmationReply(currentText) && selected) {
+        const entities = this.priorEntities;
+        this.pendingWorkflowSignal = {
+          signalType: "START_BOOKING_HANDOFF",
+          trigger: "BOOKING_INTENT",
+          payload: {
+            destinationCity: entities.destinationCity,
+            originCity: entities.originCity,
+            travelDates: entities.departureDate ?? entities.travelMonth,
+            selectedOption: selected as unknown as Record<string, unknown>,
+            passengerDetails: confirmedPassengers as unknown as Record<string, unknown>[],
+            customerEmail: this.memory.ticketContact?.email ?? null,
+            customerPhone: this.memory.ticketContact?.phone ?? null
+          }
+        };
+        this.memory = { ...this.memory, pendingAction: null, passengerDetails: null, ticketContact: null };
+        return textResult(
+          "Thank you — I've submitted your booking request. Your booking request has been received and is waiting for approval. You'll be notified once a decision is made."
+        );
+      }
+      const fallbackOption = selected ?? pendingOptions[0];
+      if (!fallbackOption) {
+        this.memory = { ...this.memory, pendingAction: null, selectedRecommendationId: null };
+        return textResult("Something went wrong with your booking options — please ask to book your trip again.");
+      }
+      return textResult(buildBookingConfirmationSummary(this.priorEntities, fallbackOption, confirmedPassengers));
+    }
+
+    // Routing priority 3: BOOKING INTENT / SEARCH_PACKAGE_OPTIONS — generates three structured, selectable
+    // simulated options rather than a free-text price range, and never books immediately. "book my flight"
+    // once options already exist (but nothing selected yet) re-shows the SAME persisted options instead of
+    // regenerating a new set or repeating a generic price-range message.
+    if (sprintIntent.intent === "BOOKING_INTENT") {
+      const mergedEntities = this.priorEntities;
+      const destination = slots.destination ?? mergedEntities.destinationCity;
+
+      if (!destination) {
+        return textResult(`I'd be happy to help book your trip. First, where would you like to go?`);
+      }
+
+      const missingForBooking = determineMissingFields(mergedEntities);
+      if (missingForBooking.length > 0) {
+        this.memory = { ...this.memory, pendingAction: "BOOK_TRIP" as TravelPendingAction };
+        return textResult(
+          `I'd love to book your trip! I still need a few details:\n${missingForBooking.join("\n")}`
+        );
+      }
+
+      const options = generateSimulatedPackageOptions(mergedEntities, this.config, packageOptionSeed(mergedEntities));
+      this.memory = {
+        ...this.memory,
+        pendingAction: "AWAITING_OPTION_SELECTION" as TravelPendingAction,
+        pendingRecommendations: options,
+        selectedRecommendationId: null
+      };
+      return textResult(formatPackageOptionsMessage(options));
+    }
+
+    // Routing priority 3: BUDGET CHANGE
+    if (sprintIntent.intent === "BUDGET_CHANGE" || sprintIntent.intent === "BUDGET_FLEXIBLE") {
+      const budgetPayload = sprintIntent.payload?.budget as { amount: number; currency: string | null } | undefined;
+      if (budgetPayload) {
+        this.priorEntities = { ...this.priorEntities, budget: budgetPayload.amount, budgetCurrency: budgetPayload.currency ?? this.config.defaultCurrency };
+        slots.budgetAmount = budgetPayload.amount;
+        slots.budgetCurrency = budgetPayload.currency ?? this.config.defaultCurrency;
+        return textResult(`I've updated your budget to ${budgetPayload.currency ?? this.config.defaultCurrency} ${budgetPayload.amount}.`);
+      }
+      return textResult(`What revised budget amount and currency would you like to use?`);
+    }
+
+    // Routing priority 4: RE-EVALUATION ("I told you earlier")
+    if (sprintIntent.intent === "RE_EVALUATION_REQUEST") {
+      const entities = this.priorEntities;
+      const existing: string[] = [];
+      if (entities.originCity) existing.push(`origin: ${entities.originCity}`);
+      if (entities.destinationCity) existing.push(`destination: ${entities.destinationCity}`);
+      if (entities.departureDate) existing.push(`date: ${entities.departureDate}`);
+      if (entities.travelMonth) existing.push(`month: ${entities.travelMonth}`);
+      if (entities.days) existing.push(`duration: ${entities.days} days`);
+      if (entities.adults) existing.push(`travelers: ${entities.adults} adults`);
+      if (entities.budget) existing.push(`budget: ${entities.budgetCurrency ?? ""} ${entities.budget}`);
+
+      if (existing.length > 0) {
+        const missingList = determineMissingFields(entities);
+        const missingMsg = missingList.length > 0
+          ? `\n\nI still need: ${missingList.join(", ")}`
+          : "";
+        return textResult(`You're right! Here's what I already have:\n${existing.join("\n")}${missingMsg}`);
+      }
+    }
+
     const missing = missingFields(slots);
     if (missing.length === 0) {
-      // BELOW_MINIMUM budget feasibility: explain the shortfall and invite a phone number for a sales
-      // follow-up instead of proceeding to search — mirrors the LLM orchestrator's own
-      // `handleBelowMinimumFeasibility`, and is itself CRM-independent (see the pending-contact-
-      // continuation branch above, which persists the lead once the phone number arrives).
       if (slots.budgetAmount !== null) {
         const estimate = estimateBudgetRange(slotsToMinimalEntities(slots), this.config);
         const feasibility = classifyBudgetFeasibility(slots.budgetAmount, estimate);
         if (feasibility.classification === "BELOW_MINIMUM") {
-          // Stage 9E: in PLATFORM_MANAGED mode this ALSO emits a typed signal (below) that gives
-          // WorkflowCoordinator real workflow authority over the next turn's contact reply — but the
-          // legacy memory transition here is deliberately unchanged (rather than skipped) in both modes:
-          // `dispatchPendingWorkflowTurn` always intercepts a turn once a real WorkflowExecution row
-          // exists, so this field is inert bookkeeping once the signal is dispatched, and it is what makes
-          // `WorkflowCoordinator.migrateHistoricalContactState` a safe, self-healing fallback on the rare
-          // turn the signal dispatch itself fails. It is also read by unrelated logic in this same method
-          // (the Conversation Completion "offer to submit" gate) that must not be disturbed by this stage.
           this.memory = {
             ...this.memory,
             completionStage: "AWAITING_CONTACT",
@@ -3319,6 +3816,7 @@ export class TravelEmployeeProvider implements AiProvider {
     }
     if (typeof output.reference === "string" && output.reference.startsWith("LEAD-"))
       return textResult(buildBookingConfirmedMessage(output.reference));
+    if (typeof output.resendResult === "boolean") return textResult(buildResendTicketReply(output));
     return textResult("Thanks — let me know how you'd like to proceed with your trip.");
   }
 }
@@ -4669,11 +5167,19 @@ export function deterministicExtractFallback(message: string): Partial<TravelEnt
   // never tell adults/children/infants apart, so it must never be assigned to `adults` directly.
   const budget = extractBudget(message);
   const dateGuess = interpretDatePhrase(message);
+  // An EXPLICIT full date with a year ("17 Jan 27") is strictly more informative than the bare-month/
+  // relative-phrase guess above, exactly like `augmentWithExplicitDate` already applies for the LLM path —
+  // this fallback must apply the same precedence, or a message like "5 adults, 17 Jan 27, 5 days 3 nights"
+  // only gets its month (via `extractTravelMonth`, which now also recognizes "Jan") and silently loses the
+  // day/year. That partial `travelMonth` result was also enough to trigger the deterministic "fast path" in
+  // `safeExtractAndClassify` (skipping the LLM call entirely for expected-date-field turns), which made this
+  // fallback's own explicit-date blindness a user-visible regression, not just a theoretical LLM-outage one.
+  const explicitDate = parseExplicitTravelDate(message);
   return {
     customerName: extractCustomerName([message]),
     destinationCity: destination,
-    travelMonth: travelMonth ?? dateGuess.travelMonth,
-    departureDate: dateGuess.normalizedDate,
+    travelMonth: explicitDate?.travelMonth ?? travelMonth ?? dateGuess.travelMonth,
+    departureDate: explicitDate?.normalizedDate ?? dateGuess.normalizedDate,
     days: days ?? dateGuess.durationDays,
     nights: nightsMatch?.[1] ? Number(nightsMatch[1]) : null,
     ...composition,
@@ -4703,7 +5209,7 @@ export interface DateInterpretation {
 function toIsoDate(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
-function addDays(date: Date, days: number): Date {
+export function addDays(date: Date, days: number): Date {
   const copy = new Date(date);
   copy.setUTCDate(copy.getUTCDate() + days);
   return copy;
@@ -7546,7 +8052,12 @@ export function entitiesToStoredState(
           completionStage: memory.completionStage,
           capturedLeadReference: memory.capturedLeadReference,
           displayCurrency: memory.displayCurrency,
-          pendingRouteClarification: memory.pendingRouteClarification
+          pendingRouteClarification: memory.pendingRouteClarification,
+          pendingRecommendations: memory.pendingRecommendations,
+          selectedRecommendationId: memory.selectedRecommendationId,
+          passengerDetails: memory.passengerDetails,
+          pendingResendLookup: memory.pendingResendLookup,
+          ticketContact: memory.ticketContact
         }
       : {})
   };
@@ -7559,7 +8070,13 @@ const VALID_PENDING_ACTIONS: readonly Exclude<TravelPendingAction, null>[] = [
   "GENERATE_ITINERARY",
   "MODIFY_HOTEL_BUDGET",
   "BOOK_FLIGHT",
-  "BOOK_HOTEL"
+  "BOOK_HOTEL",
+  "BOOK_TRIP",
+  "AWAITING_OPTION_SELECTION",
+  "AWAITING_PASSENGER_DETAILS",
+  "AWAITING_TICKET_CONTACT",
+  "AWAITING_BOOKING_CONFIRMATION",
+  "AWAITING_RESEND_TICKET_DETAILS"
 ];
 const VALID_PENDING_INPUT_ACTIONS: readonly Exclude<TravelPendingInputAction, null>[] = [
   "AWAITING_LEAD_CONTACT",
@@ -7688,6 +8205,37 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
               : null
         }
       : null;
+  const pendingRecommendations = Array.isArray(value.pendingRecommendations)
+    ? (value.pendingRecommendations as SimulatedPackageOption[])
+    : null;
+  const selectedRecommendationId =
+    typeof value.selectedRecommendationId === "string" ? value.selectedRecommendationId : null;
+  const passengerDetails = Array.isArray(value.passengerDetails)
+    ? (value.passengerDetails as PassengerDetail[]).filter(
+        (entry): entry is PassengerDetail =>
+          typeof entry === "object" &&
+          entry !== null &&
+          typeof entry.name === "string" &&
+          typeof entry.age === "number" &&
+          (entry.gender === "MALE" || entry.gender === "FEMALE" || entry.gender === "OTHER")
+      )
+    : null;
+  const rawPendingResendLookup = value.pendingResendLookup as Record<string, unknown> | null | undefined;
+  const pendingResendLookup =
+    typeof rawPendingResendLookup === "object" && rawPendingResendLookup !== null
+      ? {
+          email: typeof rawPendingResendLookup.email === "string" ? rawPendingResendLookup.email : null,
+          travelDate: typeof rawPendingResendLookup.travelDate === "string" ? rawPendingResendLookup.travelDate : null
+        }
+      : null;
+  const rawTicketContact = value.ticketContact as Record<string, unknown> | null | undefined;
+  const ticketContact =
+    typeof rawTicketContact === "object" && rawTicketContact !== null
+      ? {
+          email: typeof rawTicketContact.email === "string" ? rawTicketContact.email : null,
+          phone: typeof rawTicketContact.phone === "string" ? rawTicketContact.phone : null
+        }
+      : null;
   return {
     confirmation,
     pendingClarification,
@@ -7708,7 +8256,12 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
     completionStage,
     capturedLeadReference,
     displayCurrency,
-    pendingRouteClarification
+    pendingRouteClarification,
+    pendingRecommendations,
+    selectedRecommendationId,
+    passengerDetails,
+    pendingResendLookup,
+    ticketContact
   };
 }
 
@@ -7817,6 +8370,16 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    *  budget feasibility) decided a workflow should start — see {@link TravelRuntimeExecutionMode} and
    *  `lastWorkflowSignal`. Reset at the start of every `complete()` call. Not persisted across requests. */
   private pendingWorkflowSignal: TravelWorkflowSignalDraft | null = null;
+  // The LLM orchestrator never generates or reads structured package options itself (that's the
+  // deterministic provider's job today — see travel-package-options.ts and the disclosed LLM-parity gap
+  // in ARCHITECTURE.md); it only round-trips these two fields so a conversation that used the
+  // deterministic provider on an earlier turn never has this state silently dropped by a later turn that
+  // happens to hit this orchestrator instead.
+  private pendingRecommendations: SimulatedPackageOption[] | null;
+  private selectedRecommendationId: string | null;
+  private passengerDetails: PassengerDetail[] | null;
+  private pendingResendLookup: { email: string | null; travelDate: string | null } | null;
+  private ticketContact: { email: string | null; phone: string | null } | null;
 
   constructor(
     private readonly realProvider: AiProvider,
@@ -7851,6 +8414,11 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.capturedLeadReference = priorMemory.capturedLeadReference;
     this.displayCurrency = priorMemory.displayCurrency;
     this.pendingRouteClarification = priorMemory.pendingRouteClarification;
+    this.pendingRecommendations = priorMemory.pendingRecommendations ?? null;
+    this.selectedRecommendationId = priorMemory.selectedRecommendationId ?? null;
+    this.passengerDetails = priorMemory.passengerDetails ?? null;
+    this.pendingResendLookup = priorMemory.pendingResendLookup ?? null;
+    this.ticketContact = priorMemory.ticketContact ?? null;
   }
 
   /** Snapshot of everything besides plain entity values that must be persisted between turns. */
@@ -7875,7 +8443,12 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       completionStage: this.completionStage,
       capturedLeadReference: this.capturedLeadReference,
       displayCurrency: this.displayCurrency,
-      pendingRouteClarification: this.pendingRouteClarification
+      pendingRouteClarification: this.pendingRouteClarification,
+      pendingRecommendations: this.pendingRecommendations,
+      selectedRecommendationId: this.selectedRecommendationId,
+      passengerDetails: this.passengerDetails,
+      pendingResendLookup: this.pendingResendLookup,
+      ticketContact: this.ticketContact
     };
   }
 
@@ -8016,6 +8589,30 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     const messages = request.messages;
     const last = messages.at(-1);
     const currentText = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
+    // Attached document (PDF/DOCX/TXT/JPG/PNG): the extracted text arrives as `[Attachment: ...]` blocks.
+    // Read the document, state its intent, and — if it clearly belongs to a different employee's domain —
+    // offer to route it, instead of treating the file's text as ordinary trip input. Handled identically to
+    // the deterministic TravelEmployeeProvider so both engines behave the same.
+    const travelAttachmentBlocks = parseAttachmentBlocks(currentText);
+    if (travelAttachmentBlocks.length > 0 && last?.role !== "tool") {
+      return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, travelAttachmentBlocks));
+    }
+    // Out-of-scope routing for ordinary messages too: a reimbursement/expense/HR request that has nothing
+    // to do with trip planning is answered with a polite "not my area — I can route you" reply instead of
+    // forcing the traveler through trip-detail questions. Only when there is no active workflow/booking
+    // flow in progress (never interrupts contact capture or an active pending action).
+    const travelOutOfScope = detectOutOfScopeEmployee(TRAVEL_ATTACHMENT_SPEC, currentText);
+    if (
+      travelOutOfScope &&
+      last?.role !== "tool" &&
+      this.pendingAction === null &&
+      this.completionStage !== "AWAITING_CONTACT" &&
+      this.completionStage !== "CAPTURED"
+    ) {
+      return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, [
+        { filename: "your request", mimeType: "text/plain", content: currentText }
+      ]));
+    }
     // Once a greeting has already been shown as its own turn (the normal proactive-greeting flow),
     // `isFirstTurn` must never be true again — otherwise the configured welcome message gets recited a
     // second time inline on the traveler's first substantive reply. "No assistant turn has happened yet
@@ -8060,6 +8657,227 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     };
 
     if (last?.role === "tool") return this.tag("tool_continuation", this.continueAfterTool(messages, last, request.tools));
+
+    // Resend Ticket — same priority/behavior as the deterministic provider (see its own copy of this
+    // block for the full rationale): checked ahead of every other routing below so it works even in a
+    // brand-new conversation, before the LLM's own intent classification or entity extraction runs.
+    if (this.pendingAction === "AWAITING_RESEND_TICKET_DETAILS" || isResendTicketRequest(currentText)) {
+      const priorLookup = this.pendingResendLookup;
+      const email = extractEmailAddress(currentText) ?? priorLookup?.email ?? null;
+      const travelDate = extractResendTicketDate(currentText) ?? priorLookup?.travelDate ?? null;
+      if (!email) {
+        this.pendingAction = "AWAITING_RESEND_TICKET_DETAILS" as TravelPendingAction;
+        this.pendingResendLookup = { email, travelDate };
+        return this.tag(
+          "resend_ticket_ask_details",
+          textResult(
+            "I can resend your ticket — could you share the email address you booked with, and your travel date if you remember it?"
+          )
+        );
+      }
+      this.pendingAction = null;
+      this.pendingResendLookup = null;
+      return this.tag(
+        "resend_ticket_lookup",
+        toolResult("travel.resend_ticket", { email, travelDate, customerName: extractCustomerName([currentText]) ?? this.lastEntities.customerName })
+      );
+    }
+
+    // Booking options: an option set is pending selection, passenger details are pending, or the final
+    // confirmation summary is pending an explicit "Confirm booking" — mirrors the deterministic
+    // provider's own three-stage flow exactly (see travel-package-options.ts), reusing the SAME
+    // functions so both engines produce identical option sets/summaries for identical trip state.
+    if (this.pendingAction === "AWAITING_OPTION_SELECTION" && this.pendingRecommendations?.length) {
+      const pendingOptions = this.pendingRecommendations;
+      if (isChangeOptionRequest(currentText)) {
+        return this.tag("booking_options_reshow", textResult(formatPackageOptionsMessage(pendingOptions)));
+      }
+      const picked = detectOptionSelection(currentText);
+      if (picked !== null) {
+        if (isOptionSetExpired(pendingOptions)) {
+          const fresh = generateSimulatedPackageOptions(this.lastEntities, this.config, packageOptionSeed(this.lastEntities));
+          this.pendingRecommendations = fresh;
+          this.selectedRecommendationId = null;
+          return this.tag(
+            "booking_options_expired",
+            textResult(`Those options have expired — here is a fresh set:\n\n${formatPackageOptionsMessage(fresh)}`)
+          );
+        }
+        const selected = pendingOptions.find((option) => option.optionNumber === picked);
+        if (selected) {
+          const alreadyCollected = this.passengerDetails ?? [];
+          if (alreadyCollected.length >= selected.travellers) {
+            this.selectedRecommendationId = selected.recommendationId;
+            if (this.ticketContact === null) {
+              this.pendingAction = "AWAITING_TICKET_CONTACT" as TravelPendingAction;
+              return this.tag("ticket_contact_ask", textResult(buildTicketContactRequestMessage()));
+            }
+            this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
+            return this.tag(
+              "booking_confirmation_summary",
+              textResult(buildBookingConfirmationSummary(this.lastEntities, selected, alreadyCollected.slice(0, selected.travellers)))
+            );
+          }
+          this.pendingAction = "AWAITING_PASSENGER_DETAILS" as TravelPendingAction;
+          this.selectedRecommendationId = selected.recommendationId;
+          return this.tag(
+            "booking_passenger_details_ask",
+            textResult(buildPassengerDetailsRequestMessage(selected.travellers, alreadyCollected))
+          );
+        }
+      }
+      return this.tag("booking_options_reprompt", textResult("Please select Option 1, Option 2 or Option 3."));
+    }
+
+    if (this.pendingAction === "AWAITING_PASSENGER_DETAILS") {
+      const pendingOptions = this.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.selectedRecommendationId);
+      if (!selected) {
+        this.pendingAction = null;
+        this.selectedRecommendationId = null;
+        this.passengerDetails = null;
+        return this.tag(
+          "booking_options_lost",
+          textResult("Something went wrong with your booking options — please ask to book your trip again.")
+        );
+      }
+      if (isChangeOptionRequest(currentText)) {
+        this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+        this.selectedRecommendationId = null;
+        return this.tag("booking_options_reshow", textResult(formatPackageOptionsMessage(pendingOptions)));
+      }
+      const newlyParsed = parsePassengerDetailsReply(currentText);
+      const collected = [...(this.passengerDetails ?? []), ...newlyParsed].slice(0, selected.travellers);
+      if (collected.length < selected.travellers) {
+        this.passengerDetails = collected.length ? collected : null;
+        return this.tag(
+          "booking_passenger_details_ask",
+          textResult(buildPassengerDetailsRequestMessage(selected.travellers, collected))
+        );
+      }
+      this.passengerDetails = collected;
+      if (this.ticketContact === null) {
+        this.pendingAction = "AWAITING_TICKET_CONTACT" as TravelPendingAction;
+        return this.tag("ticket_contact_ask", textResult(buildTicketContactRequestMessage()));
+      }
+      this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
+      return this.tag(
+        "booking_confirmation_summary",
+        textResult(buildBookingConfirmationSummary(this.lastEntities, selected, collected))
+      );
+    }
+
+    if (this.pendingAction === "AWAITING_TICKET_CONTACT") {
+      const pendingOptions = this.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.selectedRecommendationId);
+      if (!selected) {
+        this.pendingAction = null;
+        this.selectedRecommendationId = null;
+        this.passengerDetails = null;
+        this.ticketContact = null;
+        return this.tag(
+          "booking_options_lost",
+          textResult("Something went wrong with your booking options — please ask to book your trip again.")
+        );
+      }
+      const confirmedPassengers = this.passengerDetails ?? [];
+      if (isChangeOptionRequest(currentText)) {
+        this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+        this.selectedRecommendationId = null;
+        return this.tag("booking_options_reshow", textResult(formatPackageOptionsMessage(pendingOptions)));
+      }
+      if (isSkipTicketContactRequest(currentText)) {
+        this.ticketContact = { email: null, phone: null };
+        this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
+        return this.tag(
+          "booking_confirmation_summary",
+          textResult(buildBookingConfirmationSummary(this.lastEntities, selected, confirmedPassengers))
+        );
+      }
+      const email = extractEmailAddress(currentText);
+      const phone = extractPhoneNumber(currentText);
+      if (!email && !phone) {
+        return this.tag("ticket_contact_ask", textResult(buildTicketContactRequestMessage()));
+      }
+      this.ticketContact = { email, phone };
+      this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
+      return this.tag(
+        "booking_confirmation_summary",
+        textResult(buildBookingConfirmationSummary(this.lastEntities, selected, confirmedPassengers))
+      );
+    }
+
+    if (this.pendingAction === "AWAITING_BOOKING_CONFIRMATION") {
+      const pendingOptions = this.pendingRecommendations ?? [];
+      const selected = pendingOptions.find((option) => option.recommendationId === this.selectedRecommendationId);
+      const confirmedPassengers = this.passengerDetails ?? [];
+      if (isChangeOptionRequest(currentText) && pendingOptions.length) {
+        this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+        this.selectedRecommendationId = null;
+        return this.tag("booking_options_reshow", textResult(formatPackageOptionsMessage(pendingOptions)));
+      }
+      if (isExplicitBookingConfirmationReply(currentText) && selected) {
+        const entities = this.lastEntities;
+        this.pendingWorkflowSignal = {
+          signalType: "START_BOOKING_HANDOFF",
+          trigger: "BOOKING_INTENT",
+          payload: {
+            destinationCity: entities.destinationCity,
+            originCity: entities.originCity,
+            travelDates: entities.departureDate ?? entities.travelMonth,
+            selectedOption: selected as unknown as Record<string, unknown>,
+            passengerDetails: confirmedPassengers as unknown as Record<string, unknown>[],
+            customerEmail: this.ticketContact?.email ?? null,
+            customerPhone: this.ticketContact?.phone ?? null
+          }
+        };
+        this.pendingAction = null;
+        this.passengerDetails = null;
+        this.ticketContact = null;
+        return this.tag(
+          "booking_confirmed_submit",
+          textResult(
+            "Thank you — I've submitted your booking request. Your booking request has been received and is waiting for approval. You'll be notified once a decision is made."
+          )
+        );
+      }
+      const fallbackOption = selected ?? pendingOptions[0];
+      if (!fallbackOption) {
+        this.pendingAction = null;
+        this.selectedRecommendationId = null;
+        return this.tag(
+          "booking_options_lost",
+          textResult("Something went wrong with your booking options — please ask to book your trip again.")
+        );
+      }
+      return this.tag(
+        "booking_confirmation_summary",
+        textResult(buildBookingConfirmationSummary(this.lastEntities, fallbackOption, confirmedPassengers))
+      );
+    }
+
+    // An explicit "book"-verb request (not just a generic "yes, show me options") generates the same
+    // structured, selectable Option 1/2/3 package set as the deterministic provider, instead of this
+    // class's own free-text indicative-range recommendation — that prose flow stays exactly as-is for a
+    // plain "show me options"/"what would you recommend" ask, which never itself starts a booking.
+    //
+    // Deliberately NOT `detectSprintIntent`/the shared `bookingPatterns` here (unlike the deterministic
+    // provider's own equivalent check): this class already has its own tested "would you like me to look
+    // up options now?" -> SEARCH_OPTIONS -> "go ahead"/"yes" resume flow, and `bookingPatterns` includes
+    // broad phrases like "go ahead" and bare "option 1/2" that are exactly what that flow's own resume
+    // step expects — reusing them here hijacked that unrelated, already-tested behavior (a real
+    // regression caught by travel.llm.spec.ts). Only an unambiguous "book" verb is treated as booking
+    // intent in this class.
+    if (
+      LLM_ORCHESTRATOR_BOOKING_INTENT_PATTERN.test(currentText) &&
+      determineMissingFields(this.lastEntities).length === 0
+    ) {
+      const options = generateSimulatedPackageOptions(this.lastEntities, this.config, packageOptionSeed(this.lastEntities));
+      this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+      this.pendingRecommendations = options;
+      this.selectedRecommendationId = null;
+      return this.tag("booking_options_offer", textResult(formatPackageOptionsMessage(options)));
+    }
 
     const resolvedInput = resolveTravelInput(currentText, {
       pendingInputAction: this.pendingInputAction,
@@ -8939,6 +9757,20 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       }
       if (selection === "INDICATIVE_RECOMMENDATIONS" && this.providerFailure) {
         this.providerFailure.selectedRecoveryAction = "INDICATIVE_RECOMMENDATIONS";
+        // Real UAT bug: accepting the indicative numbers used to just acknowledge ("Anything else you'd
+        // like to adjust?") and dead-end there — the traveler then had to separately type an explicit
+        // "book my flight" to ever see bookable options. Accepting IS the traveler saying "let's move
+        // forward with this" — go straight to the same structured, selectable Option 1/2/3 package set the
+        // explicit booking-intent trigger below produces, exactly as if they'd asked to book. Only when a
+        // required field is somehow still missing (the indicative estimate can be computed with less than
+        // everything a real booking option needs) does this fall back to the old plain acknowledgement.
+        if (determineMissingFields(this.lastEntities).length === 0) {
+          const options = generateSimulatedPackageOptions(this.lastEntities, this.config, packageOptionSeed(this.lastEntities));
+          this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+          this.pendingRecommendations = options;
+          this.selectedRecommendationId = null;
+          return this.tag("provider_failure_continue_to_options", textResult(formatPackageOptionsMessage(options)));
+        }
         return this.tag(
           "provider_failure_continue_indicative",
           textResult(buildRecoveryContinuationMessage(this.responseLanguage))
@@ -9132,14 +9964,13 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.lastStage = stageForMissingEntityField(missing[0] ?? "");
     this.lastWorkflowPhase = "COLLECTING_DETAILS";
     this.lastAskedField = missing[0] ?? null;
-    // Use deterministic fallback message for simple missing-field turns instead of a provider call.
-    // Skip the LLM when the conversation is established — first-turn or complex scenarios still
-    // use the provider for a more personalised reply.
-    if (!isFirstTurn && !changed.some((e) => e.startsWith("customerName="))) {
-      const learnedName = null;
-      const reply = buildFallbackAskMessage(missing, this.config, false, this.responseLanguage, learnedName);
-      return this.tag("ask_missing_field", textResult(reply));
-    }
+    // Always ask for the next missing detail through the real provider (when one is configured) so every
+    // turn — not just the first — gets a warm, varied, human-sounding reply per buildGenerationSystemPrompt,
+    // instead of the deterministic bullet-list template. `safeGenerateReply` itself is the safety net: if
+    // the provider call genuinely fails or returns nothing, it falls back to buildFallbackAskMessage there.
+    // Previously this skipped the provider entirely once the conversation was "established" (a latency/cost
+    // optimization) — which is exactly why established-conversation turns sounded robotic even with a
+    // correctly configured, working AI provider: the LLM was never being called for them at all.
     const reply = await this.safeGenerateReply(
       merged, missing, changed, currentText, isFirstTurn, intent === "start_new_trip"
     );
@@ -10072,7 +10903,15 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     const deterministic = deterministicExtractFallback(message);
     const askedField = this.lastAskedField;
     const pendingAction = this.pendingInputAction;
-    if (askedField || pendingAction) {
+    // A message that also states an explicit route ("Delhi to Dubai on 12 August for 2 adults for 5 days")
+    // is never a "simple field-level input", even if it happens to also answer whatever field was last
+    // asked — the deterministic extractor here has no route/city-pair handling of its own (that lives in
+    // `reconcileRouteFromMessage`, only reached via the full LLM extraction path below), so taking the fast
+    // path would silently drop the stated origin city and demote a full date to a bare month. Real UAT bug:
+    // "delhi to dubai on 12 august..." answered the pending "travel dates" question, took the fast path, and
+    // lost the origin city and exact date entirely.
+    const statesExplicitRoute = findConnectedRoutePair(message) !== null;
+    if ((askedField || pendingAction) && !statesExplicitRoute) {
       const matchByField =
         (askedField === "budget" && deterministic.budget !== null) ||
         (askedField === "adults" && deterministic.adults !== null) ||
@@ -10314,6 +11153,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       this.lastStage = "ESCALATED";
       return textResult(buildEscalationMessage(this.config, this.responseLanguage));
     }
+    if (typeof output.resendResult === "boolean") return textResult(buildResendTicketReply(output));
     // A failed travel.search_flights/search_hotels call (fed back here by the caller instead of a flat,
     // dead-end recovery message) resolves here: persist the failure so a later vague follow-up doesn't
     // blindly retry it, and answer with provider-independent indicative recommendations instead. Every

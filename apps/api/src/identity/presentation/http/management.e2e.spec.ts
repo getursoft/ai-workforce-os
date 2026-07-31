@@ -7,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../../../app.module";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
+import { deleteAllOrganizationScopedRows } from "../../../test/cleanup";
 import { ApiExceptionFilter } from "./api-exception.filter";
 
 for (const candidate of [
@@ -62,7 +63,7 @@ suite("Sprint 2.2 management HTTP API", () => {
   it("provisions all system roles, permissions, and the initial Owner atomically", async () => {
     const roles = await prisma.role.findMany({
       where: { organizationId },
-      include: { users: true, permissions: true }
+      include: { users: true, permissions: { include: { permission: true } } }
     });
     expect(roles.map(({ name }) => name).sort()).toEqual([
       "Admin",
@@ -74,7 +75,34 @@ suite("Sprint 2.2 management HTTP API", () => {
     expect(
       roles.find(({ name }) => name === "Owner")?.users.some(({ userId }) => userId === ownerId)
     ).toBe(true);
-    expect(roles.find(({ name }) => name === "Owner")?.permissions).toHaveLength(66);
+    // The Owner system role must hold the full permission catalogue — every seeded permission key
+    // (identity, teams, plugins, agents, knowledge, channels, connectors, travel, and the seven
+    // domain employees) is granted. Asserted as a set superset rather than a fixed count so adding a
+    // new AI Employee's permissions doesn't rot this test.
+    const ownerKeys = new Set(
+      (roles.find(({ name }) => name === "Owner")?.permissions ?? []).map(
+        (relation) => relation.permission.key
+      )
+    );
+    expect(ownerKeys.size).toBeGreaterThan(100);
+    for (const key of [
+      "users.read",
+      "agents.run",
+      "knowledge.upload",
+      "channel.create",
+      "connector.install",
+      "plugin.install",
+      "travel.config.update",
+      "hr.config.update",
+      "finance.config.update",
+      "it.config.update",
+      "sales.config.update",
+      "marketing.config.update",
+      "legal.config.update",
+      "support.config.update",
+      "approval.manage"
+    ])
+      expect(ownerKeys.has(key)).toBe(true);
   });
 
   it("supports custom roles, multi-role users, filtering, and system-role protection", async () => {
@@ -191,11 +219,5 @@ suite("Sprint 2.2 management HTTP API", () => {
 });
 
 async function clean(prisma: PrismaService): Promise<void> {
-  await prisma.invitation.deleteMany();
-  await prisma.authenticationSession.deleteMany();
-  await prisma.userRole.deleteMany();
-  await prisma.rolePermission.deleteMany();
-  await prisma.role.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.organization.deleteMany();
+  await deleteAllOrganizationScopedRows(prisma);
 }

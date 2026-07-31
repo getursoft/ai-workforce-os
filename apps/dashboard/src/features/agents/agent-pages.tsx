@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { Bot, FileText, Paperclip, Send, Sparkles, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccessGate, Can } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
-import { Alert, Badge, Button, Card, EmptyState, Input, Skeleton } from "../../components/ui";
+import { Alert, Badge, BackLink, Button, Card, EmptyState, Input, Skeleton } from "../../components/ui";
 import { ApiError } from "../../lib/api-error";
-import { createAgentApi, type AgentEmployee, type ConversationMessage } from "./agent-api";
+import { createAgentApi, type ConversationMessage } from "./agent-api";
 import { createPluginApi } from "../plugins/plugin-api";
 import { createTravelApi, TRAVEL_EMPLOYEE_PLUGIN_ID, type TravelStage } from "../travel/travel-api";
 import { parseTravelRecommendation, type ParsedItinerary } from "./itinerary";
@@ -23,7 +24,42 @@ export interface ChatMessage {
     chunkIndex: number;
     score: number;
   }>;
+  attachments?: Array<{
+    type: "PDF_TICKET";
+    bookingId: string;
+    url: string;
+    filename: string;
+  }>;
+  /** Names of files the user attached to this message (displayed in the user bubble). */
+  fileAttachments?: string[];
 }
+
+/** Maps an installed AI employee's plugin slug to its dedicated dashboard configuration route — every
+ *  domain employee (Travel plus the shared-engine HR / Finance / IT / Sales / Marketing / Legal / Customer
+ *  Support) gets a Configure link on its employee card. */
+export const EMPLOYEE_CONFIGURE_ROUTES: Record<string, string> = {
+  "travel-employee": "/travel-employee",
+  "hr-employee": "/hr-employee",
+  "finance-employee": "/finance-employee",
+  "it-support-employee": "/it-support-employee",
+  "sales-employee": "/sales-employee",
+  "marketing-employee": "/marketing-employee",
+  "legal-employee": "/legal-employee",
+  "customer-support-employee": "/customer-support-employee"
+};
+
+/** Employees whose chat pages render the proactive greeting (an empty message on a brand-new conversation
+ *  returns the configured welcome message). Travel plus every shared-engine domain employee. */
+export const GREETING_EMPLOYEE_SLUGS: ReadonlySet<string> = new Set([
+  TRAVEL_EMPLOYEE_PLUGIN_ID,
+  "hr-employee",
+  "finance-employee",
+  "it-support-employee",
+  "sales-employee",
+  "marketing-employee",
+  "legal-employee",
+  "customer-support-employee"
+]);
 
 /** sessionStorage key that remembers the *last* conversation id for one AI employee, purely so the UI
  * can offer to resume it. Its presence must never, by itself, cause a conversation to be resumed — that
@@ -74,6 +110,34 @@ export function derivePlaceholder(
 
 const DEFAULT_PLACEHOLDER = "Plan a 5-day Dubai trip and remember that I prefer vegetarian food.";
 
+/** Domain-specific chat placeholders — one per installed AI employee, so the composer hint always matches
+ *  the employee being talked to instead of showing the same travel text for everyone. */
+export const EMPLOYEE_PLACEHOLDERS: Record<string, string> = {
+  "travel-employee": DEFAULT_PLACEHOLDER,
+  "hr-employee": "Ask about leave policy, onboarding, benefits, or raise an HR request…",
+  "finance-employee": "Ask about expenses, invoices, budgets, or reports…",
+  "it-support-employee": "My VPN is not working, or ask about access, password, or hardware…",
+  "sales-employee": "Ask about a product, request a quote, or book a demo…",
+  "marketing-employee": "Plan a campaign, draft content, or summarise performance…",
+  "legal-employee": "Draft a reply to a notice, or ask about a response deadline…",
+  "customer-support-employee": "Where is my order, request a refund, or report an issue…"
+};
+
+/** Resolves the composer placeholder for the currently open employee. Travel stays stage-aware (via its
+ *  conversation state); every other employee uses its own domain hint. */
+export function employeePlaceholder(
+  slug: string,
+  travelStage: TravelStage | null | undefined,
+  hasKnowledgeSources: boolean,
+  hasConversation: boolean
+): string {
+  if (slug === "travel-employee")
+    return hasConversation
+      ? derivePlaceholder(travelStage, hasKnowledgeSources)
+      : EMPLOYEE_PLACEHOLDERS["travel-employee"] ?? DEFAULT_PLACEHOLDER;
+  return EMPLOYEE_PLACEHOLDERS[slug] ?? "Type your message…";
+}
+
 function useApi() {
   const { client } = useAuth();
   return useMemo(() => createAgentApi(client), [client]);
@@ -89,9 +153,8 @@ function useTravelApi() {
 export function EmployeesPage() {
   const api = useApi(),
     plugins = usePluginApi(),
-    travel = useTravelApi(),
-    search = useSearchParams(),
-    qc = useQueryClient();
+    qc = useQueryClient(),
+    router = useRouter();
   const q = useQuery({ queryKey: ["agents"], queryFn: api.employees });
   const available = useQuery({ queryKey: ["agents", "available"], queryFn: plugins.available });
   const uninstalled = available.data?.items.filter((item) => !item.installed) ?? [];
@@ -109,14 +172,156 @@ export function EmployeesPage() {
       void qc.invalidateQueries({ queryKey: ["agents"] });
     }
   });
-  const [selected, setSelected] = useState<AgentEmployee | null>(null),
-    [conversationId, setConversationId] = useState<string | undefined>(),
+  return (
+    <AccessGate permission="agents.run">
+      <section className="admin-page">
+        <header className="admin-page__header">
+          <div>
+            <h1>AI Employees</h1>
+            <p>Run enabled plugin installations through the controlled agent runtime.</p>
+          </div>
+        </header>
+        {q.isLoading ? (
+          <Skeleton />
+        ) : q.isError ? (
+          <Alert tone="danger" title="Unable to load AI employees" />
+        ) : q.data?.length ? (
+          <div className="employee-grid">
+            {q.data.map((item) => (
+              <div key={item.id} className="employee-card">
+                <div className="employee-card__header">
+                  <div className="employee-card__icon" aria-hidden="true">
+                    <Bot />
+                  </div>
+                  <div className="employee-card__body">
+                    <h2>{item.displayName}</h2>
+                    <p>{item.description}</p>
+                  </div>
+                </div>
+                <div className="employee-card__badges">
+                  <Badge>{item.version}</Badge>
+                  <Badge tone="success">{item.status}</Badge>
+                  <Badge>{item.lastHealthStatus ?? "UNKNOWN"}</Badge>
+                  <Badge tone={item.runtimeReady ? "success" : "warning"}>
+                    {item.runtimeReady ? "Runtime ready" : "Grant MEMORY to enable memory tools"}
+                  </Badge>
+                </div>
+                <div className="employee-card__actions">
+                  <Button
+                    onClick={() => router.push(`/ai-employees/${item.id}`)}
+                    aria-label={`Run ${item.displayName}`}
+                  >
+                    Run
+                  </Button>
+                  {(() => {
+                    const configureHref = EMPLOYEE_CONFIGURE_ROUTES[item.slug];
+                    return configureHref ? (
+                      <Link
+                        href={configureHref}
+                        aria-label={`Configure ${item.displayName}`}
+                        className="employee-card__link"
+                      >
+                        Configure
+                      </Link>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : !uninstalled.length ? (
+          <EmptyState
+            title="No enabled AI employees"
+            description="Create your first AI Employee by installing one below, then enable it."
+          />
+        ) : null}
+        {uninstalled.length ? (
+          <section className="employee-available-section">
+            <h2>Available AI Employees</h2>
+            <p>Install a built-in AI employee to get started.</p>
+            <div className="employee-grid">
+              {uninstalled.map((manifest) => (
+                <div key={manifest.id} className="employee-card">
+                  <div className="employee-card__header">
+                    <div className="employee-card__icon" aria-hidden="true">
+                      <Sparkles />
+                    </div>
+                    <div className="employee-card__body">
+                      <h3>{manifest.displayName}</h3>
+                      <p>{manifest.description}</p>
+                    </div>
+                  </div>
+                  <div className="employee-card__badges">
+                    <Badge>{manifest.version}</Badge>
+                  </div>
+                  <div className="employee-card__actions">
+                    <Can permission="plugin.install">
+                      <Button
+                        loading={install.isPending && install.variables === manifest.id}
+                        disabled={install.isPending}
+                        onClick={() => install.mutate(manifest.id)}
+                        aria-label={`Install ${manifest.displayName}`}
+                      >
+                        Install
+                      </Button>
+                    </Can>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {install.isError ? (
+              <Alert tone="danger" title="Installation failed">
+                {agentRunErrorMessage(install.error)}
+              </Alert>
+            ) : null}
+          </section>
+        ) : null}
+      </section>
+    </AccessGate>
+  );
+}
+
+/** Dedicated chat page for a single AI employee (`/ai-employees/[id]`), reached from the "Run" button on
+ * the employee grid. Previously the chat rendered inline below the full grid + install sections on the
+ * same page, which meant clicking "Run" scrolled a long way down to a chat panel still surrounded by every
+ * other employee card — this page shows just that one employee's chat with a Back link, like every other
+ * detail route in the dashboard (execution-history/[id], team/[id], etc.). */
+export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
+  const api = useApi(),
+    travel = useTravelApi(),
+    qc = useQueryClient();
+  const { client } = useAuth();
+  const q = useQuery({ queryKey: ["agents"], queryFn: api.employees });
+  const employee = q.data?.find((item) => item.id === employeeId) ?? null;
+  // Downloads a ticket PDF chat attachment via an authenticated blob fetch (never a plain <a href>/
+  // window.open — the ticket.pdf route requires a bearer token, which a raw link/navigation can't carry).
+  const downloadTicketMutation = useMutation({
+    mutationFn: (attachment: { url: string; filename: string }) =>
+      client.requestBlob(attachment.url).then((blob) => ({ blob, filename: attachment.filename })),
+    onSuccess: ({ blob, filename }) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }
+  });
+  const [conversationId, setConversationId] = useState<string | undefined>(),
     [messages, setMessages] = useState<ChatMessage[]>([]),
+    // Files selected for upload but not yet sent — cleared once the message ships.
+    [pendingFiles, setPendingFiles] = useState<File[]>([]),
     // Set only while the user has an unresolved "resume or start new?" choice for a stored conversation —
     // never auto-resumed. Cleared as soon as either choice is made.
     [resumeChoice, setResumeChoice] = useState<string | null>(null);
-  const requested = search.get("plugin");
-  const employee = selected ?? q.data?.find((item) => item.id === requested) ?? null;
+  // Uploads a selected file (PDF/DOCX/TXT/JPG/PNG) to the current conversation so its text can be read by
+  // the AI Employee. Uploaded attachments are sent together with the next message via `attachmentIds`.
+  const uploadAttachment = useMutation({
+    mutationFn: async (file: File) => {
+      if (!conversationId) throw new Error("CONVERSATION_REQUIRED");
+      return api.uploadAttachment(conversationId, file);
+    }
+  });
   const run = useMutation({
     mutationFn: api.run,
     onSuccess: (result, variables) => {
@@ -126,9 +331,13 @@ export function EmployeesPage() {
       const resp = typeof r.response === "string" ? r.response : "";
       const execId = typeof r.executionId === "string" ? r.executionId : "";
       const sources = Array.isArray(r.sources) ? r.sources : [];
+      const attachments = Array.isArray(r.attachments) ? r.attachments : [];
       setConversationId(convId);
       if (resp) {
-        setMessages((current) => [...current, { role: "ASSISTANT", content: resp, executionId: execId, sources }]);
+        setMessages((current) => [
+          ...current,
+          { role: "ASSISTANT", content: resp, executionId: execId, sources, attachments }
+        ]);
       }
       if (convId) {
         sessionStorage.setItem(conversationStorageKey(variables.pluginInstallationId), convId);
@@ -175,9 +384,10 @@ export function EmployeesPage() {
     setMessages([]);
     setConversationId(undefined);
     setResumeChoice(null);
-    // Only the Travel Employee proactively greets — every other AI employee keeps starting blank until
-    // the traveler/user sends the first message, unchanged from before.
-    if (employee.slug !== TRAVEL_EMPLOYEE_PLUGIN_ID) return;
+    // The Travel Employee and every shared-engine domain employee (HR, Finance, IT, Sales, Marketing,
+    // Legal, Customer Support) proactively greet — every other AI employee keeps starting blank until
+    // the user sends the first message, unchanged from before.
+    if (!GREETING_EMPLOYEE_SLUGS.has(employee.slug)) return;
     const decision = decideConversationEntry(sessionStorage.getItem(conversationStorageKey(employee.id)));
     // A stored conversation id is never auto-resumed: resuming silently reuses whatever customer context
     // (name, trip state) that conversation had, which is exactly the isolation bug this guards against.
@@ -195,18 +405,67 @@ export function EmployeesPage() {
     enabled: Boolean(employee?.slug === TRAVEL_EMPLOYEE_PLUGIN_ID && conversationId),
     retry: false
   });
+  // Auto-scrolls the chat thread to the newest message — both the traveler's own reply (added immediately
+  // in `submit`) and the assistant's response (added once `run` resolves) push a new entry onto `messages`,
+  // so this fires for either. Runs after paint (`chatThreadRef.current.scrollHeight` reflects the just-
+  // rendered content only once the DOM has updated), and again while `run.isPending` so a long-running
+  // reply doesn't leave the thread scrolled to the traveler's own last message.
+  const chatThreadRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = chatThreadRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, run.isPending]);
   const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "ASSISTANT");
-  const placeholder =
-    employee?.slug === TRAVEL_EMPLOYEE_PLUGIN_ID
-      ? derivePlaceholder(travelStateQuery.data?.stage, Boolean(lastAssistantMessage?.sources?.length))
-      : DEFAULT_PLACEHOLDER;
+  const placeholder = employee
+    ? employeePlaceholder(
+        employee.slug,
+        travelStateQuery.data?.stage,
+        Boolean(lastAssistantMessage?.sources?.length),
+        Boolean(conversationId)
+      )
+    : "Type your message…";
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!employee || run.isPending) return;
     const form = event.currentTarget,
       message = String(new FormData(form).get("message") ?? "").trim();
-    if (!message) return;
-    setMessages((current) => [...current, { role: "USER", content: message }]);
+    const files = pendingFiles;
+    if (!message && files.length === 0) return;
+    setMessages((current) => [
+      ...current,
+      {
+        role: "USER",
+        content: message || (files.length ? `Attached ${files.length} file(s)` : ""),
+        fileAttachments: files.map((file) => file.name)
+      }
+    ]);
+    if (files.length) {
+      setPendingFiles([]);
+      // Upload each file, then send the message referencing the uploaded attachment ids.
+      void (async () => {
+        try {
+          const uploaded = [];
+          for (const file of files) {
+            const record = await uploadAttachment.mutateAsync(file);
+            uploaded.push(record.id);
+          }
+          run.mutate({
+            pluginInstallationId: employee.id,
+            ...(conversationId ? { conversationId } : {}),
+            message,
+            ...(uploaded.length ? { attachmentIds: uploaded } : {})
+          });
+        } catch {
+          setMessages((current) => [
+            ...current,
+            { role: "ASSISTANT", content: "I couldn't upload that file. Please try a PDF, Word, text, or image file." }
+          ]);
+        }
+      })();
+      form.reset();
+      return;
+    }
     run.mutate({
       pluginInstallationId: employee.id,
       ...(conversationId ? { conversationId } : {}),
@@ -214,78 +473,31 @@ export function EmployeesPage() {
     });
     form.reset();
   };
+  const onSelectFiles = (files: FileList | null) => {
+    if (!files || !files.length) return;
+    const selected = Array.from(files).slice(0, 5);
+    setPendingFiles((current) => [...current, ...selected].slice(0, 5));
+  };
   return (
     <AccessGate permission="agents.run">
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
-            <h1>AI Employees</h1>
-            <p>Run enabled plugin installations through the controlled agent runtime.</p>
+            <BackLink href="/ai-employees" label="Back to AI Employees" />
+            <h1>{employee ? employee.displayName : "AI Employee"}</h1>
+            {employee ? <p>{employee.description}</p> : null}
           </div>
         </header>
         {q.isLoading ? (
           <Skeleton />
         ) : q.isError ? (
           <Alert tone="danger" title="Unable to load AI employees" />
-        ) : q.data?.length ? (
-          <div className="admin-grid">
-            {q.data.map((item) => (
-              <Card key={item.id}>
-                <h2>{item.displayName}</h2>
-                <p>{item.description}</p>
-                <Badge>{item.version}</Badge> <Badge tone="success">{item.status}</Badge>{" "}
-                <Badge>{item.lastHealthStatus ?? "UNKNOWN"}</Badge>
-                <Badge tone={item.runtimeReady ? "success" : "warning"}>
-                  {item.runtimeReady ? "Runtime ready" : "Grant MEMORY to enable memory tools"}
-                </Badge>
-                <Button onClick={() => setSelected(item)} aria-label={`Run ${item.displayName}`}>
-                  Run
-                </Button>
-                {item.slug === "travel-employee" ? (
-                  <Link href={`/travel-employee`} aria-label={`Configure ${item.displayName}`}>
-                    Configure
-                  </Link>
-                ) : null}
-              </Card>
-            ))}
-          </div>
-        ) : !uninstalled.length ? (
+        ) : !employee ? (
           <EmptyState
-            title="No enabled AI employees"
-            description="Create your first AI Employee by installing one below, then enable it."
+            title="AI employee not found"
+            description="It may have been removed, or you may not have access to it."
           />
-        ) : null}
-        {uninstalled.length ? (
-          <Card>
-            <h2>Available AI Employees</h2>
-            <p>Install a built-in AI employee to get started.</p>
-            <div className="admin-grid">
-              {uninstalled.map((manifest) => (
-                <Card key={manifest.id}>
-                  <h3>{manifest.displayName}</h3>
-                  <p>{manifest.description}</p>
-                  <Badge>{manifest.version}</Badge>
-                  <Can permission="plugin.install">
-                    <Button
-                      loading={install.isPending && install.variables === manifest.id}
-                      disabled={install.isPending}
-                      onClick={() => install.mutate(manifest.id)}
-                      aria-label={`Install ${manifest.displayName}`}
-                    >
-                      Install
-                    </Button>
-                  </Can>
-                </Card>
-              ))}
-            </div>
-            {install.isError ? (
-              <Alert tone="danger" title="Installation failed">
-                {agentRunErrorMessage(install.error)}
-              </Alert>
-            ) : null}
-          </Card>
-        ) : null}
-        {employee && resumeChoice ? (
+        ) : resumeChoice ? (
           <Card>
             <h2>Chat with {employee.displayName}</h2>
             <p>You have a previous conversation with {employee.displayName}. Resume it, or start fresh?</p>
@@ -294,11 +506,20 @@ export function EmployeesPage() {
             </Button>{" "}
             <Button onClick={() => startNewConversation(employee.id)}>Start new conversation</Button>
           </Card>
-        ) : null}
-        {employee && !resumeChoice ? (
-          <Card>
-            <h2>Chat with {employee.displayName}</h2>
-            <div className="chat-thread" aria-live="polite">
+        ) : (
+          <Card className="chat-panel">
+            <div className="chat-panel__header">
+              <div className="chat-panel__avatar" aria-hidden="true">
+                <Bot size={20} />
+              </div>
+              <div className="chat-panel__title">
+                <h2>{employee.displayName}</h2>
+                <span className="chat-panel__status">
+                  {employee.runtimeReady ? "Runtime ready" : "Limited — memory tools disabled"}
+                </span>
+              </div>
+            </div>
+            <div className="chat-thread" aria-live="polite" ref={chatThreadRef}>
               {messages
                 .filter((message) => message.content?.trim()?.length > 0)
                 .map((message, index) => {
@@ -309,32 +530,63 @@ export function EmployeesPage() {
                       key={`${message.role}-${index}`}
                       className={`chat-bubble chat-bubble--${isUser ? "user" : "assistant"}`}
                     >
-                      <span className="chat-bubble__author">{isUser ? "You" : employee.displayName}</span>
-                      {itinerary ? (
-                        <TravelItineraryCards itinerary={itinerary} />
-                      ) : (
-                        <p className="chat-bubble__text">{message.content}</p>
-                      )}
-                      {message.sources?.length ? (
-                        <details className="chat-sources" aria-label="Sources">
-                          <summary>Sources</summary>
-                          <ul>
-                            {message.sources.map((source) => (
-                              <li key={`${source.documentId}-${source.chunkIndex}`}>
-                                {knowledgeSourceLabel(source)}
-                              </li>
+                      <div className="chat-bubble__avatar" aria-hidden="true">
+                        {isUser ? <User size={15} /> : <Bot size={15} />}
+                      </div>
+                      <div className="chat-bubble__content">
+                        <span className="chat-bubble__author">{isUser ? "You" : employee.displayName}</span>
+                        {itinerary ? (
+                          <TravelItineraryCards itinerary={itinerary} />
+                        ) : (
+                          <p className="chat-bubble__text">{message.content}</p>
+                        )}
+                        {message.fileAttachments?.length ? (
+                          <div className="chat-attachments chat-attachments--files">
+                            {message.fileAttachments.map((name) => (
+                              <span key={name} className="chat-attachment-file">
+                                <FileText size={13} /> {name}
+                              </span>
                             ))}
-                          </ul>
-                        </details>
-                      ) : null}
-                      {message.executionId ? (
-                        <details className="chat-debug">
-                          <summary>Debug</summary>
-                          <div>
-                            <Link href={`/execution-history/${message.executionId}`}>View execution</Link>
                           </div>
-                        </details>
-                      ) : null}
+                        ) : null}
+                        {message.sources?.length ? (
+                          <details className="chat-sources" aria-label="Sources">
+                            <summary>Sources</summary>
+                            <ul>
+                              {message.sources.map((source) => (
+                                <li key={`${source.documentId}-${source.chunkIndex}`}>
+                                  {knowledgeSourceLabel(source)}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                        {message.attachments?.length ? (
+                          <div className="chat-attachments">
+                            {message.attachments.map((attachment) => (
+                              <Button
+                                key={attachment.bookingId}
+                                variant="ghost"
+                                loading={
+                                  downloadTicketMutation.isPending &&
+                                  downloadTicketMutation.variables?.url === attachment.url
+                                }
+                                onClick={() => downloadTicketMutation.mutate(attachment)}
+                              >
+                                <FileText size={14} /> Download Ticket PDF
+                              </Button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {message.executionId ? (
+                          <details className="chat-debug">
+                            <summary>Debug</summary>
+                            <div>
+                              <Link href={`/execution-history/${message.executionId}`}>View execution</Link>
+                            </div>
+                          </details>
+                        ) : null}
+                      </div>
                     </article>
                   );
                 })}
@@ -344,15 +596,56 @@ export function EmployeesPage() {
                 {agentRunErrorMessage(run.error)}
               </Alert>
             ) : null}
-            <form onSubmit={submit} className="admin-form">
-              <label htmlFor="agent-message">Message</label>
-              <Input id="agent-message" name="message" required maxLength={12000} placeholder={placeholder} />
+            {pendingFiles.length ? (
+              <div className="chat-composer__files">
+                {pendingFiles.map((file) => (
+                  <span key={file.name} className="chat-attachment-file">
+                    <FileText size={13} /> {file.name}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() =>
+                        setPendingFiles((current) => current.filter((f) => f.name !== file.name))
+                      }
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <form onSubmit={submit} className="chat-composer">
+              <label className="chat-composer__attach" aria-label="Attach a file">
+                <Paperclip size={18} />
+                <input
+                  type="file"
+                  name="attachment"
+                  accept=".pdf,.doc,.docx,.txt,.md,.jpg,.jpeg,.png,.webp"
+                  multiple
+                  hidden
+                  disabled={!conversationId || run.isPending || uploadAttachment.isPending}
+                  onChange={(event) => onSelectFiles(event.currentTarget.files)}
+                />
+              </label>
+              <label htmlFor="agent-message" className="sr-only">
+                Message
+              </label>
+              <Input
+                id="agent-message"
+                name="message"
+                required={pendingFiles.length === 0}
+                maxLength={12000}
+                placeholder={placeholder}
+                className="chat-composer__field"
+                autoComplete="off"
+              />
               <Button loading={run.isPending} disabled={run.isPending}>
+                {!run.isPending ? <Send size={16} /> : null}
                 Send
               </Button>
             </form>
           </Card>
-        ) : null}
+        )}
       </section>
     </AccessGate>
   );
@@ -497,6 +790,7 @@ export function ConversationDetail({ id }: { id: string }) {
           <Alert tone="danger" title="Unable to load conversation" />
         ) : (
           <>
+            <BackLink href="/conversations" label="Back to Conversations" />
             <h1>{detail.data?.title}</h1>
             <p>{detail.data?.pluginInstallation.displayName}</p>
             {messages.data?.map((message) => (
@@ -578,6 +872,7 @@ export function ExecutionDetail({ id }: { id: string }) {
           <Alert tone="danger" title="Unable to load execution" />
         ) : q.data ? (
           <>
+            <BackLink href="/execution-history" label="Back to Execution History" />
             <h1>Execution {q.data.id.slice(0, 8)}</h1>
             <Card>
               <Badge>{q.data.status}</Badge>

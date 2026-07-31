@@ -75,6 +75,30 @@ export interface PluginAiConfiguration {
   secrets: { apiKey: { configured: boolean; updatedAt: string | null } };
   updatedAt: string | null;
 }
+export interface EmailConfiguration {
+  pluginInstallationId: string;
+  configured: boolean;
+  configuration: {
+    smtpHost?: string;
+    smtpPort?: number;
+    smtpSecure?: boolean;
+    smtpUser?: string;
+    fromEmail?: string;
+    fromName?: string;
+  };
+  secrets: { password: { configured: boolean; updatedAt: string | null } };
+  updatedAt: string | null;
+}
+export interface UpdateEmailConfigurationInput {
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpSecure?: boolean;
+  smtpUser?: string;
+  fromEmail?: string;
+  fromName?: string;
+  secrets?: { password?: string };
+  removeSecrets?: string[];
+}
 export interface PluginChatResult {
   message: string;
   provider: string;
@@ -148,6 +172,13 @@ export function createPluginApi(client: ApiClient) {
         `/plugins/${id}/ai-configuration/test`,
         { method: "POST" }
       ),
+    emailConfiguration: (id: string) =>
+      client.request<EmailConfiguration>(`/plugins/${id}/email-configuration`),
+    updateEmailConfiguration: (id: string, body: UpdateEmailConfigurationInput) =>
+      client.request<EmailConfiguration>(`/plugins/${id}/email-configuration`, {
+        method: "PATCH",
+        body: JSON.stringify(body)
+      }),
     chat: (
       id: string,
       body: {

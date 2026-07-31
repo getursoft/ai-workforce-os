@@ -20,8 +20,7 @@ import {
 } from "./workflow-signal-registry";
 import { WorkflowSignalEngine } from "./workflow-signal-engine";
 import type { WorkflowSignal } from "./workflow-signal.contracts";
-import { ApprovalService } from "./approval/approval.service";
-import type { ApprovalRequestData } from "./approval/approval.types";
+import { ApprovalService, type ApprovalRequestData } from "../approval/approval.service";
 
 /**
  * Stage 9C/9E/9E.1: WorkflowCoordinator — the single place that decides which (if any) durable workflow
@@ -111,7 +110,18 @@ export class WorkflowCoordinator {
       scope.pluginInstallationId,
       scope.conversationId
     );
-    let waiting = active.find((execution) => execution.status === "WAITING_FOR_INPUT") ?? null;
+    // WAITING_FOR_APPROVAL is included alongside WAITING_FOR_INPUT: BookingHandoffWorkflowService.resume()
+    // already has an explicit branch for it (`handleApprovalResume`, which polls ApprovalService on each
+    // turn — the pull-based approval-resume design) but it was unreachable without this, since a workflow
+    // sitting at WAITING_FOR_APPROVAL (set only by BookingHandoffWorkflowService.confirmAndRequestApproval
+    // today — CONTACT_CAPTURE/TRIP_SUBMISSION never reach this status, see WorkflowCoordinator.
+    // requestApproval's own dead-code note) would otherwise never be picked up here: `active.length > 0`
+    // would return NOT_HANDLED before resume() — and thus handleApprovalResume — was ever called, silently
+    // stranding every approved booking without ever executing it.
+    let waiting =
+      active.find(
+        (execution) => execution.status === "WAITING_FOR_INPUT" || execution.status === "WAITING_FOR_APPROVAL"
+      ) ?? null;
 
     // Stage 9E historical state translation: a conversation that reached its pending-contact state before
     // the Workflow Signal Engine existed has no WorkflowExecution row yet, only legacy persisted memory.
@@ -250,6 +260,7 @@ export class WorkflowCoordinator {
       organizationId: scope.organizationId,
       workflowExecutionId: execution.id,
       agentId: input.agentId,
+      actionType: execution.workflowType,
       requestedBy: input.requestedBy,
       title: input.title,
       description: input.description,
@@ -395,7 +406,10 @@ export class WorkflowCoordinator {
     }
 
     const result = await this.bookingHandoff.resume(execution, text, turnId, signals.bookingHandoffTripContext);
-    return this.dispatchResumeResult("BOOKING_HANDOFF", result.decision, result.responseText, null);
+    const outcome = this.dispatchResumeResult("BOOKING_HANDOFF", result.decision, result.responseText, null);
+    if (outcome.handled && result.state.ticketReady && result.state.bookingId)
+      outcome.bookingId = result.state.bookingId;
+    return outcome;
   }
 
   /**

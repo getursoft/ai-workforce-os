@@ -106,14 +106,12 @@ export class TravelDecisionAdapter {
       }
 
       case "READY_FOR_BOOKING": {
-        // Stage 8B does not implement booking workflow
-        // Return a typed pending state instead of routing to booking
         return {
           action: "BOOKING_WORKFLOW_PENDING",
           inputDecision: decision,
           capabilityReady: readinessCapabilities,
           explanation:
-            "Booking workflow is not yet implemented. Contact support to complete your booking."
+            "Your trip details are complete. I can help you book this trip — would you like to proceed with the booking? This will go through a simulated booking process with customer approval."
         };
       }
 

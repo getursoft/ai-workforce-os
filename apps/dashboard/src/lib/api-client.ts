@@ -174,6 +174,29 @@ export class ApiClient {
     }
   }
 
+  /** Like `request`, but for binary responses (e.g. a PDF download) that must not be run through
+   *  `readData`'s JSON parsing — still attaches the bearer token, so a plain `window.open(url)` (no
+   *  Authorization header) is never used for an authenticated download. */
+  async requestBlob(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<Blob> {
+    const authorize = options.authorize ?? true;
+    const headers = new Headers(init.headers);
+    if (authorize) {
+      const accessToken = this.callbacks.getAccessToken();
+      if (accessToken) {
+        headers.set("authorization", `Bearer ${accessToken}`);
+      }
+    }
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers,
+      credentials: options.credentials ?? "include"
+    });
+    if (!response.ok) {
+      throw await this.readError(response);
+    }
+    return response.blob();
+  }
+
   private async ensureRefreshed(): Promise<boolean> {
     if (!this.refreshPromise) {
       this.refreshPromise = this.refresh().then(

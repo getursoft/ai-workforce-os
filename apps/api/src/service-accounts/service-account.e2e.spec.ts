@@ -7,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { deleteAllOrganizationScopedRows } from "../test/cleanup";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 for (const c of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(c)) {
@@ -140,16 +141,5 @@ suite("Service accounts and API keys", () => {
   });
 });
 async function clean(p: PrismaService) {
-  await p.apiKey.deleteMany();
-  await p.serviceAccountRole.deleteMany();
-  await p.serviceAccount.deleteMany();
-  await p.teamMember.deleteMany();
-  await p.team.deleteMany();
-  await p.invitation.deleteMany();
-  await p.authenticationSession.deleteMany();
-  await p.userRole.deleteMany();
-  await p.rolePermission.deleteMany();
-  await p.role.deleteMany();
-  await p.user.deleteMany();
-  await p.organization.deleteMany();
+  await deleteAllOrganizationScopedRows(p);
 }

@@ -28,10 +28,12 @@ import {
   UpdatePluginConfigurationDto,
   UpdatePluginGrantsDto,
   UpdatePluginDto,
-  UpdatePluginAiConfigurationDto
+  UpdatePluginAiConfigurationDto,
+  UpdateEmailConfigurationDto
 } from "./plugin.dto";
 import { PluginService } from "./plugin.service";
 import { PluginAiService } from "./plugin-ai.service";
+import { EmailConfigurationService } from "./email-configuration.service";
 
 @ApiTags("Plugins")
 @ApiBearerAuth()
@@ -41,6 +43,7 @@ export class PluginController {
   constructor(
     private readonly plugins: PluginService,
     private readonly pluginAi: PluginAiService,
+    private readonly emailConfig: EmailConfigurationService,
     private readonly audit: AuditEventLogger
   ) {}
   @Post("install") @RequirePermission("plugin.install") async install(
@@ -200,6 +203,29 @@ export class PluginController {
       throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
     const result = await this.pluginAi.test(p.organizationId.toString(), id);
     this.record("PLUGIN_AI_PROVIDER_TESTED", req, p, id);
+    return result;
+  }
+  @Get(":id/email-configuration") @RequirePermission("plugin.read") emailConfiguration(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string
+  ) {
+    return this.emailConfig.get(p.organizationId.toString(), id);
+  }
+  @Patch(":id/email-configuration") @RequirePermission("plugin.update") async updateEmailConfiguration(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateEmailConfigurationDto,
+    @Req() req: IdentityRequest
+  ) {
+    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
+      throw new ForbiddenException("EMAIL_CONFIGURATION_FORBIDDEN");
+    const result = await this.emailConfig.update(
+      p.organizationId.toString(),
+      p.userId.toString(),
+      id,
+      dto
+    );
+    this.record("EMAIL_CONFIGURATION_UPDATED", req, p, id);
     return result;
   }
   @Post(":id/chat") @RequirePermission("plugin.execute") async chat(

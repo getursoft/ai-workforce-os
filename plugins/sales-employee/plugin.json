@@ -1,0 +1,15 @@
+{
+  "id": "sales-employee",
+  "name": "Sales Employee",
+  "version": "1.0.0",
+  "displayName": "Sales Employee",
+  "description": "AI sales employee. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["sales.chat", "CRM"],
+  "tools": [
+    { "name": "sales.create_lead", "description": "Persist a sales lead after the prospect consents and shares a contact number" },
+    { "name": "sales.escalate", "description": "Escalate the conversation to a human sales team member" }
+  ]
+}

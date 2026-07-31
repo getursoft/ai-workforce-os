@@ -75,7 +75,16 @@ export class BillingController {
   }
 
   private resolvePeriod(_p: AuthenticatedPrincipal, start?: string, end?: string) {
-    if (start && end) return { start: new Date(start), end: new Date(end) };
+    if (start && end) return { start: new Date(start), end: endOfDayIfDateOnly(end) };
     return this.billing.billingPeriod();
   }
+}
+
+/** A bare "YYYY-MM-DD" `end` query param (what every dashboard date-range picker sends, including
+ *  "today") parses to that day's UTC midnight — silently excluding every execution recorded LATER that
+ *  same day, which for the default "this month, through today" range means today's own activity (the
+ *  usage a user is most likely checking the dashboard to see) never appears. Only a bare date gets pushed
+ *  to end-of-day; an already-precise timestamp is left untouched. */
+function endOfDayIfDateOnly(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T23:59:59.999Z`) : new Date(value);
 }

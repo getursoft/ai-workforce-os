@@ -35,6 +35,13 @@ import {
   wasBookingConfirmed,
   wasEscalated,
   wasItineraryPresented,
+  entitiesToStoredState,
+  memoryFromStoredState,
+  EMPTY_TRAVEL_CONVERSATION_MEMORY,
+  isResendTicketRequest,
+  extractEmailAddress,
+  extractResendTicketDate,
+  buildResendTicketReply,
   type TravelEmployeeRuntimeConfig
 } from "./travel.runtime";
 
@@ -42,6 +49,27 @@ function requireId(call: { id: string } | undefined): string {
   if (!call) throw new Error("expected a tool call");
   return call.id;
 }
+
+describe("entitiesToStoredState / memoryFromStoredState: passengerDetails round-trips across turns", () => {
+  it("survives a full serialize -> deserialize cycle (reproduces a real bug: entitiesToStoredState enumerates memory fields explicitly rather than spreading, so a new memory field is silently dropped between HTTP turns unless listed there too)", () => {
+    const memory = {
+      ...EMPTY_TRAVEL_CONVERSATION_MEMORY,
+      passengerDetails: [
+        { name: "Krishna Pandey", age: 34, gender: "MALE" as const },
+        { name: "Anita Pandey", age: 32, gender: "FEMALE" as const }
+      ]
+    };
+    const stored = entitiesToStoredState(EMPTY_TRAVEL_ENTITIES, "COLLECT_NAME", memory);
+    const restored = memoryFromStoredState(stored);
+    expect(restored.passengerDetails).toEqual(memory.passengerDetails);
+  });
+
+  it("round-trips null when no passengers have been collected yet", () => {
+    const stored = entitiesToStoredState(EMPTY_TRAVEL_ENTITIES, "COLLECT_NAME", EMPTY_TRAVEL_CONVERSATION_MEMORY);
+    const restored = memoryFromStoredState(stored);
+    expect(restored.passengerDetails).toBeNull();
+  });
+});
 
 describe("slot extraction", () => {
   it("extracts a known destination case-insensitively", () => {
@@ -57,6 +85,14 @@ describe("slot extraction", () => {
   it("extracts a travel month", () => {
     expect(extractTravelMonth("sometime in December works for us")).toBe("December");
     expect(extractTravelMonth("no month here")).toBeNull();
+  });
+  it("extracts a travel month from a common abbreviation (reproduces the 'Sept'/'Oct'/'Nov' UAT bug, which left the assistant re-asking 'which month?' forever)", () => {
+    expect(extractTravelMonth("10 Sept 2026")).toBe("September");
+    expect(extractTravelMonth("10 sep 2026")).toBe("September");
+    expect(extractTravelMonth("1 Oct 2026")).toBe("October");
+    expect(extractTravelMonth("5 Nov 2026")).toBe("November");
+    expect(extractTravelMonth("Jan 3rd")).toBe("January");
+    expect(extractTravelMonth("dec 25")).toBe("December");
   });
   it("extracts duration in days", () => {
     expect(extractDurationDays("for about 5 days")).toBe(5);
@@ -199,6 +235,12 @@ describe("slot extraction", () => {
     expect(extractBudget("50000 USD")).toEqual({ amount: 50_000, currency: "USD" });
     expect(extractBudget("2000 SGD")).toEqual({ amount: 2000, currency: "SGD" });
   });
+  it("never mislabels an unsupported currency's amount as the fallback currency (reproduces the Bali/IDR UAT bug — 'IDR 20000000' is NOT a $20,000,000 budget)", () => {
+    expect(extractBudget("budget IDR 20000000", "USD")).toBeNull();
+    expect(extractBudget("budget is 6000000 yen", "USD")).toBeNull();
+    // A bare number with no currency word at all still falls back to the caller's fallback currency.
+    expect(extractBudget("budget is 5000", "USD")).toEqual({ amount: 5000, currency: "USD" });
+  });
   it("merges slots across messages without overwriting already-known values", () => {
     const slots = extractTravelSlots([
       "I want to go to Dubai",
@@ -289,6 +331,66 @@ describe("escalation and confirmation detection", () => {
     expect(isBookingConfirmation("book it")).toBe(true);
     expect(isBookingConfirmation("no thanks")).toBe(false);
   });
+});
+
+describe("resend-ticket detection and extraction", () => {
+  it.each([
+    "can you resend my ticket",
+    "resend ticket please",
+    "please re-send my ticket",
+    "send me my ticket again",
+    "I need my ticket",
+    "I lost my ticket",
+    "where's my ticket",
+    "can't find my ticket"
+  ])("detects a resend-ticket request in %j", (text) => {
+    expect(isResendTicketRequest(text)).toBe(true);
+  });
+
+  it("does not treat unrelated messages as a resend-ticket request", () => {
+    expect(isResendTicketRequest("Plan a trip to Dubai")).toBe(false);
+    expect(isResendTicketRequest("book my flight")).toBe(false);
+  });
+
+  it("extracts an email address from free text", () => {
+    expect(extractEmailAddress("my email is krishna.pandey@example.com, thanks")).toBe("krishna.pandey@example.com");
+    expect(extractEmailAddress("no email here")).toBeNull();
+  });
+
+  it("extracts an exact resend-lookup date, never a relative phrase", () => {
+    expect(extractResendTicketDate("I travelled on 12 August 2026")).toBe("2026-08-12");
+    expect(extractResendTicketDate("17 jan 27")).toBe("2027-01-17");
+    expect(extractResendTicketDate("next week")).toBeNull();
+    expect(extractResendTicketDate("no date here")).toBeNull();
+  });
+});
+
+describe("buildResendTicketReply", () => {
+  it("asks the customer to double-check details when no booking was found — never fabricates a match", () => {
+    const reply = buildResendTicketReply({ found: false });
+    expect(reply).toMatch(/couldn't find/i);
+  });
+
+  it("confirms the channels it actually sent through when found and delivered", () => {
+    const reply = buildResendTicketReply({ found: true, pnr: "ABC123", emailStatus: "SENT", whatsappStatus: "SENT" });
+    expect(reply).toMatch(/ABC123/);
+    expect(reply).toMatch(/email and WhatsApp/);
+  });
+
+  it("mentions only the channel that actually succeeded", () => {
+    const reply = buildResendTicketReply({ found: true, pnr: "ABC123", emailStatus: "SENT", whatsappStatus: "FAILED" });
+    expect(reply).toMatch(/via email\./);
+    expect(reply).not.toMatch(/WhatsApp/);
+  });
+
+  it("never claims a resend succeeded when every channel failed/skipped", () => {
+    const reply = buildResendTicketReply({ found: true, pnr: "ABC123", emailStatus: "FAILED", whatsappStatus: "SKIPPED" });
+    expect(reply).not.toMatch(/resent/i);
+    expect(reply).toMatch(/wasn't able to resend/i);
+  });
+});
+
+describe("original escalation and confirmation detection continued", () => {
   it("detects itinerary-presented, escalated, and booking-confirmed markers in a transcript", () => {
     const messages = [
       { role: "assistant" as const, content: "Reply 'confirm' to proceed with this plan." }

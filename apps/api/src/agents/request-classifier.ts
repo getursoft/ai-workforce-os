@@ -55,6 +55,11 @@ export interface RequestClassifierContext {
    * signal set here, following the same pattern, without touching the taxonomy or the knowledge/general
    * fallback logic below. */
   isTravelEmployee: boolean;
+  /** Whether the current AI Employee is one of the shared-engine domain employees (HR, Finance, IT
+   * Support, Sales, Marketing, Legal, Customer Support). These employees reuse the same deterministic
+   * intent taxonomy; they never trigger travel planning/slot signals, but contact replies and corrections
+   * still route to the employee runtime instead of the knowledge fallback. */
+  isEmployeeDomain?: boolean;
 }
 
 // A message that is only ever a slot fragment continuing an in-progress domain conversation — "10
@@ -94,8 +99,28 @@ const CORRECTION_SIGNAL_PATTERN =
 const GENERIC_TRAVEL_ACTION_PATTERN =
   /\b(?:suggest|recommend|estimate|create|generate|build|make)\s+(?:me\s+|us\s+|a\s+|an\s+|the\s+|some\s+|good\s+)*(?:hotels?|flights?|itinerary|budget)\b/i;
 
+// A transactional travel-booking request — bare "hotel and flight for round trip", "show flight/hotel/
+// package options", "round-trip options", or an option-selection/booking-confirmation reply ("option 2",
+// "confirm option 1"). None of these carry a verb `classifyPlanningAction`/`GENERIC_TRAVEL_ACTION_PATTERN`
+// already recognize (no "book"/"search"/"suggest"/"recommend"), so without this guard they fall through
+// to `looksLikeKnowledgeQuery` — a bare mention of "hotel" alone satisfies its generic topic-vocabulary
+// check (see knowledge.search.ts's TERM_GROUPS HOTEL_GROUP), silently routing a live transaction request
+// into the knowledge/RAG "I could not find this information" fallback instead of the travel engine. A
+// travel transaction request must never be answered from knowledge just because no document matches it.
+const TRAVEL_TRANSACTION_GUARD_PATTERN =
+  /\b(?:hotels?\s*(?:and|&|\+)\s*flights?|flights?\s*(?:and|&|\+)\s*hotels?)\b|\bshow\s+(?:me\s+)?(?:flight|hotel|package)\s+options?\b|\bround[\s-]?trip\s+options?\b|\b(?:confirm|select|choose|pick|go\s+with|proceed\s+with)\s+option\s*(?:\d+|one|two|three|first|second|third)\b|\boption\s*(?:\d+|one|two|three)\b|\bbook\s+(?:my\s+|our\s+|the\s+)?trip\b/i;
+
 const LEAD_STATUS_QUERY_PATTERN =
   /\b(?:did\s+you\s+captur(?:e|ed)\s+(?:my\s+)?lead|have\s+you\s+created\s+(?:my\s+|the\s+)?lead|has\s+my\s+lead\s+been\s+created|(?:is|was)\s+my\s+(?:enquiry|inquiry|request)\s+(?:submitted|saved)|did\s+you\s+save\s+(?:my\s+)?(?:details|request)|what\s+is\s+my\s+(?:lead|enquiry|inquiry)\s+status|(?:give\s+me\s+|what\s+is\s+)?my\s+(?:lead\s+)?reference(?:\s+number)?|what\s+is\s+the\s+reference|mera\s+lead\s+bana|lead\s+bana\s+diya|lead\s+capture\s+hua|enquiry\s+submit\s+hui|request\s+save\s+hui|(?:reference|enquiry)\s+(?:number|id)\s+(?:kya\s+hai|batao))\b/i;
+
+// Domain-topic replies for the shared-engine employees (HR, Finance, IT, Sales, Marketing, Legal,
+// Customer Support). A message naming one of these topics while the employee is collecting domain fields
+// must never fall through to the knowledge-question check (whose generic term heuristics — "policy",
+// "tax", "support" — would otherwise route it to RAG and silently discard the field being collected).
+// Deliberately routing-only, exactly like the travel guards above: it never changes how the employee
+// engine itself handles the message.
+const EMPLOYEE_DOMAIN_TOPIC_PATTERN =
+  /\b(?:leave|onboarding|benefit|payroll|attendance|appraisal|grievance|reimburse|expense|invoice|budget|report|vpn|network|password|login|access|software|hardware|laptop|printer|product|pricing|quote|order|demo|trial|campaign|content|social|webinar|seo|notice|gst|income[\s-]?tax|scrutiny|show[\s-]?cause|compliance|regulatory|refund|return|billing|delivery|shipping|subscription|account)\b/i;
 
 /**
  * Deterministic request routing, computed from the current message text alone — never from whether
@@ -113,6 +138,7 @@ export function classifyRequestIntent(text: string, context: RequestClassifierCo
     if (classifyPlanningAction(text) !== null) return "TASK_EXECUTION";
     if (looksLikePhoneOrContact(text)) return "TASK_EXECUTION";
     if (GENERIC_TRAVEL_ACTION_PATTERN.test(text)) return "TASK_EXECUTION";
+    if (TRAVEL_TRANSACTION_GUARD_PATTERN.test(text)) return "TASK_EXECUTION";
     if (CORRECTION_SIGNAL_PATTERN.test(text)) return "CORRECTION";
     if (extractDestination(text) !== null || parseJourneyLegChain(text).length > 0)
       return "TRAVEL_PLANNING";
@@ -127,6 +153,13 @@ export function classifyRequestIntent(text: string, context: RequestClassifierCo
       PLANNING_CONTINUATION_PATTERN.test(text)
     )
       return "TRAVEL_PLANNING";
+  }
+  if (context.isEmployeeDomain) {
+    if (looksLikePhoneOrContact(text)) return "TASK_EXECUTION";
+    if (CORRECTION_SIGNAL_PATTERN.test(text)) return "CORRECTION";
+    // A domain topic being shared while the employee collects fields must route to the employee engine,
+    // never the knowledge fallback (whose generic term heuristics would otherwise swallow it).
+    if (EMPLOYEE_DOMAIN_TOPIC_PATTERN.test(text)) return "TASK_EXECUTION";
   }
   if (looksLikeKnowledgeQuery(text)) return "KNOWLEDGE_QUERY";
   return "GENERAL_CHAT";

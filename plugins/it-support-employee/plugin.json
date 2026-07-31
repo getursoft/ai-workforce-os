@@ -1,0 +1,15 @@
+{
+  "id": "it-support-employee",
+  "name": "IT Support Employee",
+  "version": "1.0.0",
+  "displayName": "IT Support Employee",
+  "description": "AI IT support employee. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["it.chat", "CRM"],
+  "tools": [
+    { "name": "it.create_ticket", "description": "Persist an IT support request after the employee consents and shares a contact number" },
+    { "name": "it.escalate", "description": "Escalate the conversation to a human IT support team member" }
+  ]
+}

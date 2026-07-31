@@ -30,6 +30,12 @@ export interface AgentRunResult {
     chunkIndex: number;
     score: number;
   }>;
+  attachments?: Array<{
+    type: "PDF_TICKET";
+    bookingId: string;
+    url: string;
+    filename: string;
+  }>;
 }
 export interface Conversation {
   id: string;
@@ -69,12 +75,39 @@ export interface Execution {
     latencyMs: number | null;
   }>;
 }
+export interface ConversationAttachment {
+  id: string;
+  organizationId: string;
+  pluginInstallationId: string;
+  conversationId: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageKey: string;
+  extractedText: string;
+  createdAt: string;
+}
+
 type Page<T> = { items: T[]; pagination: { page: number; pages: number; total: number } };
 export function createAgentApi(client: ApiClient) {
   return {
     employees: () => client.request<AgentEmployee[]>("/agents"),
-    run: (body: { pluginInstallationId: string; conversationId?: string; message: string }) =>
-      client.request<AgentRunResult>("/agents/run", { method: "POST", body: JSON.stringify(body) }),
+    run: (body: {
+      pluginInstallationId: string;
+      conversationId?: string;
+      message: string;
+      attachmentIds?: string[];
+    }) => client.request<AgentRunResult>("/agents/run", { method: "POST", body: JSON.stringify(body) }),
+    uploadAttachment: (conversationId: string, file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return client.request<ConversationAttachment>(
+        `/conversations/${conversationId}/attachments`,
+        { method: "POST", body: form }
+      );
+    },
+    attachments: (conversationId: string) =>
+      client.request<ConversationAttachment[]>(`/conversations/${conversationId}/attachments`),
     conversations: (page = 1) =>
       client.request<Page<Conversation>>(`/conversations?page=${page}&pageSize=20`),
     conversation: (id: string) => client.request<Conversation>(`/conversations/${id}`),

@@ -41,7 +41,8 @@ const NO_SIGNALS: TripSubmissionStartSignals = {
   itineraryPresented: false,
   hasActiveTripContext: false,
   tripState: TRIP_STATE,
-  legacyPendingContactValue: null
+  legacyPendingContactValue: null,
+  legacyPendingAction: null
 };
 
 function must<T>(value: T | null): T {
@@ -173,6 +174,24 @@ describe("TripSubmissionWorkflowService.shouldStart", () => {
 
   it("does not start on an unrelated message", () => {
     expect(service.shouldStart("plan a trip to Dubai", NO_SIGNALS)).toBe("NONE");
+  });
+
+  it("never starts on a volunteered email/phone while Travel Runtime's own booking-options/ticket-contact/resend flow owns the turn (real UAT regression: an email typed at the ticket-contact prompt was hijacked into a TRIP_SUBMISSION lead instead of being read as delivery contact)", () => {
+    for (const pendingAction of [
+      "AWAITING_OPTION_SELECTION",
+      "AWAITING_PASSENGER_DETAILS",
+      "AWAITING_TICKET_CONTACT",
+      "AWAITING_BOOKING_CONFIRMATION",
+      "AWAITING_RESEND_TICKET_DETAILS"
+    ]) {
+      expect(
+        service.shouldStart("krishna@example.com", {
+          ...NO_SIGNALS,
+          hasActiveTripContext: true,
+          legacyPendingAction: pendingAction
+        })
+      ).toBe("NONE");
+    }
   });
 });
 

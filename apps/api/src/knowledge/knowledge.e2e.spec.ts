@@ -156,11 +156,14 @@ suite("Knowledge HTTP", () => {
     });
   });
   it("never lets a second AI Employee in the same organization retrieve this employee's knowledge", async () => {
+    // A *different* employee type (Travel Employee) in the SAME organization — the unique
+    // (organization_id, slug) index forbids installing the same plugin slug twice, so this proves
+    // isolation holds across employee types, not just across two installations of the same plugin.
     const otherEmployee = await request(app.getHttpServer())
       .post("/api/v1/plugins/install")
       .set("Authorization", `Bearer ${token}`)
       .send({
-        pluginId: "dummy-echo",
+        pluginId: "travel-employee",
         grantedPermissions: ["MEMORY"],
         configuration: { config: {}, secrets: {} },
         enable: true

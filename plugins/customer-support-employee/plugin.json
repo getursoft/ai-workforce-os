@@ -1,0 +1,15 @@
+{
+  "id": "customer-support-employee",
+  "name": "Customer Support Employee",
+  "version": "1.0.0",
+  "displayName": "Customer Support Employee",
+  "description": "AI customer support employee. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["support.chat", "CRM"],
+  "tools": [
+    { "name": "support.create_ticket", "description": "Persist a customer support request after the customer consents and shares a contact number" },
+    { "name": "support.escalate", "description": "Escalate the conversation to a human support agent" }
+  ]
+}

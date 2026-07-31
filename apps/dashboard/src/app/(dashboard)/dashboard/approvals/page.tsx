@@ -1,8 +1,5 @@
-import type { Metadata } from "next";
-import { ApprovalsPage } from "../../../../features/approvals/approval-pages";
+import { ApprovalInboxPage } from "../../../../features/approvals/inbox/approval-inbox";
 
-export const metadata: Metadata = { title: "Approvals | AI Workforce OS" };
-
-export default function Page() {
-  return <ApprovalsPage />;
+export default function ApprovalsRoute() {
+  return <ApprovalInboxPage />;
 }

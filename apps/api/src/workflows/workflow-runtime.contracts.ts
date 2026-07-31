@@ -113,4 +113,9 @@ export interface WorkflowDispatchOutcome {
   responseText: string | null;
   /** Non-null only the turn a Contact Capture/Trip Submission lead was actually (freshly) created. */
   leadCreated: TravelLead | null;
+  /** Non-null only the turn a BOOKING_HANDOFF workflow completed with a real, ticketed booking (see
+   *  BookingHandoffState.ticketReady) — lets AgentService attach a ticket PDF download link to this
+   *  turn's chat response. Optional (rather than required-and-usually-null) so CONTACT_CAPTURE/
+   *  TRIP_SUBMISSION outcome construction sites never need to know about it. */
+  bookingId?: string | null;
 }

@@ -57,7 +57,7 @@ export function CookiePreferences() {
               } ${category.locked ? "cursor-not-allowed opacity-60" : ""}`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
                   preferences[category.key] ? "translate-x-5" : "translate-x-0.5"
                 }`}
               />

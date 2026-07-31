@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { IdentityModule } from "../identity/identity.module";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PluginModule } from "../plugins/plugin.module";
@@ -7,7 +7,9 @@ import { AgentController } from "./agent.controller";
 import { AgentService, MemoryService } from "./agent.service";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
 import { CustomerIdentityModule } from "../customer-identity/customer-identity.module";
+import { TravelModule } from "../travel/travel.module";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { EmployeesModule } from "../employees/employees.module";
 import { SkillRegistry } from "../skills/skill-registry";
 import { SkillRuntimeService } from "../skills/skill-runtime.service";
 import { PlanTripSkillHandler } from "../skills/travel/plan-trip.skill";
@@ -25,7 +27,6 @@ import { ContactCaptureWorkflowService } from "../workflows/contact-capture/cont
 import { BookingHandoffWorkflowService } from "../workflows/booking-handoff/booking-handoff.service";
 import { TripSubmissionWorkflowService } from "../workflows/trip-submission/trip-submission.service";
 import { WorkflowCoordinator } from "../workflows/workflow-coordinator";
-import { ApprovalService } from "../workflows/approval/approval.service";
 import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "../workflows/workflow-signal-registry";
 
 @Module({
@@ -35,7 +36,9 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
     PluginModule,
     ConnectorModule,
     KnowledgeModule,
-    CustomerIdentityModule
+    CustomerIdentityModule,
+    forwardRef(() => TravelModule),
+    forwardRef(() => EmployeesModule)
   ],
   controllers: [AgentController, SkillDiagnosticsController],
   providers: [
@@ -74,18 +77,7 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
       inject: [ContactCaptureWorkflowService, BookingHandoffWorkflowService, TripSubmissionWorkflowService]
     },
     WorkflowCoordinator,
-    AgentService,
-    {
-      provide: "APPROVAL_DECISION_HANDLER",
-      inject: [WorkflowCoordinator, ApprovalService],
-      useFactory: (coordinator: WorkflowCoordinator, approvalService: ApprovalService) => {
-        approvalService.setDecisionHandler(
-          (organizationId: string, workflowExecutionId: string, decision: "APPROVED" | "REJECTED") =>
-            coordinator.handleApprovalDecision(organizationId, workflowExecutionId, decision)
-        );
-        return approvalService;
-      }
-    }
+    AgentService
   ],
   exports: [AgentService, MemoryService, TravelLeadService, SkillRuntimeService]
 })

@@ -7,6 +7,7 @@ import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { deleteAllOrganizationScopedRows } from "../test/cleanup";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 for (const candidate of [
   resolve(process.cwd(), ".env.test"),
@@ -126,13 +127,5 @@ suite("Team HTTP API", () => {
   });
 });
 async function clean(p: PrismaService) {
-  await p.teamMember.deleteMany();
-  await p.team.deleteMany();
-  await p.invitation.deleteMany();
-  await p.authenticationSession.deleteMany();
-  await p.userRole.deleteMany();
-  await p.rolePermission.deleteMany();
-  await p.role.deleteMany();
-  await p.user.deleteMany();
-  await p.organization.deleteMany();
+  await deleteAllOrganizationScopedRows(p);
 }

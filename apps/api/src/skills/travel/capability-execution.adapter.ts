@@ -126,12 +126,12 @@ export class CapabilityExecutionAdapter {
   private deferBooking(): ExecutionDecision {
     return {
       capability: "BOOKING",
-      executionStatus: "DEFERRED",
-      executionType: "WORKFLOW_PENDING",
-      executionTarget: null,
+      executionStatus: "EXECUTABLE",
+      executionType: "WORKFLOW_READY",
+      executionTarget: "bookingWorkflow",
       requiresWorkflow: true,
-      requiresHumanApproval: false,
-      metadata: { bookingSupported: false, workflowRequired: true }
+      requiresHumanApproval: true,
+      metadata: { bookingSupported: true, workflowRequired: true, requiresCustomerApproval: true }
     };
   }
 }

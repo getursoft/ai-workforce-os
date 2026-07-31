@@ -13,11 +13,13 @@ export default function SessionsPage() {
         eyebrow="Account"
         title="Sessions"
         description="Session listing and revocation will appear when the backend exposes session APIs."
+        backHref="/settings"
+        backLabel="Back to Settings"
       />
       <EmptyState
         title="Session management is not supported yet"
         description="Sprint 1.1 keeps logout and refresh-token rotation secure, but it does not expose session inventory endpoints."
-        action={<Link href="/dashboard/settings">Back to settings</Link>}
+        action={<Link href="/dashboard/profile">Open profile</Link>}
       />
     </div>
   );

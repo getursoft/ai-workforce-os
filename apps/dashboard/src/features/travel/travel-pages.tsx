@@ -7,6 +7,7 @@ import { useAuth } from "../auth/auth-provider";
 import { Alert, Badge, Button, Card, Input, Skeleton } from "../../components/ui";
 import { ApiError } from "../../lib/api-error";
 import { createPluginApi } from "../plugins/plugin-api";
+import { EmailConfigurationForm } from "../plugins/email-configuration-form";
 import {
   createTravelApi,
   TRAVEL_EMPLOYEE_PLUGIN_ID,
@@ -108,18 +109,50 @@ export function TravelEmployeePage() {
                 </Button>
               </Can>
               <p>
-                <Link href={`/ai-employees?plugin=${installedPlugin.id}`}>
-                  Chat with the Travel Employee
-                </Link>
+                <Link href={`/ai-employees/${installedPlugin.id}`}>Chat with the Travel Employee</Link>
                 {" · "}
                 <Link href="/conversations">View conversations</Link>
               </p>
             </Card>
             <ConfigurationForm pluginInstallationId={installedPlugin.id} api={travel} />
+            <EmailDeliverySection pluginInstallationId={installedPlugin.id} api={plugins} />
           </>
         )}
       </section>
     </AccessGate>
+  );
+}
+
+function EmailDeliverySection({
+  pluginInstallationId,
+  api
+}: {
+  pluginInstallationId: string;
+  api: ReturnType<typeof createPluginApi>;
+}) {
+  const { state } = useAuth();
+  const canManage = state.user?.role === "OWNER" || state.user?.role === "ADMIN";
+  const q = useQuery({
+    queryKey: [...key, "email-configuration", pluginInstallationId],
+    queryFn: () => api.emailConfiguration(pluginInstallationId)
+  });
+  const save = useMutation({
+    mutationFn: (body: Parameters<typeof api.updateEmailConfiguration>[1]) =>
+      api.updateEmailConfiguration(pluginInstallationId, body),
+    onSuccess: () => void q.refetch()
+  });
+  if (q.isLoading) return <Skeleton />;
+  return (
+    <Card>
+      <EmailConfigurationForm
+        configuration={q.data}
+        canManage={canManage}
+        saving={save.isPending}
+        save={(body) => save.mutate(body)}
+        saveError={save.isError ? save.error : null}
+        saveSucceeded={save.isSuccess}
+      />
+    </Card>
   );
 }
 

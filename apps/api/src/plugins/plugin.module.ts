@@ -9,6 +9,7 @@ import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PluginController } from "./plugin.controller";
 import { PluginService } from "./plugin.service";
 import { PluginAiService } from "./plugin-ai.service";
+import { EmailConfigurationService } from "./email-configuration.service";
 import { SafeHttpTool } from "./plugin-ai.runtime";
 import {
   ConfigurationSchemaValidator,
@@ -46,12 +47,14 @@ import {
     },
     SafeHttpTool,
     PluginAiService,
+    EmailConfigurationService,
     PluginService
   ],
   exports: [
     PluginRegistry,
     PluginService,
     PluginAiService,
+    EmailConfigurationService,
     PluginSecretsEncryptionService,
     SafeHttpTool
   ]

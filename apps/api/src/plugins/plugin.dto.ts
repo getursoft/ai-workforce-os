@@ -75,6 +75,25 @@ export class UpdatePluginAiConfigurationDto {
   @IsOptional() @IsArray() @IsIn(["apiKey"], { each: true }) removeSecrets?: string[];
 }
 
+export class EmailConfigurationSecretsDto {
+  @IsOptional() @IsString() @MaxLength(500) password?: string;
+}
+
+export class UpdateEmailConfigurationDto {
+  @IsOptional() @IsString() @MaxLength(255) smtpHost?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(65535) smtpPort?: number;
+  @IsOptional() smtpSecure?: boolean;
+  @IsOptional() @IsString() @MaxLength(255) smtpUser?: string;
+  @IsOptional() @IsString() @MaxLength(255) fromEmail?: string;
+  @IsOptional() @IsString() @MaxLength(160) fromName?: string;
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => EmailConfigurationSecretsDto)
+  secrets?: EmailConfigurationSecretsDto;
+  @IsOptional() @IsArray() @IsIn(["password"], { each: true }) removeSecrets?: string[];
+}
+
 export class PluginChatMessageDto {
   @IsIn(["user", "assistant"]) role!: "user" | "assistant";
   @IsString() @MaxLength(12000) content!: string;

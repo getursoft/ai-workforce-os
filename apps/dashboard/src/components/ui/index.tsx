@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   forwardRef,
   useEffect,
@@ -123,15 +124,37 @@ export function EmptyState({
   );
 }
 
+/** A single "go back to the page this one was reached from" link — used at the top of every nested/detail
+ * page (a record opened from a list, a settings sub-page, etc.) so navigating one level up never depends
+ * on the browser's own back button. `href` is always an explicit destination (never `router.back()`) so
+ * the target is correct even when the page was opened directly (a bookmark, a shared link, a reload). */
+export function BackLink({ href, label = "Back" }: Readonly<{ href: string; label?: string }>) {
+  return (
+    <Link href={href} className="back-link">
+      ← {label}
+    </Link>
+  );
+}
+
 export function PageHeader({
   eyebrow,
   title,
   description,
-  action
-}: Readonly<{ eyebrow?: string; title: string; description?: string; action?: ReactNode }>) {
+  action,
+  backHref,
+  backLabel
+}: Readonly<{
+  eyebrow?: string;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+  backHref?: string;
+  backLabel?: string;
+}>) {
   return (
     <div className="ui-page-header">
       <div>
+        {backHref ? <BackLink href={backHref} {...(backLabel ? { label: backLabel } : {})} /> : null}
         {eyebrow ? <p className="ui-page-header__eyebrow">{eyebrow}</p> : null}
         <h1>{title}</h1>
         {description ? <p className="ui-page-header__description">{description}</p> : null}

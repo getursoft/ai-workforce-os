@@ -81,6 +81,20 @@ describe("normalizePhoneNumber / extractPhoneNumber", () => {
     expect(extractPhoneNumber("2000")).toBeNull();
     expect(extractPhoneNumber("in 2026")).toBeNull();
   });
+
+  it("never mistakes a large, unformatted budget figure embedded in a sentence for a phone number (reproduces the Bali/IDR UAT bug)", () => {
+    expect(
+      extractPhoneNumber(
+        "Plan trip to Bali from Jakarta, 5 November 2026, 6 days, 2 adults, round trip, budget IDR 20000000"
+      )
+    ).toBeNull();
+    expect(extractPhoneNumber("my budget is 6000000 yen")).toBeNull();
+  });
+
+  it("still extracts a bare, unformatted digit string when it IS the entire message (the normal direct reply to a phone prompt)", () => {
+    expect(extractPhoneNumber("9876543210")).toBe("9876543210");
+    expect(extractPhoneNumber("  9876543210  ")).toBe("9876543210");
+  });
 });
 
 describe("generateLeadReference", () => {

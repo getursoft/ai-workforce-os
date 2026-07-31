@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  BackLink,
   Badge,
   Button,
   Card,
@@ -161,93 +162,96 @@ export function KnowledgePage() {
           />
         ) : (
           <>
-            <Card>
-              <h2>Collections</h2>
-              <p>
-                A collection groups related documents for this employee (e.g. Visa Rules, Refund
-                Rules).
-              </p>
-              <div className="admin-table-wrap">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Domain</th>
-                      <th>Documents</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {collections.data?.map((collection: KnowledgeCollection) => (
-                      <tr key={collection.id}>
-                        <td>
-                          {collection.name} {collection.isDefault ? <Badge>Default</Badge> : null}
-                        </td>
-                        <td>{collection.domain ?? "—"}</td>
-                        <td>{collection._count?.documents ?? 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="admin-section-header">
+              <div>
+                <h2>Collections</h2>
+                <p>A collection groups related documents for this employee (e.g. Visa Rules, Refund Rules).</p>
               </div>
-              <Can permission="knowledge.collection.manage">
-                <form className="admin-form" onSubmit={submitCollection}>
-                  <Label htmlFor="new-collection-name">New collection name</Label>
-                  <Input
-                    id="new-collection-name"
-                    value={newCollectionName}
-                    onChange={(event) => setNewCollectionName(event.target.value)}
-                    placeholder="e.g. Visa Rules"
-                  />
-                  <Button
-                    loading={createCollection.isPending}
-                    disabled={createCollection.isPending}
-                  >
-                    Create collection
-                  </Button>
-                </form>
-              </Can>
-            </Card>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Domain</th>
+                    <th>Documents</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {collections.data?.map((collection: KnowledgeCollection) => (
+                    <tr key={collection.id}>
+                      <td>
+                        {collection.name} {collection.isDefault ? <Badge>Default</Badge> : null}
+                      </td>
+                      <td>{collection.domain ?? "—"}</td>
+                      <td>{collection._count?.documents ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Can permission="knowledge.collection.manage">
+              <form className="admin-form" onSubmit={submitCollection}>
+                <Label htmlFor="new-collection-name">New collection name</Label>
+                <Input
+                  id="new-collection-name"
+                  value={newCollectionName}
+                  onChange={(event) => setNewCollectionName(event.target.value)}
+                  placeholder="e.g. Visa Rules"
+                />
+                <Button
+                  loading={createCollection.isPending}
+                  disabled={createCollection.isPending}
+                >
+                  Create collection
+                </Button>
+              </form>
+            </Can>
             <Can permission="knowledge.upload">
-              <Card>
-                <form className="admin-form" onSubmit={submitUpload}>
-                  <Label htmlFor="knowledge-collection">Collection</Label>
-                  <select
-                    className="ui-input"
-                    id="knowledge-collection"
-                    value={collectionId}
-                    onChange={(event) => setCollectionId(event.target.value)}
-                  >
-                    {collections.data?.map((collection) => (
-                      <option key={collection.id} value={collection.id}>
-                        {collection.name}
-                      </option>
-                    ))}
-                  </select>
-                  <Label htmlFor="knowledge-file">Upload document</Label>
-                  <Input
-                    ref={fileInput}
-                    id="knowledge-file"
-                    name="file"
-                    type="file"
-                    required
-                    accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
-                  />
-                  <small>PDF, DOCX, TXT, or Markdown. Maximum 10 MB by default.</small>
-                  <Button loading={upload.isPending} disabled={upload.isPending || !collectionId}>
-                    Upload and index
-                  </Button>
-                </form>
-                {upload.isError ? (
-                  <Alert tone="danger" title="Document upload failed">
-                    The document could not be uploaded or indexed safely.
-                  </Alert>
-                ) : null}
-                {upload.isSuccess ? (
-                  <Alert tone="success" title="Document indexed">
-                    The document is ready for this AI Employee's knowledge search.
-                  </Alert>
-                ) : null}
-              </Card>
+              <div className="admin-section-header">
+                <div>
+                  <h2>Upload document</h2>
+                  <p>Add documents to ground this AI Employee's answers.</p>
+                </div>
+              </div>
+              <form className="admin-form" onSubmit={submitUpload}>
+                <Label htmlFor="knowledge-collection">Collection</Label>
+                <select
+                  className="ui-input"
+                  id="knowledge-collection"
+                  value={collectionId}
+                  onChange={(event) => setCollectionId(event.target.value)}
+                >
+                  {collections.data?.map((collection) => (
+                    <option key={collection.id} value={collection.id}>
+                      {collection.name}
+                    </option>
+                  ))}
+                </select>
+                <Label htmlFor="knowledge-file">Upload document</Label>
+                <Input
+                  ref={fileInput}
+                  id="knowledge-file"
+                  name="file"
+                  type="file"
+                  required
+                  accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+                />
+                <small>PDF, DOCX, TXT, or Markdown. Maximum 10 MB by default.</small>
+                <Button loading={upload.isPending} disabled={upload.isPending || !collectionId}>
+                  Upload and index
+                </Button>
+              </form>
+              {upload.isError ? (
+                <Alert tone="danger" title="Document upload failed">
+                  The document could not be uploaded or indexed safely.
+                </Alert>
+              ) : null}
+              {upload.isSuccess ? (
+                <Alert tone="success" title="Document indexed">
+                  The document is ready for this AI Employee's knowledge search.
+                </Alert>
+              ) : null}
             </Can>
             <div className="admin-toolbar">
               <Label htmlFor="knowledge-search">Search</Label>
@@ -378,6 +382,7 @@ export function KnowledgeDetailPage({ id }: { id: string }) {
           <>
             <header className="admin-page__header">
               <div>
+                <BackLink href="/knowledge" label="Back to Knowledge Base" />
                 <h1>{document.data.title}</h1>
                 <p>{document.data.originalFilename}</p>
               </div>

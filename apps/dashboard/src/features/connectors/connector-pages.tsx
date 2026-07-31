@@ -7,6 +7,7 @@ import { AccessGate, Can, useEffectivePermissions } from "../admin/authorization
 import { useAuth } from "../auth/auth-provider";
 import {
   Alert,
+  BackLink,
   Badge,
   Button,
   Card,
@@ -63,7 +64,12 @@ export function ConnectorsPage() {
             onChange={(event) => setSearch(event.target.value)}
           />
         </Card>
-        <h2>Installed connectors</h2>
+        <div className="admin-section-header">
+          <div>
+            <h2>Installed connectors</h2>
+            <p>Securely connected business systems.</p>
+          </div>
+        </div>
         {installations.isLoading ? (
           <Skeleton />
         ) : installations.isError ? (
@@ -110,7 +116,12 @@ export function ConnectorsPage() {
             description="Install one from the catalogue."
           />
         )}
-        <h2>Connector catalogue</h2>
+        <div className="admin-section-header">
+          <div>
+            <h2>Connector catalogue</h2>
+            <p>Browse and install available connectors.</p>
+          </div>
+        </div>
         {catalogue.isLoading ? (
           <Skeleton />
         ) : (
@@ -118,12 +129,17 @@ export function ConnectorsPage() {
             {catalogue.data?.map((definition) => {
               const installed = installedKeys.has(definition.key);
               return (
-                <Card key={definition.id}>
-                  <h3>{definition.name}</h3>
-                  <p>{definition.description}</p>
-                  <Badge>{definition.category}</Badge> <Badge>{definition.version}</Badge>{" "}
-                  <Badge>{definition.authType}</Badge>
-                  <p>Capabilities: {definition.capabilities.join(", ")}</p>
+                <div key={definition.id} className="admin-grid-card">
+                  <div>
+                    <h3>{definition.name}</h3>
+                    <p>{definition.description}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge>{definition.category}</Badge>
+                    <Badge>{definition.version}</Badge>
+                    <Badge>{definition.authType}</Badge>
+                  </div>
+                  <p className="text-sm" style={{ color: "var(--muted)" }}>Capabilities: {definition.capabilities.join(", ")}</p>
                   {installed ? (
                     <Badge tone="success">Installed</Badge>
                   ) : (
@@ -137,7 +153,7 @@ export function ConnectorsPage() {
                       </Button>
                     </Can>
                   )}
-                </Card>
+                </div>
               );
             })}
           </div>
@@ -191,9 +207,9 @@ export function ConnectorDetailsPage() {
   return (
     <AccessGate permission="connector.read">
       <section className="admin-page">
-        <Link href="/connectors">← Connectors</Link>
         <header className="admin-page__header">
           <div>
+            <BackLink href="/connectors" label="Back to Connectors" />
             <h1>{item.displayName}</h1>
             <p>{item.connector.description}</p>
           </div>

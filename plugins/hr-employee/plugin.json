@@ -1,0 +1,15 @@
+{
+  "id": "hr-employee",
+  "name": "HR Employee",
+  "version": "1.0.0",
+  "displayName": "HR Employee",
+  "description": "AI HR employee. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["hr.chat", "CRM"],
+  "tools": [
+    { "name": "hr.create_ticket", "description": "Persist an HR request after the employee consents and shares a contact number" },
+    { "name": "hr.escalate", "description": "Escalate the conversation to a human HR team member" }
+  ]
+}

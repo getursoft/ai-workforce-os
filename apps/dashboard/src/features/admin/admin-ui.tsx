@@ -5,6 +5,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { ApiError } from "../../lib/api-error";
 import {
   Alert,
+  BackLink,
   Badge,
   Button,
   Card,
@@ -294,9 +295,9 @@ export function UserDetailsPage() {
   return (
     <AccessGate permission="users.read">
       <section className="admin-page">
-        <Link href="/dashboard/settings/users">← Users</Link>
         <header className="admin-page__header">
           <div>
+            <BackLink href="/dashboard/settings/users" label="Back to Users" />
             <h1>
               {user.firstName} {user.lastName}
             </h1>
@@ -512,7 +513,7 @@ export function RoleFormPage() {
   return (
     <AccessGate permission="roles.write">
       <section className="admin-page">
-        <Link href="/dashboard/settings/roles">← Roles</Link>
+        <BackLink href="/dashboard/settings/roles" label="Back to Roles" />
         <h1>Create custom role</h1>
         {error ? (
           <Alert tone="danger" title="Unable to create role">
@@ -557,9 +558,9 @@ export function RoleDetailsPage() {
   return (
     <AccessGate permission="roles.read">
       <section className="admin-page">
-        <Link href="/dashboard/settings/roles">← Roles</Link>
         <header className="admin-page__header">
           <div>
+            <BackLink href="/dashboard/settings/roles" label="Back to Roles" />
             <h1>{role.name}</h1>
             <p>{role.description}</p>
           </div>

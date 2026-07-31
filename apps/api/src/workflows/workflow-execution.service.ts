@@ -121,6 +121,12 @@ export class WorkflowExecutionService {
     pendingInput: string | null;
     state: Record<string, unknown>;
     turnId: string;
+    /** Overrides the auto-derived status (WAITING_FOR_INPUT when pendingInput is set, else ACTIVE) —
+     *  needed for a state like WAITING_FOR_APPROVAL, which `statusForPendingInput` has no way to express
+     *  (it only ever distinguishes "waiting on the user" from "not"). Without this, a workflow paused for
+     *  approval was silently persisted as ACTIVE, which WorkflowCoordinator.dispatchTurn's WAITING_FOR_INPUT/
+     *  WAITING_FOR_APPROVAL gate would then never recognize as needing to resume on the next turn. */
+    status?: PrismaWorkflowStatus;
   }): Promise<WorkflowExecutionMutationResult> {
     const existing = await this.loadWorkflow(input.organizationId, input.id);
     if (!existing) throw new WorkflowExecutionRevisionConflictError();
@@ -138,7 +144,7 @@ export class WorkflowExecutionService {
       data: {
         currentStep: input.currentStep,
         pendingInput: input.pendingInput,
-        status: statusForPendingInput(input.pendingInput),
+        status: input.status ?? statusForPendingInput(input.pendingInput),
         state: input.state as Prisma.InputJsonValue,
         revision: { increment: 1 },
         processedTurnIds

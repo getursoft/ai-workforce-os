@@ -1,6 +1,7 @@
 import { AgentMemoryScope, ConversationStatus } from "@prisma/client";
 import { Type } from "class-transformer";
 import {
+  IsArray,
   IsEnum,
   IsInt,
   IsObject,
@@ -19,6 +20,7 @@ export class AgentRunDto {
   // a proactive greeting (see AgentService.execute) instead of requiring a first user message.
   @IsOptional() @IsString() @MaxLength(12000) message?: string;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
+  @IsOptional() @IsArray() @IsUUID("4", { each: true }) attachmentIds?: string[];
 }
 export class PageDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;

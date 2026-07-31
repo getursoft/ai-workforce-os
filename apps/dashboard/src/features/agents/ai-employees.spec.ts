@@ -5,10 +5,34 @@ import {
   conversationStorageKey,
   decideConversationEntry,
   derivePlaceholder,
+  employeePlaceholder,
   knowledgeSourceLabel,
   toLocalMessages
 } from "./agent-pages";
 import type { ConversationMessage } from "./agent-api";
+
+describe("employeePlaceholder (per-employee composer hints)", () => {
+  it("uses the domain-specific hint for each non-travel employee instead of the travel text", () => {
+    expect(employeePlaceholder("legal-employee", null, false, false)).toMatch(/notice|deadline/i);
+    expect(employeePlaceholder("hr-employee", null, false, false)).toMatch(/leave|onboarding|benefits/i);
+    expect(employeePlaceholder("finance-employee", null, false, false)).toMatch(/expense|invoice|budget/i);
+    expect(employeePlaceholder("it-support-employee", null, false, false)).toMatch(/VPN|password|hardware/i);
+    expect(employeePlaceholder("sales-employee", null, false, false)).toMatch(/quote|demo|product/i);
+    expect(employeePlaceholder("marketing-employee", null, false, false)).toMatch(/campaign|content/i);
+    expect(employeePlaceholder("customer-support-employee", null, false, false)).toMatch(/order|refund/i);
+  });
+
+  it("keeps the travel employee stage-aware once a conversation exists, and uses its default before", () => {
+    expect(employeePlaceholder("travel-employee", null, false, false)).toContain("Dubai");
+    expect(employeePlaceholder("travel-employee", "COLLECT_NAME", false, true)).toBe(
+      "Type your name..."
+    );
+  });
+
+  it("falls back to a generic hint for unknown slugs", () => {
+    expect(employeePlaceholder("unknown-employee", null, false, false)).toBe("Type your message…");
+  });
+});
 
 describe("AI Employees runtime errors", () => {
   it.each([

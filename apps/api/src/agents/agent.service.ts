@@ -40,6 +40,7 @@ import {
   type ToolExecutionContext,
   withTimeout
 } from "./agent.runtime";
+import { buildToolCatalog } from "./tool-catalog";
 import { AiProviderError, type ProviderSettings } from "../plugins/plugin-ai.runtime";
 import { PluginAiService } from "../plugins/plugin-ai.service";
 import { ConnectorService } from "../connectors/connector.service";
@@ -75,6 +76,22 @@ import { classifyRequestIntent, isKnowledgeEligible } from "./request-classifier
 import { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import type { CustomerIdentity } from "../customer-identity/customer-identity.types";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { TravelBookingService } from "../travel/booking/travel-booking.service";
+import {
+  EmployeeDomainLlmOrchestrator,
+  EmployeeDomainProvider,
+  employeeEntitiesFromStoredState,
+  employeeEntitiesToStoredState,
+  employeeMemoryFromStoredState,
+  type EmployeeRuntimeConfig
+} from "../employees/employee-runtime";
+import {
+  EMPLOYEE_DOMAIN_REGISTRY,
+  findEmployeeDomain,
+  type EmployeeDomainDescriptor
+} from "../employees/employee-registry";
+import { EmployeeArtifactService } from "../employees/employee-artifact.service";
+import { ApiBackedEmployeeProvider } from "../employees/api-backed.provider";
 import { SkillRegistry } from "../skills/skill-registry";
 import { SkillRuntimeService } from "../skills/skill-runtime.service";
 import {
@@ -256,6 +273,12 @@ const TRAVEL_PROVIDER_SETTINGS: ProviderSettings = {
   timeoutMs: 15000
 };
 
+/** Placeholder settings used for logging/telemetry when a domain employee's deterministic engine runs. */
+const EMPLOYEE_PROVIDER_SETTINGS: ProviderSettings = {
+  providerType: "DETERMINISTIC",
+  timeoutMs: 15000
+};
+
 @Injectable()
 export class AgentService {
   private readonly logger = new Logger(AgentService.name);
@@ -281,7 +304,9 @@ export class AgentService {
     @Optional() skillExecutions?: SkillExecutionService,
     @Optional() inputCollection?: InputCollectionService,
     @Optional() capabilityExecution?: CapabilityExecutionAdapter,
-    @Optional() workflowCoordinator?: WorkflowCoordinator
+    @Optional() workflowCoordinator?: WorkflowCoordinator,
+    @Optional() private readonly travelBookingService?: TravelBookingService,
+    @Optional() private readonly employeeArtifacts?: EmployeeArtifactService
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -293,6 +318,7 @@ export class AgentService {
     this.executor = new ToolExecutor(this.tools, new ToolPermissionPolicy());
     this.registerTools();
     this.registerTravelTools();
+    this.registerEmployeeTools();
     for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
   }
   async run(organizationId: string, userId: string, requestId: string, dto: AgentRunDto) {
@@ -304,7 +330,8 @@ export class AgentService {
       text: dto.message ?? "",
       source: { type: "DASHBOARD" },
       requestId,
-      ...(dto.metadata ? { metadata: dto.metadata } : {})
+      ...(dto.metadata ? { metadata: dto.metadata } : {}),
+      ...(dto.attachmentIds ? { attachmentIds: dto.attachmentIds } : {})
     });
   }
   /**
@@ -320,12 +347,17 @@ export class AgentService {
     if (!plugin) throw new NotFoundException("PLUGIN_INSTALLATION_NOT_FOUND");
     if (plugin.status !== PluginStatus.ACTIVE) throw new ConflictException("PLUGIN_DISABLED");
     const isTravelEmployee = plugin.slug === TRAVEL_EMPLOYEE_PLUGIN_SLUG;
+    const isLegalEmployee = plugin.slug === "legal-employee";
+    const employeeDomain = findEmployeeDomain(plugin.slug);
+    const employeeConfig = employeeDomain
+      ? await this.employeeConfig(organizationId, plugin.id, employeeDomain)
+      : null;
     const travelConfig = isTravelEmployee
       ? await this.travelEmployeeConfig(organizationId, plugin.id)
       : null;
     let provider!: AiProvider;
     let settings!: ProviderSettings;
-    if (!travelConfig)
+    if (!travelConfig && !employeeConfig)
       ({ provider, settings } = await this.pluginAi.resolveProvider(organizationId, plugin.id));
     // carries a durable phone identity; a dashboard USER actor is a staff member testing/operating the
     // employee, not the customer being served, so it always resolves ANONYMOUS. A brand-new conversation
@@ -374,6 +406,17 @@ export class AgentService {
     // Cache parsed state once to avoid duplicate parsing in orchestrator setup and workfLow dispatch
     const parsedEntities = entitiesFromStoredState(persistedTravelState);
     const parsedMemory = memoryFromStoredState(persistedTravelState);
+    let employeeOrchestrator: EmployeeDomainLlmOrchestrator | null = null;
+    let deterministicEmployeeProvider: EmployeeDomainProvider | null = null;
+    const persistedEmployeeState =
+      employeeConfig && employeeDomain
+        ? await this.loadEmployeeState(organizationId, plugin.id, conversation.id, employeeDomain)
+        : null;
+    const parsedEmployeeEntities = employeeEntitiesFromStoredState(
+      persistedEmployeeState,
+      employeeDomain?.spec.fields ?? []
+    );
+    const parsedEmployeeMemory = employeeMemoryFromStoredState(persistedEmployeeState);
     if (travelConfig) {
       let resolvedReal: { provider: AiProvider; settings: ProviderSettings } | null = null;
       try {
@@ -411,10 +454,70 @@ export class AgentService {
         configuredProviderType: resolvedReal?.settings.providerType ?? null
       });
     }
+    if (employeeConfig && employeeDomain) {
+      let resolvedReal: { provider: AiProvider; settings: ProviderSettings } | null = null;
+      // Real-API flow: when the employee's "use real API" toggle is ON, forward every turn to the
+      // configured backend API instead of the built-in deterministic/dummy flow. The admin supplies the
+      // endpoint + key in the employee's configuration.
+      if (employeeConfig.apiEnabled === true) {
+        provider = new ApiBackedEmployeeProvider(employeeDomain.spec, {
+          enabled: true,
+          endpoint: employeeConfig.apiEndpoint ?? null,
+          apiKey: employeeConfig.apiKey ?? null
+        });
+        settings = EMPLOYEE_PROVIDER_SETTINGS;
+        this.logger.log({
+          event: "EMPLOYEE_API_FLOW_SELECTED",
+          conversationId: conversation.id,
+          employee: employeeDomain.slug,
+          endpointConfigured: Boolean(employeeConfig.apiEndpoint)
+        });
+      } else {
+        try {
+          resolvedReal = await this.pluginAi.resolveProvider(organizationId, plugin.id);
+        } catch (error) {
+          if (
+            !(error instanceof BadRequestException) ||
+            error.message !== "AI_PROVIDER_NOT_CONFIGURED"
+          )
+            throw error;
+        }
+        if (resolvedReal && resolvedReal.settings.providerType !== "DETERMINISTIC") {
+          employeeOrchestrator = new EmployeeDomainLlmOrchestrator(
+            resolvedReal.provider, employeeDomain.spec, employeeConfig,
+            parsedEmployeeEntities, parsedEmployeeMemory
+          );
+          provider = employeeOrchestrator;
+          settings = resolvedReal.settings;
+        } else {
+          deterministicEmployeeProvider = new EmployeeDomainProvider(
+            employeeDomain.spec, employeeConfig,
+            parsedEmployeeMemory, parsedEmployeeEntities
+          );
+          provider = deterministicEmployeeProvider;
+          settings = EMPLOYEE_PROVIDER_SETTINGS;
+        }
+      }
+      this.logger.log({
+        event: "EMPLOYEE_ENGINE_SELECTED",
+        conversationId: conversation.id,
+        employee: employeeDomain.slug,
+        runtime: employeeConfig.apiEnabled === true
+          ? "api_flow"
+          : employeeOrchestrator
+            ? "llm_orchestrator"
+            : "deterministic_provider",
+        configuredProviderType:
+          employeeConfig.apiEnabled === true ? null : resolvedReal?.settings.providerType ?? null
+      });
+    }
     const usingDeterministicTravel = Boolean(travelConfig) && !travelOrchestrator;
+    const usingDeterministicEmployee = Boolean(employeeConfig) && !employeeOrchestrator;
     const configuredModel = usingDeterministicTravel
       ? "travel-employee-v1"
-      : providerModel(settings);
+      : usingDeterministicEmployee && employeeDomain
+        ? employeeDomain.spec.modelName
+        : providerModel(settings);
     const historyRows = await this.prisma.conversationMessage.findMany({
       where: { conversationId: conversation.id, organizationId },
       orderBy: { createdAt: "asc" },
@@ -425,17 +528,29 @@ export class AgentService {
     // the configured welcome message immediately and deterministically, with no LLM/tool round trip and
     // no synthetic USER turn recorded (nothing was actually said this turn). This is what lets the
     // conversation start automatically instead of sitting blank until the first user message.
-    if (!input.text.trim() && historyRows.length === 0 && travelConfig) {
+    const greetingConfig =
+      travelConfig ?? (employeeConfig && employeeDomain ? employeeConfig : null);
+    const greetingMemoryKey = travelConfig
+      ? TRAVEL_TRIP_STATE_MEMORY_KEY
+      : (employeeDomain?.memoryKey ?? null);
+    const hasAttachments = Boolean(input.attachmentIds?.length);
+    if (
+      !input.text.trim() &&
+      !hasAttachments &&
+      historyRows.length === 0 &&
+      greetingConfig &&
+      greetingMemoryKey
+    ) {
       const greetStarted = Date.now();
       const assistant = await this.prisma.conversationMessage.create({
         data: {
           conversationId: conversation.id,
           organizationId,
           role: ConversationMessageRole.ASSISTANT,
-          content: travelConfig.welcomeMessage,
+          content: greetingConfig.welcomeMessage,
           model: "greeting-v1",
           inputTokens: 0,
-          outputTokens: estimateTokens(travelConfig.welcomeMessage)
+          outputTokens: estimateTokens(greetingConfig.welcomeMessage)
         }
       });
       const execution = await this.prisma.agentExecution.create({
@@ -453,46 +568,64 @@ export class AgentService {
           completedAt: new Date(),
           latencyMs: Date.now() - greetStarted,
           inputTokens: 0,
-          outputTokens: estimateTokens(travelConfig.welcomeMessage),
-          totalTokens: estimateTokens(travelConfig.welcomeMessage)
+          outputTokens: estimateTokens(greetingConfig.welcomeMessage),
+          totalTokens: estimateTokens(greetingConfig.welcomeMessage)
         }
       });
-      // Persist onboarding state immediately: the traveler's very next reply is answering "may I know your
-      // name?" (COLLECT_NAME), not a trip-detail question — without this, a state read before the first
-      // reply (e.g. the dashboard's context-aware placeholder) would see no stage at all.
+      // Persist onboarding state immediately: the very next reply is answering "may I know your name?"
+      // (COLLECT_NAME), not a domain-detail question — without this, a state read before the first reply
+      // (e.g. the dashboard's context-aware placeholder) would see no stage at all.
+      const greetingState = travelConfig
+        ? (entitiesToStoredState(EMPTY_TRAVEL_ENTITIES, "COLLECT_NAME") as unknown as Record<
+            string,
+            unknown
+          >)
+        : employeeEntitiesToStoredState(
+            { customerName: null },
+            "COLLECT_NAME",
+            employeeMemoryFromStoredState(null)
+          );
       await this.memories.save(organizationId, actorUserId, {
         pluginInstallationId: plugin.id,
         conversationId: conversation.id,
         scope: AgentMemoryScope.CONVERSATION,
-        key: TRAVEL_TRIP_STATE_MEMORY_KEY,
-        value: entitiesToStoredState(EMPTY_TRAVEL_ENTITIES, "COLLECT_NAME") as unknown as Record<
-          string,
-          unknown
-        >,
+        key: greetingMemoryKey,
+        value: greetingState,
         searchableText: "COLLECT_NAME"
       });
       return {
         conversationId: conversation.id,
         executionId: execution.id,
         messageId: assistant.id,
-        response: travelConfig.welcomeMessage,
+        response: greetingConfig.welcomeMessage,
         status: "COMPLETED" as const,
         model: "greeting-v1",
         usage: {
           inputTokens: 0,
-          outputTokens: estimateTokens(travelConfig.welcomeMessage),
-          totalTokens: estimateTokens(travelConfig.welcomeMessage),
+          outputTokens: estimateTokens(greetingConfig.welcomeMessage),
+          totalTokens: estimateTokens(greetingConfig.welcomeMessage),
           estimatedCost: null
         },
         sources: []
       };
     }
+    // File attachments (PDF/DOCX/TXT/JPG/PNG) uploaded to this conversation are read and prepended to the
+    // user's message so every AI Employee can answer from the file's contents. Empty on conversations with
+    // no attachments, so the greeting bypass above (and normal text) is unaffected.
+    const attachmentContext = await this.loadAttachmentContext(
+      organizationId,
+      conversation.id,
+      input.attachmentIds
+    );
+    const effectiveText = attachmentContext
+      ? `${attachmentContext}\n\n${input.text.trim()}`
+      : input.text.trim();
     await this.prisma.conversationMessage.create({
       data: {
         conversationId: conversation.id,
         organizationId,
         role: ConversationMessageRole.USER,
-        content: input.text
+        content: effectiveText
       }
     });
     const execution = await this.prisma.agentExecution.create({
@@ -502,7 +635,11 @@ export class AgentService {
         pluginInstallationId: plugin.id,
         userId: actorUserId,
         status: AgentExecutionStatus.RUNNING,
-        modelProvider: usingDeterministicTravel ? "travel-employee" : providerName(settings),
+        modelProvider: usingDeterministicTravel
+          ? "travel-employee"
+          : usingDeterministicEmployee && employeeDomain
+            ? employeeDomain.spec.providerName
+            : providerName(settings),
         model: configuredModel,
         requestId: input.requestId,
         metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
@@ -557,7 +694,7 @@ export class AgentService {
           actorUserId,
           plugin.id,
           conversation.id,
-          input.text,
+          effectiveText,
           input.requestId,
           persistedTravelEntities,
           persistedTravelMemory,
@@ -565,12 +702,30 @@ export class AgentService {
         );
         if (workflowResponse) {
           failureStage = "persistence";
+          // A BOOKING_HANDOFF workflow completing with a real, ticketed booking (see WorkflowDispatchOutcome.
+          // bookingId — only ever set once TravelBookingService.confirmApprovalAndBook actually produced a
+          // PNR) attaches the ticket PDF as a structured chat attachment, mirroring ConversationMessage's
+          // existing contentJson precedent (used today for TOOL-role sources) rather than a plain-text link,
+          // since the download route requires an Authorization header a raw chat link could never carry.
+          const attachments = workflowResponse.bookingId
+            ? [
+                {
+                  type: "PDF_TICKET" as const,
+                  bookingId: workflowResponse.bookingId,
+                  url: `/travel/bookings/${workflowResponse.bookingId}/ticket.pdf`,
+                  filename: `ticket-${workflowResponse.bookingId.slice(0, 8)}.pdf`
+                }
+              ]
+            : null;
           const assistant = await this.prisma.conversationMessage.create({
             data: {
               conversationId: conversation.id,
               organizationId,
               role: ConversationMessageRole.ASSISTANT,
               content: workflowResponse.response,
+              ...(attachments
+                ? { contentJson: { attachments } as unknown as Prisma.InputJsonValue }
+                : {}),
               model: workflowResponse.model,
               inputTokens: 0,
               outputTokens: estimateTokens(workflowResponse.response)
@@ -605,14 +760,18 @@ export class AgentService {
               totalTokens: estimateTokens(workflowResponse.response),
               estimatedCost: null
             },
-            sources: []
+            sources: [],
+            ...(attachments ? { attachments } : {})
           };
         }
       }
 
       // Domain/state turns are classified before retrieval. Knowledge search is not merely ignored for
       // these turns; it is never invoked, preventing travel slots/corrections from falling into RAG.
-      const requestIntent = classifyRequestIntent(input.text, { isTravelEmployee });
+      const requestIntent = classifyRequestIntent(effectiveText, {
+        isTravelEmployee,
+        isEmployeeDomain: Boolean(employeeConfig)
+      });
 
       // Stage 8B: Authoritative input collection
       // When AUTHORITATIVE_INPUT_COLLECTION mode is enabled, Skill Runtime decides what happens next
@@ -667,7 +826,7 @@ export class AgentService {
               : ("NONE" as const)
       };
       const travelTurnDecision = isTravelEmployee
-        ? arbitrateConversationTurn(input.text, turnContext)
+        ? arbitrateConversationTurn(effectiveText, turnContext)
         : null;
       if (travelTurnDecision)
         this.logger.log({
@@ -684,11 +843,11 @@ export class AgentService {
             travelTurnDecision.intent === "CONFIRM_STANDALONE_CONTACT_USE"
         });
       const resolvedTravelInput = isTravelEmployee
-        ? resolveTravelInput(input.text, turnContext)
+        ? resolveTravelInput(effectiveText, turnContext)
         : null;
       const leadStatusAnswer =
         requestIntent === "LEAD_STATUS_QUERY"
-          ? await this.buildLeadStatusAnswer(organizationId, plugin.id, conversation.id, input.text)
+          ? await this.buildLeadStatusAnswer(organizationId, plugin.id, conversation.id, effectiveText)
           : null;
       // employeeId === plugin.id: retrieval is always scoped to this specific AI Employee's own
       // collections (see KnowledgeSearchService.search) — it can structurally never return another
@@ -703,7 +862,7 @@ export class AgentService {
         resolvedTravelInput?.kind === "STANDALONE_CONTACT_DECLINED"
           ? []
           : isKnowledgeEligible(requestIntent)
-            ? await this.knowledge.search(organizationId, plugin.id, { query: input.text })
+            ? await this.knowledge.search(organizationId, plugin.id, { query: effectiveText })
             : [];
       const knowledgePrompt = buildKnowledgeBlock(knowledgeSources);
       let request = this.prompt.build({
@@ -711,7 +870,7 @@ export class AgentService {
         memories: recentMemories.map((x) => `${x.key}: ${x.searchableText ?? "configured"}`),
         ...(knowledgePrompt ? { retrievedKnowledge: knowledgePrompt } : {}),
         history: historyRows.map(toModelMessage),
-        message: input.text,
+        message: effectiveText,
         tools: this.tools.definitions(available)
       });
       // Every turn where retrieval already answers the question (or unambiguously should have, but
@@ -727,9 +886,36 @@ export class AgentService {
       // want to travel delhi to mumbai on 10 dec 26" could incidentally retrieve some low-relevance
       // policy chunk and get hijacked into the grounded "not found" fallback instead of the real
       // trip-planning workflow below.
-      const knowledgeAnswer = isKnowledgeEligible(requestIntent)
-        ? knowledgeGroundedAnswer(knowledgeSources, input.text)
+      const isOtherEmployeeDomainQuestion = namesOtherEmployeeDomain(effectiveText);
+      const knowledgeEligible = isKnowledgeEligible(requestIntent);
+      const groundedKnowledgeAnswer = knowledgeEligible
+        ? knowledgeGroundedAnswer(knowledgeSources, effectiveText)
         : null;
+      // LLM public-knowledge fallback: if the knowledge search had no confident answer — and the question
+      // is genuinely within THIS employee's domain (not another employee's, which should be routed) — ask
+      // the employee's real LLM provider to answer from public knowledge (legal statutes, regulations,
+      // common procedures). This keeps the employee useful beyond the uploaded knowledge base. Only fires
+      // for a message actually classified as a knowledge question, so an ordinary chat/task turn never
+      // triggers an extra LLM call.
+      let knowledgeAnswer = groundedKnowledgeAnswer;
+      const noGroundedAnswer =
+        groundedKnowledgeAnswer === null || groundedKnowledgeAnswer === NO_KNOWLEDGE_MESSAGE;
+      // Only the shared-engine domain employees (HR, Finance, IT, Sales, Marketing, Legal, Customer Support)
+      // use the LLM public-knowledge fallback. Travel has its own orchestrator that already answers
+      // knowledge/general questions through its LLM; running the fallback there would double-call the
+      // provider and change the response model.
+      if (employeeConfig && knowledgeEligible && noGroundedAnswer && !isOtherEmployeeDomainQuestion) {
+        const persona = employeeConfig.persona;
+        const fallback = await this.answerFromLlmFallback(
+          organizationId,
+          plugin.id,
+          conversation.id,
+          plugin,
+          effectiveText,
+          persona
+        );
+        if (fallback) knowledgeAnswer = fallback;
+      }
 
       // Stage 8B: Handle authoritative input collection decision
       // If the Skill Runtime decided to ask a question, return it directly without Travel Runtime
@@ -784,7 +970,7 @@ export class AgentService {
               executionTarget: executionDecision.executionTarget
             });
 
-            if (executionDecision.capability === "BOOKING" && executionDecision.executionStatus === "DEFERRED") {
+            if (executionDecision.capability === "BOOKING" && (executionDecision.executionStatus === "DEFERRED" || executionDecision.executionStatus === "EXECUTABLE")) {
               bookingWorkflowPendingText = route.explanation;
               // Stage 9C: BOOKING_HANDOFF — a typed workflow-start request from the capability decision
               // itself (never from parsing this text). Preserves any already-active workflow instead of
@@ -820,7 +1006,11 @@ export class AgentService {
         outputTokens = 0,
         finalText = "",
         responseModel = configuredModel,
-        responseProvider = usingDeterministicTravel ? "travel-employee" : providerName(settings);
+        responseProvider = usingDeterministicTravel
+          ? "travel-employee"
+          : usingDeterministicEmployee && employeeDomain
+            ? employeeDomain.spec.providerName
+            : providerName(settings);
       if (
         leadStatusAnswer !== null ||
         knowledgeAnswer !== null ||
@@ -853,7 +1043,7 @@ export class AgentService {
           event: "AGENT_PROMPT_DEBUG",
           organizationId,
           conversationId: conversation.id,
-          query: input.text,
+          query: effectiveText,
           requestIntent,
           promptLength: request.messages.map((m) => m.content).join("\n").length,
           promptTokens: estimateTokens(request.messages.map((m) => m.content).join(" ")),
@@ -1066,7 +1256,7 @@ export class AgentService {
           event: "AGENT_PROMPT_DEBUG",
           organizationId,
           conversationId: conversation.id,
-          query: input.text,
+          query: effectiveText,
           groundedFromKnowledge: false,
           llmResponse: finalText.slice(0, 2000)
         });
@@ -1094,7 +1284,7 @@ export class AgentService {
           : deriveTravelState(
               [
                 ...historyRows.map(toModelMessage),
-                { role: "user" as const, content: input.text },
+                { role: "user" as const, content: effectiveText },
                 { role: "assistant" as const, content: finalText }
               ],
               travelConfig.defaultCurrency
@@ -1305,14 +1495,19 @@ export class AgentService {
               const derived = deriveTravelState(
                 [
                   ...historyRows.map(toModelMessage),
-                  { role: "user" as const, content: input.text },
+                  { role: "user" as const, content: effectiveText },
                   { role: "assistant" as const, content: finalText }
                 ],
                 travelConfig.defaultCurrency
               );
               return deterministicTravelProvider
                 ? entitiesToStoredState(
-                    entitiesFromStoredState(derived as unknown as Record<string, unknown>),
+                    // deriveTravelState's own TravelState/TravelSlots shape has no originCity/tripType/
+                    // preferences field at all — reconstructing entities from it (as before) silently
+                    // dropped those fields every turn. The provider's own `lastEntities` is the complete,
+                    // correctly-merged trip state for this turn; `derived` is kept only for its `.stage`
+                    // computation, which TravelEmployeeProvider has no equivalent of.
+                    deterministicTravelProvider.lastEntities,
                     derived.stage,
                     deterministicTravelProvider.lastMemory
                   )
@@ -1338,23 +1533,53 @@ export class AgentService {
           try {
             const freshEntities = entitiesFromStoredState(state as unknown as Record<string, unknown>);
             const freshMemory = memoryFromStoredState(state as unknown as Record<string, unknown>);
+
+            const isBookingSignal = workflowSignalDraft.signalType === "START_BOOKING_HANDOFF";
+            const dispatchSignalsBundle = this.buildWorkflowDispatchSignals(freshEntities, freshMemory);
+            // bookingHandoffSignalProvider (workflow-signal-registry.ts) reads `signal.payload.tripContext`
+            // as a full BookingHandoffTripContext — Travel Runtime's own `pendingWorkflowSignal.payload` is
+            // only ever a flat `{selectedOption}` draft (it has no access to the rich entities/memory this
+            // service already derived above), so it must be merged into the full tripContext here, never
+            // passed through as-is (that previously left `tripContext` undefined and threw at dispatch time).
             const signal: WorkflowSignal = {
               signalType: workflowSignalDraft.signalType,
-              workflowType: "TRIP_SUBMISSION",
-              source: "BELOW_MINIMUM_BUDGET_FEASIBILITY",
+              workflowType: isBookingSignal ? "BOOKING_HANDOFF" : "TRIP_SUBMISSION",
+              source: isBookingSignal ? "BOOKING_READY_CAPABILITY" : "BELOW_MINIMUM_BUDGET_FEASIBILITY",
               sourceTurnId: input.requestId,
               sourceSkillExecutionId: null,
-              payload: { trigger: workflowSignalDraft.trigger },
+              payload: isBookingSignal
+                ? {
+                    tripContext: {
+                      ...dispatchSignalsBundle.bookingHandoffTripContext,
+                      selectedOption:
+                        (
+                          workflowSignalDraft.payload as
+                            | { selectedOption?: Record<string, unknown> | null; passengerDetails?: Record<string, unknown>[] | null }
+                            | null
+                        )?.selectedOption ?? null,
+                      passengerDetails:
+                        (
+                          workflowSignalDraft.payload as
+                            | { selectedOption?: Record<string, unknown> | null; passengerDetails?: Record<string, unknown>[] | null }
+                            | null
+                        )?.passengerDetails ?? null,
+                      customerEmail:
+                        (workflowSignalDraft.payload as { customerEmail?: string | null } | null)?.customerEmail ?? null,
+                      customerPhone:
+                        (workflowSignalDraft.payload as { customerPhone?: string | null } | null)?.customerPhone ?? null
+                    }
+                  }
+                : (workflowSignalDraft.payload ?? { trigger: workflowSignalDraft.trigger }),
               confidence: 1
             };
             const signalOutcome = await this.workflowCoordinator.dispatchSignal(
               { organizationId, pluginInstallationId: plugin.id, conversationId: conversation.id },
               signal,
               input.requestId,
-              this.buildWorkflowDispatchSignals(freshEntities, freshMemory),
-              input.text
+              dispatchSignalsBundle,
+              effectiveText
             );
-            if (signalOutcome)
+            if (signalOutcome && !isBookingSignal)
               await this.reconcileLegacyStateAfterWorkflowLead(
                 signalOutcome,
                 organizationId,
@@ -1364,6 +1589,27 @@ export class AgentService {
                 freshEntities,
                 freshMemory
               );
+            if (isBookingSignal) {
+              this.logger.log({
+                event: "BOOKING_HANDOFF_SIGNAL_DISPATCHED",
+                conversationId: conversation.id,
+                trigger: workflowSignalDraft.trigger
+              });
+              // Customer-confirmation bookings (see TravelBookingService.requestCustomerApproval) now
+              // approve and complete synchronously within this same dispatchSignal call — so unlike the
+              // BELOW_MINIMUM/TRIP_SUBMISSION signal above, this outcome's text is NOT stale by the time
+              // it comes back and must replace the generic "waiting for approval" placeholder Travel
+              // Runtime already produced, both in the response returned for this turn and in the
+              // already-persisted assistant message (a page reload must show the same real outcome).
+              if (signalOutcome?.decision === "COMPLETE" && signalOutcome.responseText) {
+                finalText = signalOutcome.responseText;
+                outputTokens = estimateTokens(finalText);
+                await this.prisma.conversationMessage.update({
+                  where: { id: assistant.id },
+                  data: { content: finalText, outputTokens }
+                });
+              }
+            }
           } catch (error) {
             this.logger.error({
               event: "TRAVEL_WORKFLOW_SIGNAL_DISPATCH_FAILED",
@@ -1411,6 +1657,92 @@ export class AgentService {
             });
         }
       }
+      // Persist the domain employee's conversation state under its own memory key (mirrors the travel
+      // persistence contract above, but for the shared employee engine). The orchestrator exposes the
+      // complete merged entities + stage; the deterministic provider's stage is derived from entities.
+      if (employeeConfig && employeeDomain) {
+        const employeeState = employeeOrchestrator
+          ? employeeEntitiesToStoredState(
+              employeeOrchestrator.lastEntities,
+              employeeOrchestrator.lastStage,
+              employeeOrchestrator.lastMemory
+            )
+          : deterministicEmployeeProvider
+            ? employeeEntitiesToStoredState(
+                deterministicEmployeeProvider.lastEntities,
+                "COLLECT_NAME",
+                deterministicEmployeeProvider.lastMemory
+              )
+            : null;
+        if (employeeState) {
+          await this.memories.save(organizationId, actorUserId, {
+            pluginInstallationId: plugin.id,
+            conversationId: conversation.id,
+            scope: AgentMemoryScope.CONVERSATION,
+            key: employeeDomain.memoryKey,
+            value: employeeState,
+            searchableText:
+              `${employeeState.stage} ${employeeState.customerName ?? ""}`.trim()
+          });
+          const employeeName = employeeState.customerName;
+          if (typeof employeeName === "string" && employeeName) {
+            const profile = await this.customerIdentity.rememberName(
+              organizationId,
+              customerIdentity,
+              employeeName
+            );
+            if (profile && conversation.customerProfileId !== profile.id)
+              await this.prisma.conversation.update({
+                where: { id: conversation.id },
+                data: { customerProfileId: profile.id }
+              });
+          }
+        }
+      }
+      // Legal Employee — "generate/download a PDF": when the user asked for a downloadable PDF of the
+      // drafted legal document, persist the final response text as a LegalDocument and attach the download
+      // URL so the chat renders a Download button (same pattern as the Travel ticket PDF attachment).
+      let legalPdfAttachments: Array<{
+        type: "PDF_DOCUMENT";
+        documentId: string;
+        url: string;
+        filename: string;
+      }> | null = null;
+      if (isLegalEmployee && finalText && /pdf|download|downloadable|format as (a )?pdf|as a file|save (this|as) (a )?file/i.test(effectiveText)) {
+        try {
+          const legalTitle = legalDocumentTitle(effectiveText, finalText);
+          const row = await this.prisma.legalDocument.create({
+            data: {
+              organizationId,
+              pluginInstallationId: plugin.id,
+              conversationId: conversation.id,
+              createdByUserId: actorUserId,
+              title: legalTitle,
+              content: finalText
+            }
+          });
+          legalPdfAttachments = [
+            {
+              type: "PDF_DOCUMENT",
+              documentId: row.id,
+              url: `/api/v1/legal-employee/documents/${row.id}/pdf`,
+              filename: `${legalTitle}.pdf`
+            }
+          ];
+          await this.prisma.conversationMessage.update({
+            where: { id: assistant.id },
+            data: {
+              contentJson: { attachments: legalPdfAttachments } as unknown as Prisma.InputJsonValue
+            }
+          });
+        } catch (error) {
+          this.logger.warn({
+            event: "LEGAL_PDF_GENERATION_FAILED",
+            conversationId: conversation.id,
+            error: error instanceof Error ? error.message : "unknown"
+          });
+        }
+      }
       return {
         conversationId: conversation.id,
         executionId: execution.id,
@@ -1419,7 +1751,8 @@ export class AgentService {
         status: "COMPLETED" as const,
         model: responseModel,
         usage: { inputTokens, outputTokens, totalTokens, estimatedCost: null },
-        sources: knowledgeSources.map(sourceMetadata)
+        sources: knowledgeSources.map(sourceMetadata),
+        ...(legalPdfAttachments ? { attachments: legalPdfAttachments } : {})
       };
     } catch (error) {
       const stage = error instanceof AiProviderError ? error.stage : failureStage;
@@ -1469,7 +1802,11 @@ export class AgentService {
   }
   async employees(organizationId: string) {
     const items = await this.prisma.plugin.findMany({
-      where: { organizationId, status: PluginStatus.ACTIVE, deletedAt: null },
+      // List every installed employee (ACTIVE or not) so the dashboard always reflects what was installed —
+      // a plugin installed without "Enable after installation" is still visible (disabled), not silently
+      // missing from the AI Employees page. `runtimeReady` marks whether it can currently run.
+      where: { organizationId, deletedAt: null },
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
       select: {
         id: true,
         slug: true,
@@ -1488,6 +1825,11 @@ export class AgentService {
         Array.isArray(item.grantedPermissions) &&
         item.grantedPermissions.includes("MEMORY")
     }));
+  }
+  /** The dashboard's "Tools" page catalog — every reusable tool/capability across all AI employees, sourced
+   *  from the live ToolRegistry (see registerTools()) so it can never drift from what's actually callable. */
+  toolCatalog() {
+    return buildToolCatalog(this.tools.definitions());
   }
   async conversations(organizationId: string, page: PageDto) {
     const where: Prisma.ConversationWhereInput = {
@@ -1673,7 +2015,7 @@ export class AgentService {
     persistedTravelEntities: ReturnType<typeof entitiesFromStoredState>,
     persistedTravelMemory: ReturnType<typeof memoryFromStoredState>,
     channelContact?: { senderPhoneNumber: string }
-  ): Promise<{ response: string; model: string } | null> {
+  ): Promise<{ response: string; model: string; bookingId?: string | null } | null> {
     if (!this.workflowCoordinator) return null;
 
     const scope = { organizationId, pluginInstallationId, conversationId };
@@ -1698,7 +2040,11 @@ export class AgentService {
         workflowType: outcome.workflowType,
         decision: outcome.decision
       });
-      return { response: outcome.responseText ?? "", model: "workflow-runtime-v1" };
+      return {
+        response: outcome.responseText ?? "",
+        model: "workflow-runtime-v1",
+        bookingId: outcome.bookingId ?? null
+      };
     } catch (error) {
       this.logger.error({
         event: "PENDING_WORKFLOW_TURN_FAILED",
@@ -1745,7 +2091,11 @@ export class AgentService {
       destinationCity: entities.destinationCity,
       travelDates: entities.departureDate ?? entities.travelMonth,
       skillExecutionId: null,
-      journeyId: memory.journey?.id ?? null
+      journeyId: memory.journey?.id ?? null,
+      travellerCount: entities.adults ?? entities.totalTravellers ?? null,
+      vegetarianPreference: entities.preferences.some((preference) =>
+        preference.toUpperCase().includes("VEGETARIAN")
+      )
     };
     const tripSubmissionTripContext: TripSubmissionTripContext = {
       entities,
@@ -1772,7 +2122,8 @@ export class AgentService {
         itineraryPresented: memory.lastGeneratedItinerary !== null,
         hasActiveTripContext: entities.destinationCity !== null,
         tripState: entities,
-        legacyPendingContactValue: memory.pendingContactValue ?? null
+        legacyPendingContactValue: memory.pendingContactValue ?? null,
+        legacyPendingAction: memory.pendingAction ?? null
       },
       tripSubmissionTripContext
     };
@@ -1912,6 +2263,74 @@ export class AgentService {
       businessHoursTimezone: row.businessHoursTimezone
     };
   }
+  private async employeeConfig(
+    organizationId: string,
+    pluginInstallationId: string,
+    domain: EmployeeDomainDescriptor
+  ): Promise<EmployeeRuntimeConfig & {
+    apiEnabled?: boolean;
+    apiEndpoint?: string | null;
+    apiKey?: string | null;
+    defaultCountry?: string;
+  }> {
+    const delegate = domain.configModel(this.prisma);
+    const row = await delegate.findFirst({ where: { organizationId, pluginInstallationId } });
+    const defaults = domain.defaults;
+    if (!row) return defaults;
+    return {
+      persona: (row.persona as string | null) || defaults.persona,
+      welcomeMessage: (row.welcomeMessage as string | null) || defaults.welcomeMessage,
+      escalationContact: (row.escalationContact as string | null) || defaults.escalationContact,
+      brandTone: (row.brandTone as string | null) || defaults.brandTone,
+      defaultCurrency: (row.defaultCurrency as string | null) || defaults.defaultCurrency,
+      defaultLanguage: (row.defaultLanguage as string | null) || defaults.defaultLanguage,
+      businessHoursStart: (row.businessHoursStart as string | null) ?? null,
+      businessHoursEnd: (row.businessHoursEnd as string | null) ?? null,
+      businessHoursTimezone: (row.businessHoursTimezone as string | null) ?? null,
+      apiEnabled: row.apiEnabled === true,
+      apiEndpoint: (row.apiEndpoint as string | null) ?? null,
+      apiKey: (row.apiKey as string | null) ?? null,
+      defaultCountry: (row.defaultCountry as string | null) ?? defaults.defaultCountry ?? "India"
+    };
+  }
+  private async loadEmployeeState(
+    organizationId: string,
+    pluginInstallationId: string,
+    conversationId: string,
+    domain: EmployeeDomainDescriptor
+  ): Promise<Record<string, unknown> | null> {
+    const memory = await this.prisma.agentMemory.findFirst({
+      where: {
+        organizationId,
+        pluginInstallationId,
+        conversationId,
+        scope: AgentMemoryScope.CONVERSATION,
+        key: domain.memoryKey,
+        deletedAt: null
+      }
+    });
+    return (memory?.value as Record<string, unknown> | undefined) ?? null;
+  }
+  /** Loads the extracted text of the given conversation attachments (if any) and builds a context block
+   *  that is prepended to the user's message so the AI Employee can read the file contents. Attachments are
+   *  tenant-scoped to the conversation — never trusted across conversations. */
+  private async loadAttachmentContext(
+    organizationId: string,
+    conversationId: string,
+    attachmentIds: string[] | undefined
+  ): Promise<string | null> {
+    if (!attachmentIds || attachmentIds.length === 0) return null;
+    const rows = await this.prisma.conversationAttachment.findMany({
+      where: { id: { in: attachmentIds }, organizationId, conversationId }
+    });
+    if (rows.length === 0) return null;
+    return rows
+      .map(
+        (row) =>
+          `[Attachment: ${row.originalFilename} (${row.mimeType})]\n${row.extractedText}`
+      )
+      .join("\n\n");
+  }
   private async loadTravelState(
     organizationId: string,
     pluginInstallationId: string,
@@ -1928,6 +2347,65 @@ export class AgentService {
       }
     });
     return (memory?.value as Record<string, unknown> | undefined) ?? null;
+  }
+
+  /**
+   * LLM public-knowledge fallback: when a knowledge question has no confident answer in the employee's
+   * uploaded knowledge (or none at all), and the employee has a real LLM provider configured, ask that
+   * LLM to answer from its own public/general knowledge. This is what lets the Legal Employee (and every
+   * other employee) answer public-domain questions — legal statutes, regulations, common procedures —
+   * instead of only ever replying "I could not find this information in the uploaded knowledge." Returns
+   * null when no real LLM provider is configured, so a deterministic-only employee keeps the old behavior.
+   */
+  private async answerFromLlmFallback(
+    organizationId: string,
+    pluginInstallationId: string,
+    conversationId: string,
+    plugin: { displayName: string; description: string },
+    message: string,
+    persona: string | null
+  ): Promise<string | null> {
+    let resolvedReal: { provider: AiProvider; settings: ProviderSettings } | null = null;
+    try {
+      resolvedReal = await this.pluginAi.resolveProvider(organizationId, pluginInstallationId);
+    } catch (error) {
+      if (
+        !(error instanceof BadRequestException) ||
+        error.message !== "AI_PROVIDER_NOT_CONFIGURED"
+      )
+        throw error;
+    }
+    if (!resolvedReal || resolvedReal.settings.providerType === "DETERMINISTIC") return null;
+    try {
+      const system = [
+        persona || `You are the ${plugin.displayName}.`,
+        "The organization's uploaded knowledge does not contain an answer to the user's question.",
+        "Answer from your own general/public knowledge, clearly and helpfully.",
+        "If the topic is genuinely outside any publicly available knowledge, say so honestly.",
+        "Never invent specific organization policies, private facts, or figures that are not publicly verifiable."
+      ].join(" ");
+      const result = await withTimeout(
+        resolvedReal.provider.complete({
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: message }
+          ],
+          temperature: 0.3,
+          maxOutputTokens: 700
+        }),
+        resolvedReal.settings.timeoutMs + 1_000,
+        "MODEL_EXECUTION_TIMEOUT"
+      );
+      const content = result.content?.trim();
+      return content ? content : null;
+    } catch (error) {
+      this.logger.warn({
+        event: "KNOWLEDGE_LLM_FALLBACK_FAILED",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return null;
+    }
   }
 
   private async buildLeadStatusAnswer(
@@ -2147,6 +2625,175 @@ export class AgentService {
         return { leadId: lead.id, reference: lead.reference };
       }
     });
+    // Always-on "resend my ticket" path — a returning customer, possibly in a brand-new conversation,
+    // identifying an already-ticketed booking by the email they booked with (and, optionally, the travel
+    // date to disambiguate multiple bookings on the same email). See TravelBookingService.
+    // findBookingForResend/resendTicket and DeliveryRecorderService.recordTicketDelivery for the actual
+    // lookup/regenerate-and-resend logic — this tool is a thin, honest pass-through: `found` is only ever
+    // true when a real booking matched, and the per-channel status is only ever what actually happened.
+    this.tools.register({
+      definition: {
+        name: "travel.resend_ticket",
+        version: "1.0.0",
+        description: "Look up an already-ticketed booking by email (and optionally travel date) and resend the ticket by email/WhatsApp",
+        requiredPermissions: ["agents.tools.execute"],
+        timeoutMs: 15000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["email"],
+          properties: {
+            email: { type: "string", minLength: 3, maxLength: 320 },
+            travelDate: { type: ["string", "null"], maxLength: 32 },
+            customerName: { type: ["string", "null"], maxLength: 160 }
+          }
+        },
+        sensitiveInputPaths: ["email"]
+      },
+      execute: async (input, context) => {
+        if (!this.travelBookingService) return { resendResult: true, found: false };
+        const booking = await this.travelBookingService.findBookingForResend(context.organizationId, {
+          email: String(input.email),
+          travelDate: typeof input.travelDate === "string" ? input.travelDate : null
+        });
+        if (!booking) return { resendResult: true, found: false };
+        const delivery = await this.travelBookingService.resendTicket(booking.id, context.organizationId);
+        return {
+          resendResult: true,
+          found: true,
+          pnr: booking.providerPnr,
+          emailStatus: delivery.email?.status ?? null,
+          whatsappStatus: delivery.whatsapp?.status ?? null
+        };
+      }
+    });
+  }
+
+  /**
+   * Registers the two tools every non-Travel domain employee exposes: `{slug}.create_{artifact}` (the
+   * always-on internal persistence path, mirroring `travel.create_lead`) and `{slug}.escalate`. Both are
+   * thin pass-throughs into the shared employee engine + artifact service — honest facts only: `reference`
+   * is only set when a real artifact row was created, and `escalated` only ever reflects an actual lookup.
+   */
+  private registerEmployeeTools() {
+    for (const domain of EMPLOYEE_DOMAIN_REGISTRY) {
+      this.tools.register({
+        definition: {
+          name: domain.artifactToolName,
+          version: "1.0.0",
+          description: `Persist a ${domain.artifactNoun} after the requester consents and shares a contact number`,
+          requiredPermissions: ["agents.tools.execute"],
+          timeoutMs: 3000,
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["phoneNumber", "conversationSummary"],
+            properties: {
+              reference: { type: ["string", "null"], maxLength: 20 },
+              customerName: { type: ["string", "null"], maxLength: 160 },
+              phoneNumber: { type: "string", minLength: 1, maxLength: 24 },
+              email: { type: ["string", "null"], maxLength: 160 },
+              conversationSummary: { type: "string", minLength: 1, maxLength: 2000 },
+              ...Object.fromEntries(
+                domain.artifactFieldKeys.map((key) => [
+                  key,
+                  { type: ["string", "null"], maxLength: 500 }
+                ])
+              )
+            }
+          },
+          sensitiveInputPaths: ["phoneNumber", "email"]
+        },
+        execute: async (input, context) => {
+          if (!this.employeeArtifacts) return { artifactId: null, reference: null };
+          const delegate = domain.artifactDelegate(this.prisma);
+          const artifact = await this.employeeArtifacts.createInternal(
+            delegate,
+            domain.nameField,
+            domain.referencePrefix,
+            {
+              organizationId: context.organizationId,
+              pluginInstallationId: context.pluginInstallationId,
+              conversationId: context.conversationId,
+              customerName: typeof input.customerName === "string" ? input.customerName : null,
+              phoneNumber: String(input.phoneNumber),
+              email: typeof input.email === "string" ? input.email : null,
+              conversationSummary: String(input.conversationSummary),
+              reference: typeof input.reference === "string" ? input.reference : null,
+              fields: domain.mapFields(input)
+            }
+          );
+          return { artifactId: artifact.id, reference: artifact.reference };
+        }
+      });
+      this.tools.register({
+        definition: {
+          name: domain.escalateToolName,
+          version: "1.0.0",
+          description: `Escalate the conversation to a human ${domain.artifactNoun} team member`,
+          requiredPermissions: ["agents.tools.execute"],
+          timeoutMs: 3000,
+          inputSchema: {
+            type: "object",
+            additionalProperties: false,
+            properties: { reason: { type: "string", maxLength: 500 } }
+          }
+        },
+        execute: async (input, context) => {
+          const config = await this.employeeConfig(
+            context.organizationId,
+            context.pluginInstallationId,
+            domain
+          );
+          return {
+            escalated: true,
+            contact: config.escalationContact,
+            reason: typeof input.reason === "string" ? input.reason : null
+          };
+        }
+      });
+    }
+    // Legal Employee — "generate a PDF" capability: persists the drafted legal document and returns a
+    // download URL so the chat can offer a downloadable, well-formatted PDF of the notice/reply.
+    this.tools.register({
+      definition: {
+        name: "legal.create_pdf",
+        version: "1.0.0",
+        description:
+          "Generate a downloadable, well-formatted PDF of a drafted legal document (notice, reply, case summary)",
+        requiredPermissions: ["agents.tools.execute"],
+        timeoutMs: 8000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "content"],
+          properties: {
+            title: { type: "string", minLength: 1, maxLength: 255 },
+            content: { type: "string", minLength: 1 },
+            conversationId: { type: "string", minLength: 1, maxLength: 64 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        const title = String(input.title).slice(0, 255);
+        const content = String(input.content);
+        const row = await this.prisma.legalDocument.create({
+          data: {
+            organizationId: context.organizationId,
+            pluginInstallationId: context.pluginInstallationId,
+            conversationId: context.conversationId,
+            createdByUserId: context.userId ?? null,
+            title,
+            content
+          }
+        });
+        return {
+          documentId: row.id,
+          downloadUrl: `/api/v1/legal-employee/documents/${row.id}/pdf`,
+          title
+        };
+      }
+    });
   }
 
   /**
@@ -2272,6 +2919,19 @@ function knowledgeGroundedAnswer(sources: KnowledgeSource[], text: string): stri
   if (sources.length) return buildKnowledgeAnswer(sources, text);
   if (namesOtherEmployeeDomain(text)) return NO_KNOWLEDGE_MESSAGE;
   return null;
+}
+
+/** Derives a concise, filename-safe title for a generated legal PDF from the user's request or the first
+ *  heading line of the drafted content. */
+function legalDocumentTitle(requestText: string, content: string): string {
+  const fromHeading = content.match(/^#{1,3}\s+(.+)$/m)?.[1]?.trim();
+  const fromRequest = requestText.match(/notice|reply|draft|case|verdict|petition|summary/i)?.[0];
+  const base = fromHeading ?? (fromRequest ? `${fromRequest.charAt(0).toUpperCase()}${fromRequest.slice(1)}` : "Legal Document");
+  return sanitizeLegalTitle(base);
+}
+
+function sanitizeLegalTitle(value: string): string {
+  return value.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 80) || "Legal-Document";
 }
 function sourceMetadata(source: KnowledgeSource) {
   return {

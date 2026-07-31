@@ -35,6 +35,8 @@ export class ApprovalService {
         organizationId: input.organizationId,
         workflowExecutionId: input.workflowExecutionId,
         agentId: input.agentId,
+        actionType: "BOOKING",
+        approverType: "MANAGER" as never,
         requestedBy: input.requestedBy,
         status: "PENDING",
         title: input.title,

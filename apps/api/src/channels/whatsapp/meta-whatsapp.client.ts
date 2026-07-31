@@ -83,6 +83,85 @@ export async function sendMetaWhatsAppText(
   };
 }
 
+export interface MetaUploadMediaInput {
+  phoneNumberId: string;
+  accessToken: string;
+  buffer: Buffer;
+  filename: string;
+  mimeType: string;
+}
+
+/**
+ * Uploads binary media (e.g. a generated PDF ticket) to Meta's Media API, returning a media ID that a
+ * later `sendMetaWhatsAppDocument` call references. Media must be uploaded before it can be sent — the
+ * Cloud API has no "send raw bytes inline" option, only a public `link` (which would require exposing the
+ * ticket at an unauthenticated URL) or this upload-then-reference flow, which never does.
+ */
+export async function uploadMetaWhatsAppMedia(
+  input: MetaUploadMediaInput,
+  fetcher: typeof fetch = fetch
+): Promise<{ mediaId: string }> {
+  const url = `${META_GRAPH_BASE}/${input.phoneNumberId}/media`;
+  const form = new FormData();
+  form.append("messaging_product", "whatsapp");
+  form.append("type", input.mimeType);
+  form.append("file", new Blob([new Uint8Array(input.buffer)], { type: input.mimeType }), input.filename);
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${input.accessToken}` },
+    body: form
+  });
+  const data = (await response.json()) as Record<string, unknown>;
+  if (!response.ok || typeof data.id !== "string") {
+    const errMsg = (data.error as Record<string, unknown>)?.message ?? response.statusText;
+    throw new Error(`META_WHATSAPP_MEDIA_UPLOAD_FAILED: ${errMsg}`);
+  }
+  return { mediaId: data.id };
+}
+
+export interface MetaSendDocumentInput {
+  phoneNumberId: string;
+  accessToken: string;
+  to: string;
+  mediaId: string;
+  filename: string;
+  caption?: string;
+}
+
+/** Sends a previously-uploaded media item (see `uploadMetaWhatsAppMedia`) as a WhatsApp document message. */
+export async function sendMetaWhatsAppDocument(
+  input: MetaSendDocumentInput,
+  fetcher: typeof fetch = fetch
+): Promise<MetaSendResult> {
+  const url = `${META_GRAPH_BASE}/${input.phoneNumberId}/messages`;
+  const body: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: input.to,
+    type: "document",
+    document: {
+      id: input.mediaId,
+      filename: input.filename,
+      ...(input.caption ? { caption: input.caption } : {})
+    }
+  };
+  const response = await fetcher(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body)
+  });
+  const data = (await response.json()) as Record<string, unknown>;
+  if (!response.ok) {
+    const errMsg = (data.error as Record<string, unknown>)?.message ?? response.statusText;
+    throw new Error(`META_WHATSAPP_SEND_FAILED: ${errMsg}`);
+  }
+  const messageId = (data.messages as Array<Record<string, unknown>>)?.[0]?.id as string | undefined;
+  return { providerMessageId: messageId ?? "unknown", status: "sent" };
+}
+
 /**
  * Marks a message as read via Meta Cloud API.
  */

@@ -169,7 +169,7 @@ describe("AgentService Stage 9A: CapabilityExecutionAdapter wiring", () => {
 
     const expectedExplanation = TravelDecisionAdapter.route(decision).explanation;
     expect(result.response).toBe(expectedExplanation);
-    expect(result.response).toContain("not yet implemented");
+    expect(result.response).toContain("would you like to proceed");
     expect(result.model).toBe("capability-execution-v1");
     expect(provider.complete).not.toHaveBeenCalled();
     expect(prisma.agentToolExecution.create).not.toHaveBeenCalled();

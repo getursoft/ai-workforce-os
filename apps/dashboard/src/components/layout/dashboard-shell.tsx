@@ -2,13 +2,47 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type ComponentType } from "react";
+import {
+  LayoutDashboard,
+  Bot,
+  Wrench,
+  ListChecks,
+  MessageSquare,
+  History,
+  BookOpen,
+  Plug,
+  Users,
+  Building2,
+  Settings as SettingsIcon,
+  Plane,
+  UserCog,
+  Wallet,
+  Headset,
+  TrendingUp,
+  Megaphone,
+  Scale,
+  Headphones,
+  Radio,
+  Cable,
+  Puzzle,
+  KeyRound,
+  UserCircle,
+  ShieldCheck,
+  Lock,
+  Mail,
+  CheckCircle2,
+  BarChart3,
+  type LucideProps
+} from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
 import { buildLoginRedirectPath } from "../../lib/return-url";
 import { Avatar, Badge, Button, Card, DropdownMenu, PageHeader, Skeleton } from "../ui";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
 import { useEffectivePermissions } from "../../features/admin/authorization";
 import { LogoMark } from "@/components/shared/logo-mark";
+
+type NavIcon = ComponentType<LucideProps>;
 
 // Quick links back to the public marketing site — deliberately just these three (not the full
 // Platform/AI Employees/Solutions/Resources mega-menus from PublicHeader), since an already-authenticated
@@ -19,35 +53,49 @@ const RIBBON_LINKS: readonly { href: string; label: string }[] = [
   { href: "/contact", label: "Contact" }
 ];
 
-const NAV_ITEMS: readonly { href: string; label: string; permission?: string }[] = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/ai-employees", label: "AI Employees", permission: "agents.run" },
-  { href: "/dashboard/tasks", label: "Tasks" },
-  { href: "/conversations", label: "Conversations", permission: "agents.conversations.read" },
-  { href: "/execution-history", label: "Execution History", permission: "agents.executions.read" },
-  { href: "/knowledge", label: "Knowledge Base", permission: "knowledge.read" },
-  { href: "/dashboard/integrations", label: "Integrations" },
-  { href: "/teams", label: "Teams", permission: "TEAM_READ" },
-  { href: "/dashboard/organization", label: "Organization" },
-  { href: "/dashboard/settings", label: "Settings" }
+const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permission?: string }[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/ai-employees", label: "AI Employees", icon: Bot, permission: "agents.run" },
+  { href: "/tools", label: "Tools", icon: Wrench, permission: "agents.run" },
+  { href: "/dashboard/tasks", label: "Tasks", icon: ListChecks },
+  { href: "/conversations", label: "Conversations", icon: MessageSquare, permission: "agents.conversations.read" },
+  { href: "/execution-history", label: "Execution History", icon: History, permission: "agents.executions.read" },
+  { href: "/knowledge", label: "Knowledge Base", icon: BookOpen, permission: "knowledge.read" },
+  { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
+  { href: "/teams", label: "Teams", icon: Users, permission: "TEAM_READ" },
+  { href: "/dashboard/organization", label: "Organization", icon: Building2 },
+  { href: "/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
 
-export const ADMIN_ITEMS = [
-  { href: "/travel-employee", label: "Travel Employee", permission: "travel.config.read" },
-  { href: "/channels", label: "Channels", permission: "channel.read" },
-  { href: "/connectors", label: "Connectors", permission: "connector.read" },
-  { href: "/dashboard/plugins", label: "Plugins", permission: "plugin.read" },
+export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon; permission: string }[] = [
+  { href: "/travel-employee", label: "Travel Employee", icon: Plane, permission: "travel.config.read" },
+  { href: "/hr-employee", label: "HR Employee", icon: UserCog, permission: "hr.config.read" },
+  { href: "/finance-employee", label: "Finance Employee", icon: Wallet, permission: "finance.config.read" },
+  { href: "/it-support-employee", label: "IT Support Employee", icon: Headset, permission: "it.config.read" },
+  { href: "/sales-employee", label: "Sales Employee", icon: TrendingUp, permission: "sales.config.read" },
+  { href: "/marketing-employee", label: "Marketing Employee", icon: Megaphone, permission: "marketing.config.read" },
+  { href: "/legal-employee", label: "Legal Employee", icon: Scale, permission: "legal.config.read" },
+  {
+    href: "/customer-support-employee",
+    label: "Customer Support Employee",
+    icon: Headphones,
+    permission: "support.config.read"
+  },
+  { href: "/channels", label: "Channels", icon: Radio, permission: "channel.read" },
+  { href: "/connectors", label: "Connectors", icon: Cable, permission: "connector.read" },
+  { href: "/dashboard/plugins", label: "Plugins", icon: Puzzle, permission: "plugin.read" },
   {
     href: "/dashboard/service-accounts",
     label: "Service Accounts",
+    icon: KeyRound,
     permission: "service_accounts.read"
   },
-  { href: "/dashboard/settings/users", label: "Users", permission: "users.read" },
-  { href: "/dashboard/settings/roles", label: "Roles", permission: "roles.read" },
-  { href: "/dashboard/settings/permissions", label: "Permissions", permission: "roles.read" },
-  { href: "/dashboard/settings/invitations", label: "Invitations", permission: "invitations.read" },
-  { href: "/dashboard/approvals", label: "Approvals", permission: "approvals.read" },
-  { href: "/usage", label: "Usage & Billing", permission: "usage.read" }
+  { href: "/dashboard/settings/users", label: "Users", icon: UserCircle, permission: "users.read" },
+  { href: "/dashboard/settings/roles", label: "Roles", icon: ShieldCheck, permission: "roles.read" },
+  { href: "/dashboard/settings/permissions", label: "Permissions", icon: Lock, permission: "roles.read" },
+  { href: "/dashboard/settings/invitations", label: "Invitations", icon: Mail, permission: "invitations.read" },
+  { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approvals.read" },
+  { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" }
 ] as const;
 
 export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {
@@ -132,7 +180,8 @@ export function DashboardShell({
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
               >
-                {item.label}
+                <item.icon className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span>{item.label}</span>
               </Link>
             )
           )}
@@ -146,7 +195,8 @@ export function DashboardShell({
               href={item.href}
               onClick={() => setMobileOpen(false)}
             >
-              {item.label}
+              <item.icon className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+              <span>{item.label}</span>
             </Link>
           ))}
         </nav>
@@ -188,7 +238,15 @@ export function DashboardShell({
           >
             ☰
           </Button>
-          <PageHeader {...(description ? { title, description } : { title })} />
+          <div className="dashboard-topbar__header">
+            {pathname !== "/dashboard" ? (
+              <Link href="/dashboard" className="dashboard-breadcrumb">
+                <LayoutDashboard size={13} strokeWidth={2} aria-hidden="true" />
+                Dashboard
+              </Link>
+            ) : null}
+            <PageHeader {...(description ? { title, description } : { title })} />
+          </div>
           <div className="dashboard-topbar__actions">
             <Badge tone="neutral">{state.organization?.name}</Badge>
             <DropdownMenu
@@ -204,9 +262,9 @@ export function DashboardShell({
               }
             >
               <div className="dashboard-user-menu">
-                <Link href="/dashboard/profile">Profile</Link>
-                <Link href="/dashboard/settings/sessions">Sessions</Link>
-                <Link href="/dashboard/settings">Settings</Link>
+                <Link href="/profile">Profile</Link>
+                <Link href="/settings/sessions">Sessions</Link>
+                <Link href="/settings">Settings</Link>
                 <Button
                   type="button"
                   variant="ghost"

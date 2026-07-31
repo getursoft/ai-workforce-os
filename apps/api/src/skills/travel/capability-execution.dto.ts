@@ -22,6 +22,8 @@ export type ExecutionStatus =
   | "DELEGATED"
   /** Capability intentionally not executed in this stage (booking workflow). */
   | "DEFERRED"
+  /** Capability is ready to be executed (booking workflow ready). */
+  | "EXECUTABLE"
   /** Execution/preparation failed; the caller must fall back to legacy Travel Runtime, never retry. */
   | "FAILED"
   /** The route is not a capability-execution route at all. */
@@ -32,6 +34,7 @@ export type ExecutionType =
   | "LLM_ORCHESTRATED"
   | "TOOL_DELEGATED"
   | "WORKFLOW_PENDING"
+  | "WORKFLOW_READY"
   | "NONE";
 
 /** A typed, structured execution result — deliberately no free-form execution strings. */

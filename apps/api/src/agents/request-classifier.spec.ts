@@ -87,6 +87,41 @@ describe("classifyRequestIntent (central request classifier)", () => {
     expect(classifyRequestIntent("what is your hotel cancellation policy", TRAVEL)).toBe("KNOWLEDGE_QUERY");
   });
 
+  // Regression: the exact phrases from the FAILED UAT conversation. "Hotel and flight for round trip"
+  // previously fell through every classifyPlanningAction pattern (no "book"/"search"/"recommend" verb) and
+  // landed on looksLikeKnowledgeQuery — true because "hotel" hits knowledge.search.ts's HOTEL_GROUP term —
+  // producing "I could not find this information in the uploaded knowledge." instead of ever reaching the
+  // booking flow. See TRAVEL_TRANSACTION_GUARD_PATTERN.
+  it.each([
+    "Hotel and flight for round trip",
+    "hotel and flight both",
+    "flight and hotel both please",
+    "show me flight options",
+    "show hotel options",
+    "show package options",
+    "round trip options",
+    "option 1",
+    "option two",
+    "book my trip",
+    "book our trip"
+  ])("never routes %j to Knowledge/RAG — always TASK_EXECUTION for the Travel Employee", (text) => {
+    const intent = classifyRequestIntent(text, TRAVEL);
+    expect(intent).toBe("TASK_EXECUTION");
+    expect(isKnowledgeEligible(intent)).toBe(false);
+  });
+
+  // "confirm option 1"/"select option 2" match the earlier go-ahead CONFIRMATION pattern first — also a
+  // correct, non-RAG classification (the option-selection routing itself lives downstream in Travel
+  // Runtime's own sprintIntent layer, not here); this classifier's only job is to never send it to RAG.
+  it.each(["confirm option 1", "select option 2"])(
+    "never routes %j to Knowledge/RAG for the Travel Employee",
+    (text) => {
+      const intent = classifyRequestIntent(text, TRAVEL);
+      expect(intent).not.toBe("KNOWLEDGE_QUERY");
+      expect(isKnowledgeEligible(intent)).toBe(false);
+    }
+  );
+
   it.each(["yes", "confirm", "sounds good", "let's book it", "go ahead"])(
     "classifies an explicit go-ahead (%j) as CONFIRMATION",
     (text) => {

@@ -1,0 +1,15 @@
+{
+  "id": "finance-employee",
+  "name": "Finance Employee",
+  "version": "1.0.0",
+  "displayName": "Finance Employee",
+  "description": "AI finance employee. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
+  "capabilities": ["finance.chat", "CRM"],
+  "tools": [
+    { "name": "finance.create_record", "description": "Persist a finance request after the requester consents and shares a contact number" },
+    { "name": "finance.escalate", "description": "Escalate the conversation to a human finance team member" }
+  ]
+}

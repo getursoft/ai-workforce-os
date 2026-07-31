@@ -5,6 +5,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
+  BackLink,
   Badge,
   Button,
   Card,
@@ -153,7 +154,7 @@ export function NewServiceAccountPage() {
   return (
     <AccessGate permission="service_accounts.create">
       <section className="admin-page">
-        <Link href="/dashboard/service-accounts">← Service accounts</Link>
+        <BackLink href="/dashboard/service-accounts" label="Back to Service Accounts" />
         <h1>Create service account</h1>
         <form className="admin-form" onSubmit={submit}>
           <Label htmlFor="sa-name">Name</Label>
@@ -214,19 +215,22 @@ export function ServiceAccountDetailsPage() {
   return (
     <AccessGate permission="service_accounts.read">
       <section className="admin-page">
-        <Link href="/dashboard/service-accounts">← Service accounts</Link>
         <header className="admin-page__header">
           <div>
+            <BackLink href="/dashboard/service-accounts" label="Back to Service Accounts" />
             <h1>{a.name}</h1>
             <p>{a.description}</p>
           </div>
           <Badge>{a.status}</Badge>
         </header>
         <Card>
-          <h2>API keys</h2>
+          <div className="admin-section-header">
+            <h2>API keys</h2>
+          </div>
           <Can permission="api_keys.create">
             <form
               className="admin-actions"
+              style={{ marginBottom: 16 }}
               onSubmit={(e) => {
                 e.preventDefault();
                 const f = new FormData(e.currentTarget);

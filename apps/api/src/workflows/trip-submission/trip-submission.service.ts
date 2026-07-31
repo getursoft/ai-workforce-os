@@ -31,6 +31,17 @@ import {
 const SAFE_RETRY_MESSAGE =
   "Something went wrong saving your travel request just now. Please try again in a moment — you don't need to repeat your trip details.";
 
+/** Travel Runtime pendingAction values that own their own reply format (an option number, a passenger
+ *  list, or an email/phone volunteered specifically for ticket delivery/resend) — `shouldStart` must never
+ *  treat a reply to one of these as a standalone volunteered contact. See `legacyPendingAction` above. */
+const TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS = new Set([
+  "AWAITING_OPTION_SELECTION",
+  "AWAITING_PASSENGER_DETAILS",
+  "AWAITING_TICKET_CONTACT",
+  "AWAITING_BOOKING_CONFIRMATION",
+  "AWAITING_RESEND_TICKET_DETAILS"
+]);
+
 type WorkflowStatusLiteral = WorkflowTurnResult<TripSubmissionState>["status"];
 
 export interface TripSubmissionResumeResult extends WorkflowTurnResult<TripSubmissionState> {
@@ -70,7 +81,11 @@ export class TripSubmissionWorkflowService {
       // A lead was already captured for this conversation (by either the legacy engine or a prior
       // TRIP_SUBMISSION completion) — a repeated/international-format phone number re-confirms the SAME
       // reference, it must never start a second confirm-and-submit ask.
-      signals.legacyCompletionStage === "CAPTURED"
+      signals.legacyCompletionStage === "CAPTURED" ||
+      // Travel Runtime's own booking-options/ticket-contact/resend-ticket flow already owns this turn —
+      // see `legacyPendingAction`'s doc comment for why an email/phone reply here must never be read as a
+      // standalone volunteered contact.
+      (signals.legacyPendingAction !== null && TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS.has(signals.legacyPendingAction))
     )
       return "NONE";
     if (signals.itineraryPresented && isBookingConfirmation(text)) return "CONFIRM_SUBMISSION";

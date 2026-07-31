@@ -221,7 +221,7 @@ describe("Stage 8B: Authoritative Input Collection Runtime Integration", () => {
       const route = TravelDecisionAdapter.route(decision);
 
       expect(route.action).toBe("BOOKING_WORKFLOW_PENDING");
-      expect(route.explanation).toContain("not yet implemented");
+      expect(route.explanation).toContain("would you like to proceed");
       expect(TravelDecisionAdapter.isDeferredAction(route)).toBe(true);
       // Never one of the capability-executing actions — nothing actually books anything.
       expect(TravelDecisionAdapter.requiresCapabilityExecution(route)).toBe(false);

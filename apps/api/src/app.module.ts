@@ -11,8 +11,18 @@ import { ProductionModule } from "./production/production.module";
 import { KnowledgeModule } from "./knowledge/knowledge.module";
 import { ChannelModule } from "./channels/channel.module";
 import { TravelModule } from "./travel/travel.module";
-import { ApprovalModule } from "./workflows/approval/approval.module";
+import { HrModule } from "./hr/hr.module";
+import { FinanceModule } from "./finance/finance.module";
+import { ItSupportModule } from "./it-support/it-support.module";
+import { SalesModule } from "./sales/sales.module";
+import { MarketingModule } from "./marketing/marketing.module";
+import { LegalModule } from "./legal/legal.module";
+import { CustomerSupportModule } from "./customer-support/customer-support.module";
+import { EmployeesModule } from "./employees/employees.module";
+import { AttachmentsModule } from "./attachments/attachment.module";
+import { ApprovalModule } from "./approval/approval.module";
 import { BillingModule } from "./billing/billing.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 
 @Module({
   imports: [
@@ -20,6 +30,7 @@ import { BillingModule } from "./billing/billing.module";
       isGlobal: true,
     }),
 
+    NotificationsModule,
     IdentityModule,
     TeamModule,
     ServiceAccountModule,
@@ -30,6 +41,15 @@ import { BillingModule } from "./billing/billing.module";
     ChannelModule,
     TravelModule,
     ApprovalModule,
+    HrModule,
+    FinanceModule,
+    ItSupportModule,
+    SalesModule,
+    MarketingModule,
+    LegalModule,
+    CustomerSupportModule,
+    EmployeesModule,
+    AttachmentsModule,
     BillingModule,
     ProductionModule,
   ],

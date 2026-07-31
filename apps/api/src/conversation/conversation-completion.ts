@@ -64,9 +64,20 @@ export function normalizePhoneNumber(raw: string): string | null {
 
 /** Finds and normalizes the first plausible phone number anywhere in free text — e.g. "it's +91 98765
  * 43210, thanks" -> "+919876543210". Returns null when nothing in the message looks like a real number, so
- * callers never mistake an unrelated number (a budget, a date) for a phone number. */
+ * callers never mistake an unrelated number (a budget, a date) for a phone number.
+ *
+ * A bare, unformatted run of digits (no leading "+", no internal spaces/dashes/parens) is only accepted
+ * when it makes up the ENTIRE message — the normal shape of a direct reply to "what's your phone number?".
+ * The same bare digit run EMBEDDED inside a longer sentence is rejected unless it carries some phone-like
+ * signal (a "+" or a separator): a message like "...budget IDR 20000000" previously matched "20000000" as
+ * a phone number purely because it happened to be 7-15 digits long, hijacking the entire turn into the
+ * phone-collection flow instead of extracting the trip's budget. Real volunteered numbers embedded in a
+ * sentence ("call me at 98765 43210") are still typed with some separator in practice. */
 export function extractPhoneNumber(text: string): string | null {
+  const trimmed = text.trim();
+  if (/^[\d\s().-]+$/.test(trimmed)) return normalizePhoneNumber(trimmed);
   for (const candidate of text.match(PHONE_CANDIDATE_PATTERN) ?? []) {
+    if (!/[+\s\-().]/.test(candidate)) continue;
     const normalized = normalizePhoneNumber(candidate);
     if (normalized) return normalized;
   }

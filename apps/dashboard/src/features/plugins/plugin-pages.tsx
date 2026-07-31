@@ -62,16 +62,23 @@ export function PluginsPage() {
             <p>Install and safely configure organization-scoped runtime adapters.</p>
           </div>
         </header>
-        <Card>
-          <h2>Available plugins</h2>
-          {available.isLoading ? (
-            <Skeleton />
-          ) : available.data?.items.length ? (
-            <div className="admin-toolbar">
-              {available.data.items.map((manifest) => (
-                <Card key={manifest.id}>
+        <div className="admin-section-header">
+          <div>
+            <h2>Available plugins</h2>
+            <p>Install trusted repository plugins.</p>
+          </div>
+        </div>
+        {available.isLoading ? (
+          <Skeleton />
+        ) : available.data?.items.length ? (
+          <div className="admin-grid">
+            {available.data.items.map((manifest) => (
+              <div key={manifest.id} className="admin-grid-card">
+                <div>
                   <strong>{manifest.displayName}</strong>
                   <p>{manifest.description}</p>
+                </div>
+                <div className="flex items-center gap-2">
                   <Badge>{manifest.version}</Badge>
                   <Can permission="plugin.install">
                     {!canInstallPlugin(manifest) ? (
@@ -93,13 +100,13 @@ export function PluginsPage() {
                       </Button>
                     )}
                   </Can>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <p>No trusted repository plugins were discovered.</p>
-          )}
-        </Card>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p>No trusted repository plugins were discovered.</p>
+        )}
         <Card className="admin-toolbar">
           <Input
             aria-label="Search plugins"

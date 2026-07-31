@@ -17,8 +17,8 @@ const columnGroups: { heading: string; links: { label: string; href: string }[] 
 export function PublicFooter() {
   return (
     <footer className="relative overflow-hidden border-t border-gold/40 bg-royal text-white">
-      <div className="relative mx-auto max-w-7xl px-4 pb-9 pt-8 sm:px-6 lg:px-8">
-        <div className="grid gap-7 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_1.2fr]">
+      <div className="relative mx-auto max-w-7xl px-4 pb-6 pt-6 sm:px-6 lg:px-8">
+        <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr_1fr_1.2fr]">
           <div>
             <Link href="/" className="focus-ring flex items-center gap-3">
               <LogoMark className="h-11 w-11" />
@@ -27,8 +27,8 @@ export function PublicFooter() {
                 <span className="text-[11px] font-medium text-gold">{siteConfig.tagline}</span>
               </span>
             </Link>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-white/70">{footerBrand.description}</p>
-            <div className="mt-5 flex items-center gap-3">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/70">{footerBrand.description}</p>
+            <div className="mt-4 flex items-center gap-3">
               <SocialIcon href={siteConfig.social.linkedin} label="LinkedIn">
                 <LinkedinIcon className="h-4 w-4" aria-hidden="true" />
               </SocialIcon>
@@ -44,7 +44,7 @@ export function PublicFooter() {
           {columnGroups.map((group) => (
             <div key={group.heading}>
               <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-gold">{group.heading}</h3>
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-3 space-y-2">
                 {group.links.map((link) => (
                   <li key={link.href}>
                     <Link href={link.href} className="focus-ring text-sm text-white/75 hover:text-white">
@@ -58,14 +58,14 @@ export function PublicFooter() {
 
           <div>
             <h3 className="text-sm font-semibold text-white">{footerBrand.newsletter.heading}</h3>
-            <p className="mt-3 text-sm leading-relaxed text-white/70">{footerBrand.newsletter.description}</p>
-            <div className="mt-4">
+            <p className="mt-2 text-sm leading-relaxed text-white/70">{footerBrand.newsletter.description}</p>
+            <div className="mt-3">
               <NewsletterForm />
             </div>
           </div>
         </div>
 
-        <div className="mt-8 flex flex-col items-center gap-4 border-t border-white/10 pt-6 text-xs text-white/60 sm:flex-row sm:justify-between">
+        <div className="mt-5 flex flex-col items-center gap-3 border-t border-white/10 pt-4 text-xs text-white/60 sm:flex-row sm:justify-between">
           <p>&copy; {new Date().getFullYear()} {siteConfig.name}. All rights reserved.</p>
           <div className="flex flex-wrap items-center justify-center gap-5">
             {footerBrand.bottomLinks.map((link) => (

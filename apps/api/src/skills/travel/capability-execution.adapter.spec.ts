@@ -147,12 +147,12 @@ describe("CapabilityExecutionAdapter", () => {
       expect(describeItineraryDelegation).not.toHaveBeenCalled();
       expect(prepareLiveSearch).not.toHaveBeenCalled();
       expect(decision.capability).toBe("BOOKING");
-      expect(decision.executionStatus).toBe("DEFERRED");
-      expect(decision.executionType).toBe("WORKFLOW_PENDING");
-      expect(decision.executionTarget).toBeNull();
+      expect(decision.executionStatus).toBe("EXECUTABLE");
+      expect(decision.executionType).toBe("WORKFLOW_READY");
+      expect(decision.executionTarget).toBe("bookingWorkflow");
       expect(decision.requiresWorkflow).toBe(true);
-      expect(decision.requiresHumanApproval).toBe(false);
-      expect(decision.metadata).toEqual({ bookingSupported: false, workflowRequired: true });
+      expect(decision.requiresHumanApproval).toBe(true);
+      expect(decision.metadata).toEqual({ bookingSupported: true, workflowRequired: true, requiresCustomerApproval: true });
     });
   });
 
