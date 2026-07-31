@@ -477,15 +477,17 @@ function ConfigurationDialog({
           {...(aiTest.isSuccess ? { testState: "success" as const } : {})}
           testError={aiTest.error}
         />
-        <TravelAiChat
-          plugin={plugin}
-          configuration={ai.data}
-          chatMessages={chatMessages}
-          chatPending={chat.isPending}
-          chatError={chat.isError}
-          send={(message) => chat.mutate(message)}
-          llmGranted={currentGrants.includes("LLM")}
-        />
+        {plugin.slug === "travel-employee" ? (
+          <TravelAiChat
+            plugin={plugin}
+            configuration={ai.data}
+            chatMessages={chatMessages}
+            chatPending={chat.isPending}
+            chatError={chat.isError}
+            send={(message) => chat.mutate(message)}
+            llmGranted={currentGrants.includes("LLM")}
+          />
+        ) : null}
         <form
           className="admin-form plugin-configuration-form"
           onSubmit={(e) => {
