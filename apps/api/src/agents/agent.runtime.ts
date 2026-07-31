@@ -217,10 +217,13 @@ export class ToolExecutor {
 }
 
 /**
- * Assembles the final prompt in the order required by docs/enterprise-knowledge.md "Prompt
- * construction": System -> Employee Identity -> Retrieved Knowledge -> Conversation -> User.
- * Retrieved knowledge is placed before conversation history so it is never "buried" behind (and
- * therefore outweighed by) turns of prior chat when the model weighs recency.
+ * Assembles the final prompt. Sprint 4.5 order per the platform memory spec:
+ * System -> Employee Identity -> Memory (Organization -> Employee -> User -> Conversation Summary) ->
+ * Retrieved Knowledge -> Conversation -> User.
+ *
+ * Memory is placed BEFORE retrieved knowledge so a durable fact ("preferred.airline: Emirates") is
+ * never outweighed or buried by retrieved RAG content; knowledge is still placed before conversation
+ * history (per docs/enterprise-knowledge.md) so grounding is never outweighed by recency.
  */
 export class PromptBuilder {
   build(input: {
@@ -244,10 +247,7 @@ export class PromptBuilder {
         role: "system",
         content: "Use only the supplied tools. Never invent tool results or tenant identifiers."
       },
-      // Retrieved Knowledge: must appear before conversation history, never after.
-      ...(input.retrievedKnowledge
-        ? [{ role: "system" as const, content: limit(input.retrievedKnowledge) }]
-        : []),
+      // Persistent Memory: must appear before retrieved knowledge, never after.
       ...(input.memories.length
         ? [
             {
@@ -255,6 +255,10 @@ export class PromptBuilder {
               content: `Relevant memories:\n${input.memories.map(limit).join("\n")}`
             }
           ]
+        : []),
+      // Retrieved Knowledge: must appear before conversation history, never after.
+      ...(input.retrievedKnowledge
+        ? [{ role: "system" as const, content: limit(input.retrievedKnowledge) }]
         : []),
       // Conversation: prior turns.
       ...input.history.map((message) => ({ ...message, content: limit(message.content) })),

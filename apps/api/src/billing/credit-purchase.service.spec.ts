@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { CreditPurchaseService } from "./credit-purchase.service";
 import type { RazorpayService } from "./razorpay.service";
+import type { PaymentSettingsService } from "./payment-settings.service";
 
 function harness(overrides: { isConfigured?: boolean; verifySignature?: boolean } = {}) {
   const orders = new Map<string, Record<string, unknown>>();
@@ -45,8 +46,6 @@ function harness(overrides: { isConfigured?: boolean; verifySignature?: boolean 
   } as unknown as PrismaService;
 
   const razorpay = {
-    isConfigured: vi.fn().mockReturnValue(overrides.isConfigured ?? true),
-    publishableKeyId: vi.fn().mockReturnValue("rzp_test_key"),
     createOrder: vi.fn().mockResolvedValue({ id: "order_gw_1", amount: 10_000, currency: "INR", receipt: "r1", status: "created" }),
     verifySignature: vi.fn().mockImplementation(() => {
       if (overrides.verifySignature === undefined) return true;
@@ -54,7 +53,22 @@ function harness(overrides: { isConfigured?: boolean; verifySignature?: boolean 
     })
   } as unknown as RazorpayService;
 
-  return { service: new CreditPurchaseService(prisma, razorpay), prisma, razorpay, subscription, orders };
+  const paymentSettings = {
+    resolve: vi
+      .fn()
+      .mockResolvedValue(
+        (overrides.isConfigured ?? true) ? { keyId: "rzp_test_key", keySecret: "test_secret" } : null
+      )
+  } as unknown as PaymentSettingsService;
+
+  return {
+    service: new CreditPurchaseService(prisma, razorpay, paymentSettings),
+    prisma,
+    razorpay,
+    paymentSettings,
+    subscription,
+    orders
+  };
 }
 
 describe("CreditPurchaseService.createOrder", () => {
@@ -79,6 +93,7 @@ describe("CreditPurchaseService.createOrder", () => {
     expect(result.status).toBe("PENDING");
     expect(result.gatewayOrderId).toBe("order_gw_1");
     expect(razorpay.createOrder).toHaveBeenCalledWith(
+      { keyId: "rzp_test_key", keySecret: "test_secret" },
       expect.objectContaining({ amountMinor: 10_000, currency: "INR" })
     );
   });

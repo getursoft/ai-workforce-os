@@ -33,6 +33,8 @@ import {
   Mail,
   CheckCircle2,
   BarChart3,
+  Brain,
+  CreditCard,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -61,6 +63,7 @@ const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permissi
   { href: "/conversations", label: "Conversations", icon: MessageSquare, permission: "agents.conversations.read" },
   { href: "/execution-history", label: "Execution History", icon: History, permission: "agents.executions.read" },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen, permission: "knowledge.read" },
+  { href: "/memory", label: "Memory", icon: Brain, permission: "agents.memory.read" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
   { href: "/teams", label: "Teams", icon: Users, permission: "TEAM_READ" },
   { href: "/dashboard/organization", label: "Organization", icon: Building2 },
@@ -95,7 +98,13 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
   { href: "/dashboard/settings/permissions", label: "Permissions", icon: Lock, permission: "roles.read" },
   { href: "/dashboard/settings/invitations", label: "Invitations", icon: Mail, permission: "invitations.read" },
   { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approvals.read" },
-  { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" }
+  { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" },
+  {
+    href: "/dashboard/settings/payments",
+    label: "Payment Settings",
+    icon: CreditCard,
+    permission: "billing.payment_settings.manage"
+  }
 ] as const;
 
 export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {

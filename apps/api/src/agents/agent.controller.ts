@@ -1,9 +1,7 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
-  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -20,15 +18,8 @@ import { JwtAccessGuard } from "../identity/presentation/http/jwt-access.guard";
 import { PermissionGuard } from "../identity/presentation/http/permission.guard";
 import { RequirePermission } from "../identity/presentation/http/permission.decorators";
 import type { IdentityRequest } from "../identity/presentation/http/request-context";
-import {
-  AgentRunDto,
-  PageDto,
-  SaveMemoryDto,
-  SearchMemoryDto,
-  UpdateConversationDto,
-  UpdateMemoryDto
-} from "./agent.dto";
-import { AgentService, MemoryService } from "./agent.service";
+import { AgentRunDto, PageDto, UpdateConversationDto } from "./agent.dto";
+import { AgentService } from "./agent.service";
 
 @ApiTags("Agents")
 @ApiBearerAuth()
@@ -37,7 +28,6 @@ import { AgentService, MemoryService } from "./agent.service";
 export class AgentController {
   constructor(
     private readonly agents: AgentService,
-    private readonly memories: MemoryService,
     private readonly audit: AuditEventLogger
   ) {}
   @Get("agents") @RequirePermission("agents.run") employees(
@@ -103,45 +93,6 @@ export class AgentController {
     @Param("id", new ParseUUIDPipe()) id: string
   ) {
     return this.agents.execution(org(p), id);
-  }
-  @Get("memory") @RequirePermission("agents.memory.read") memory(
-    @CurrentPrincipal() p: AuthenticatedPrincipal,
-    @Query() q: PageDto
-  ) {
-    return this.memories.list(org(p), user(p), q);
-  }
-  @Post("memory") @RequirePermission("agents.memory.write") async save(
-    @CurrentPrincipal() p: AuthenticatedPrincipal,
-    @Req() req: IdentityRequest,
-    @Body() dto: SaveMemoryDto
-  ) {
-    const result = await this.memories.save(org(p), user(p), dto);
-    this.record("MEMORY_CREATED", req, p, result.id);
-    return result;
-  }
-  @Post("memory/search") @RequirePermission("agents.memory.read") search(
-    @CurrentPrincipal() p: AuthenticatedPrincipal,
-    @Body() dto: SearchMemoryDto
-  ) {
-    return this.memories.search(org(p), user(p), dto);
-  }
-  @Patch("memory/:id") @RequirePermission("agents.memory.write") async updateMemory(
-    @CurrentPrincipal() p: AuthenticatedPrincipal,
-    @Req() req: IdentityRequest,
-    @Param("id", new ParseUUIDPipe()) id: string,
-    @Body() dto: UpdateMemoryDto
-  ) {
-    const result = await this.memories.update(org(p), user(p), id, dto);
-    this.record("MEMORY_UPDATED", req, p, id);
-    return result;
-  }
-  @Delete("memory/:id") @RequirePermission("agents.memory.write") @HttpCode(204) async forget(
-    @CurrentPrincipal() p: AuthenticatedPrincipal,
-    @Req() req: IdentityRequest,
-    @Param("id", new ParseUUIDPipe()) id: string
-  ) {
-    await this.memories.forget(org(p), user(p), id);
-    this.record("MEMORY_DELETED", req, p, id);
   }
   private record(
     event: string,

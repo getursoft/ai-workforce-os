@@ -79,6 +79,19 @@ export interface CreditPurchaseOrder {
   razorpayKeyId: string;
 }
 
+export interface PaymentSettings {
+  configured: boolean;
+  keyId: string | null;
+  keySecret: { configured: boolean; updatedAt: string | null };
+  updatedAt: string | null;
+}
+
+export interface UpdatePaymentSettingsInput {
+  keyId?: string;
+  keySecret?: string;
+  removeSecrets?: string[];
+}
+
 function qs(start?: string, end?: string): string {
   return start && end ? `?start=${start}&end=${end}` : "";
 }
@@ -110,6 +123,12 @@ export function createBillingApi(client: ApiClient) {
     ) =>
       client.request<{ status: string; credits: number }>(`/billing/credit-purchase/orders/${orderId}/verify`, {
         method: "POST",
+        body: JSON.stringify(body)
+      }),
+    paymentSettings: () => client.request<PaymentSettings>("/billing/payment-settings"),
+    updatePaymentSettings: (body: UpdatePaymentSettingsInput) =>
+      client.request<PaymentSettings>("/billing/payment-settings", {
+        method: "PUT",
         body: JSON.stringify(body)
       })
   };

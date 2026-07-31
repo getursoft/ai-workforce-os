@@ -23,6 +23,7 @@ import { AttachmentsModule } from "./attachments/attachment.module";
 import { ApprovalModule } from "./approval/approval.module";
 import { BillingModule } from "./billing/billing.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { MemoryModule } from "./memory/memory.module";
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { NotificationsModule } from "./notifications/notifications.module";
     AttachmentsModule,
     BillingModule,
     ProductionModule,
+    MemoryModule,
   ],
 })
 export class AppModule {}

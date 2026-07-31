@@ -64,7 +64,8 @@ export type IdentityErrorCode =
   | "CREDIT_PURCHASE_ORDER_NOT_FOUND"
   | "CREDIT_PURCHASE_ORDER_NOT_PENDING"
   | "CREDIT_PURCHASE_ORDER_MISMATCH"
-  | "PAYMENT_SIGNATURE_INVALID";
+  | "PAYMENT_SIGNATURE_INVALID"
+  | "PAYMENT_SETTINGS_INVALID";
 
 export class IdentityApplicationError extends Error {
   constructor(

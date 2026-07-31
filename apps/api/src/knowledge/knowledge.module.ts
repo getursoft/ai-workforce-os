@@ -131,6 +131,6 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
         )
     }
   ],
-  exports: [KnowledgeSearchService]
+  exports: [KnowledgeSearchService, KnowledgeEmbeddingService]
 })
 export class KnowledgeModule {}

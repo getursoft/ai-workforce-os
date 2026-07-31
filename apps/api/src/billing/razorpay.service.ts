@@ -15,6 +15,11 @@ export class RazorpayApiError extends Error {
   }
 }
 
+export interface RazorpayCredentials {
+  keyId: string;
+  keySecret: string;
+}
+
 export interface RazorpayOrder {
   id: string;
   amount: number;
@@ -25,36 +30,24 @@ export interface RazorpayOrder {
 
 /**
  * Thin wrapper over Razorpay's plain REST Orders API (no SDK dependency, matching this codebase's existing
- * fetch-based provider style — see plugin-ai.runtime.ts's OpenAiCompatibleProvider). Deliberately never
- * fabricates a successful order/payment when credentials are missing — every method throws
- * RazorpayNotConfiguredError instead, so a caller can surface an honest "payments aren't set up yet"
- * message rather than pretending a purchase went through.
+ * fetch-based provider style — see plugin-ai.runtime.ts's OpenAiCompatibleProvider). Stateless and
+ * organization-agnostic: every method takes the credentials it needs as a parameter rather than reading
+ * process-wide env vars, so each organization's own Razorpay keys (resolved by PaymentSettingsService)
+ * are used for its own checkouts — see CreditPurchaseService for how those are looked up per call.
  */
 @Injectable()
 export class RazorpayService {
   private readonly logger = new Logger(RazorpayService.name);
 
-  isConfigured(): boolean {
-    return Boolean(process.env.RAZORPAY_KEY_ID?.trim() && process.env.RAZORPAY_KEY_SECRET?.trim());
-  }
-
-  /** The publishable key_id the frontend needs to open Razorpay Checkout.js — never the secret. */
-  publishableKeyId(): string {
-    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
-    if (!keyId) throw new RazorpayNotConfiguredError();
-    return keyId;
-  }
-
-  async createOrder(input: { amountMinor: number; currency: string; receipt: string }): Promise<RazorpayOrder> {
-    const keyId = process.env.RAZORPAY_KEY_ID?.trim();
-    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-    if (!keyId || !keySecret) throw new RazorpayNotConfiguredError();
-
+  async createOrder(
+    credentials: RazorpayCredentials,
+    input: { amountMinor: number; currency: string; receipt: string }
+  ): Promise<RazorpayOrder> {
     const response = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString("base64")}`
+        authorization: `Basic ${Buffer.from(`${credentials.keyId}:${credentials.keySecret}`).toString("base64")}`
       },
       body: JSON.stringify({
         amount: input.amountMinor,
@@ -76,10 +69,13 @@ export class RazorpayService {
    *  `orderId|paymentId` keyed with the account's key_secret, exactly as Razorpay's own client libraries
    *  compute it. A purchase is only ever marked PAID once this returns true; the client's own claim of
    *  success is never trusted on its own (see CreditPurchaseService.verifyPayment). */
-  verifySignature(input: { orderId: string; paymentId: string; signature: string }): boolean {
-    const keySecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-    if (!keySecret) throw new RazorpayNotConfiguredError();
-    const expected = createHmac("sha256", keySecret).update(`${input.orderId}|${input.paymentId}`).digest("hex");
+  verifySignature(
+    credentials: RazorpayCredentials,
+    input: { orderId: string; paymentId: string; signature: string }
+  ): boolean {
+    const expected = createHmac("sha256", credentials.keySecret)
+      .update(`${input.orderId}|${input.paymentId}`)
+      .digest("hex");
     const expectedBuf = Buffer.from(expected, "hex");
     const actualBuf = Buffer.from(input.signature, "hex");
     if (expectedBuf.length !== actualBuf.length) return false;

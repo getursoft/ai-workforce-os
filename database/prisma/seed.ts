@@ -73,6 +73,7 @@ export const DEFAULT_PERMISSIONS = {
     "usage.read",
     "billing.read",
     "billing.manage",
+    "billing.payment_settings.manage",
     "approval.read",
     "approval.create",
     "approval.decide",
@@ -439,7 +440,8 @@ const descriptions: Record<string, string> = {
   "hr.leave.approve": "Approve or reject HR leave requests",
   "usage.read": "View AI-credit usage, token, and request metrics",
   "billing.read": "View billing plan and invoices",
-  "billing.manage": "Purchase AI credit top-ups"
+  "billing.manage": "Purchase AI credit top-ups",
+  "billing.payment_settings.manage": "Configure the payment gateway (Razorpay) credentials"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

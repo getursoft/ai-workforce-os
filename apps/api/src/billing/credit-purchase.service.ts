@@ -1,8 +1,16 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { buildCreditPackages, findPackageByCredits, type CreditPackage } from "./credit-package";
-import { RazorpayNotConfiguredError, RazorpayService } from "./razorpay.service";
+import { RazorpayService } from "./razorpay.service";
+import { PaymentSettingsService } from "./payment-settings.service";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
+
+function notConfigured(): IdentityApplicationError {
+  return new IdentityApplicationError(
+    "PAYMENT_GATEWAY_NOT_CONFIGURED",
+    "Payments aren't set up for this workspace yet. Please contact support to enable credit top-ups."
+  );
+}
 
 export interface CreditPurchaseOrderView {
   id: string;
@@ -16,7 +24,11 @@ export interface CreditPurchaseOrderView {
 
 @Injectable()
 export class CreditPurchaseService {
-  constructor(private readonly prisma: PrismaService, private readonly razorpay: RazorpayService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly razorpay: RazorpayService,
+    private readonly paymentSettings: PaymentSettingsService
+  ) {}
 
   async listPackages(organizationId: string): Promise<{ currency: string; packages: CreditPackage[] }> {
     const sub = await this.prisma.organisationSubscription.findUnique({
@@ -29,12 +41,8 @@ export class CreditPurchaseService {
   }
 
   async createOrder(organizationId: string, userId: string, credits: number): Promise<CreditPurchaseOrderView> {
-    if (!this.razorpay.isConfigured()) {
-      throw new IdentityApplicationError(
-        "PAYMENT_GATEWAY_NOT_CONFIGURED",
-        "Payments aren't set up for this workspace yet. Please contact support to enable credit top-ups."
-      );
-    }
+    const credentials = await this.paymentSettings.resolve(organizationId);
+    if (!credentials) throw notConfigured();
     const { packages } = await this.listPackages(organizationId);
     const selected = findPackageByCredits(packages, credits);
     if (!selected) {
@@ -54,7 +62,7 @@ export class CreditPurchaseService {
     });
 
     try {
-      const gatewayOrder = await this.razorpay.createOrder({
+      const gatewayOrder = await this.razorpay.createOrder(credentials, {
         amountMinor: selected.amountMinor,
         currency: selected.currency,
         receipt: order.id
@@ -70,7 +78,7 @@ export class CreditPurchaseService {
         currency: updated.currency,
         status: updated.status,
         gatewayOrderId: updated.gatewayOrderId,
-        razorpayKeyId: this.razorpay.publishableKeyId()
+        razorpayKeyId: credentials.keyId
       };
     } catch (error) {
       await this.prisma.creditPurchaseOrder.update({
@@ -115,22 +123,13 @@ export class CreditPurchaseService {
       );
     }
 
-    let verified: boolean;
-    try {
-      verified = this.razorpay.verifySignature({
-        orderId: payload.razorpayOrderId,
-        paymentId: payload.razorpayPaymentId,
-        signature: payload.razorpaySignature
-      });
-    } catch (error) {
-      if (error instanceof RazorpayNotConfiguredError) {
-        throw new IdentityApplicationError(
-          "PAYMENT_GATEWAY_NOT_CONFIGURED",
-          "Payments aren't set up for this workspace yet. Please contact support to enable credit top-ups."
-        );
-      }
-      throw error;
-    }
+    const credentials = await this.paymentSettings.resolve(organizationId);
+    if (!credentials) throw notConfigured();
+    const verified = this.razorpay.verifySignature(credentials, {
+      orderId: payload.razorpayOrderId,
+      paymentId: payload.razorpayPaymentId,
+      signature: payload.razorpaySignature
+    });
 
     if (!verified) {
       await this.prisma.creditPurchaseOrder.update({

@@ -6,6 +6,7 @@ import { ConnectorModule } from "../connectors/connector.module";
 import { AgentController } from "./agent.controller";
 import { AgentService, MemoryService } from "./agent.service";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
+import { MemoryModule } from "../memory/memory.module";
 import { CustomerIdentityModule } from "../customer-identity/customer-identity.module";
 import { TravelModule } from "../travel/travel.module";
 import { TravelLeadService } from "../travel/travel-lead.service";
@@ -36,6 +37,7 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
     PluginModule,
     ConnectorModule,
     KnowledgeModule,
+    MemoryModule,
     CustomerIdentityModule,
     forwardRef(() => TravelModule),
     forwardRef(() => EmployeesModule)

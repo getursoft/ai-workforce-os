@@ -128,6 +128,12 @@ import type { BookingHandoffTripContext } from "../workflows/booking-handoff/boo
 import type { TripSubmissionTripContext } from "../workflows/trip-submission/trip-submission.types";
 import type { WorkflowDispatchOutcome, WorkflowDispatchSignals } from "../workflows/workflow-runtime.contracts";
 import type { WorkflowSignal } from "../workflows/workflow-signal.contracts";
+import {
+  MemoryService as PlatformMemoryService,
+  MEMORY_PROMPT_RECENT_MESSAGES,
+  MEMORY_SUMMARIZE_THRESHOLD
+} from "../memory/memory.service";
+import { formatMemoryContextBlock } from "../memory/memory.prompt";
 
 @Injectable()
 export class MemoryService {
@@ -306,7 +312,8 @@ export class AgentService {
     @Optional() capabilityExecution?: CapabilityExecutionAdapter,
     @Optional() workflowCoordinator?: WorkflowCoordinator,
     @Optional() private readonly travelBookingService?: TravelBookingService,
-    @Optional() private readonly employeeArtifacts?: EmployeeArtifactService
+    @Optional() private readonly employeeArtifacts?: EmployeeArtifactService,
+    @Optional() private readonly platformMemory?: PlatformMemoryService
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -628,6 +635,9 @@ export class AgentService {
         content: effectiveText
       }
     });
+    // Sprint 4.5: capture durable memories from the user's message + trigger conversation summarization.
+    // Fire-and-forget — memory capture must never affect the response or fail the turn.
+    void this.captureTurnMemories(organizationId, actorUserId, plugin.id, conversation.id, input.text);
     const execution = await this.prisma.agentExecution.create({
       data: {
         organizationId,
@@ -865,11 +875,35 @@ export class AgentService {
             ? await this.knowledge.search(organizationId, plugin.id, { query: effectiveText })
             : [];
       const knowledgePrompt = buildKnowledgeBlock(knowledgeSources);
+      // Sprint 4.5: platform memory context (Organization -> Employee -> User -> Conversation Summary)
+      // is recalled for this exact turn and injected ahead of the legacy tool-saved memories. The whole
+      // memory block is placed before retrieved knowledge by PromptBuilder (see agent.runtime.ts), so
+      // memory is never buried behind RAG. When a conversation summary exists, the prompt history uses
+      // only the last N raw messages (token-explosion guard) instead of the oldest messages.
+      const memoryContext = await this.recallMemoryContext(
+        organizationId,
+        actorUserId,
+        plugin.id,
+        conversation.id
+      );
+      const memoryBlock = memoryContext ? formatMemoryContextBlock(memoryContext) : "";
+      const promptHistory = memoryContext?.conversationSummary
+        ? (
+            await this.prisma.conversationMessage.findMany({
+              where: { conversationId: conversation.id, organizationId },
+              orderBy: { createdAt: "desc" },
+              take: MEMORY_PROMPT_RECENT_MESSAGES
+            })
+          ).reverse()
+        : historyRows;
       let request = this.prompt.build({
         pluginPrompt: plugin.description,
-        memories: recentMemories.map((x) => `${x.key}: ${x.searchableText ?? "configured"}`),
+        memories: [
+          ...(memoryBlock ? [memoryBlock] : []),
+          ...recentMemories.map((x) => `${x.key}: ${x.searchableText ?? "configured"}`)
+        ],
         ...(knowledgePrompt ? { retrievedKnowledge: knowledgePrompt } : {}),
-        history: historyRows.map(toModelMessage),
+        history: promptHistory.map(toModelMessage),
         message: effectiveText,
         tools: this.tools.definitions(available)
       });
@@ -1908,6 +1942,74 @@ export class AgentService {
     if (!value) throw new NotFoundException("EXECUTION_NOT_FOUND");
     return value;
   }
+  /**
+   * Sprint 4.5: fire-and-forget platform-memory capture after a user turn. Runs the deterministic
+   * extraction rules on the user's message (storing e.g. "preferred.airline") and triggers automatic
+   * conversation summarization when enough new turns have accumulated. Never throws to the caller.
+   */
+  private async captureTurnMemories(
+    organizationId: string,
+    actorUserId: string | null,
+    pluginInstallationId: string,
+    conversationId: string,
+    text: string
+  ): Promise<void> {
+    if (!this.platformMemory || !text.trim()) return;
+    try {
+      await this.platformMemory.extractAndRemember({
+        organizationId,
+        actorId: actorUserId,
+        employeeId: pluginInstallationId,
+        conversationId,
+        userId: actorUserId,
+        text
+      });
+    } catch (error) {
+      this.logger.warn({
+        event: "MEMORY_EXTRACTION_FAILED",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+    }
+    try {
+      await this.platformMemory.maybeSummarizeConversation(
+        organizationId,
+        conversationId,
+        MEMORY_SUMMARIZE_THRESHOLD
+      );
+    } catch (error) {
+      this.logger.warn({
+        event: "MEMORY_SUMMARIZATION_FAILED",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+    }
+  }
+
+  /** Sprint 4.5: retrieves the platform memory context (Org -> Employee -> User -> Conversation Summary). */
+  private async recallMemoryContext(
+    organizationId: string,
+    actorUserId: string | null,
+    employeeId: string,
+    conversationId: string
+  ) {
+    if (!this.platformMemory) return null;
+    try {
+      return await this.platformMemory.recall(organizationId, {
+        userId: actorUserId,
+        employeeId,
+        conversationId
+      });
+    } catch (error) {
+      this.logger.warn({
+        event: "MEMORY_RECALL_FAILED",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return null;
+    }
+  }
+
   private registerTools() {
     this.tools.register({
       definition: {

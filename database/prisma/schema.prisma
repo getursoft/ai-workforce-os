@@ -334,6 +334,57 @@ enum AgentMemoryScope {
   @@map("agent_memory_scope")
 }
 
+/// Sprint 4.5: the four platform memory scopes shared by every AI Employee. GLOBAL is reserved for
+/// future cross-organization memory (no tenant-scoped rows may use it today).
+enum MemoryScope {
+  USER
+  EMPLOYEE
+  ORGANIZATION
+  CONVERSATION
+  GLOBAL
+
+  @@map("memory_scope")
+}
+
+/// Relative durability/retrieval priority of a memory record (see memory/ranking.ts).
+enum MemoryImportance {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+
+  @@map("memory_importance")
+}
+
+/// Where a memory record came from — enables filtering and audit by provenance.
+enum MemorySource {
+  CONVERSATION
+  DASHBOARD
+  TOOL
+  SYSTEM
+  RULE_EXTRACTION
+  LLM_EXTRACTION
+  IMPORT
+
+  @@map("memory_source")
+}
+
+/// The mutation/access action recorded in the durable memory audit trail.
+enum MemoryAuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  EXPIRE
+  RECALL
+  SEARCH
+  SUMMARIZE
+  MERGE
+  RANK
+
+  @@map("memory_audit_action")
+}
+
 /// How a customer was identified for a conversation. ANONYMOUS identities are never persisted as a
 /// CustomerProfile row — only PHONE/CRM_ID/PORTAL_USER (durable, cross-conversation identities) are.
 enum CustomerIdentityType {
@@ -562,6 +613,7 @@ model Organization {
   employeeRoutingProfiles               EmployeeRoutingProfile[]
   usageEvents                           UsageEvent[]
   creditPurchaseOrders                  CreditPurchaseOrder[]
+  paymentGatewayConfigurations          PaymentGatewayConfiguration[]
   approvalPolicies                      ApprovalPolicy[]
   approvalAuditEvents                   ApprovalAuditEvent[]
   travelBookings                        TravelBooking[]
@@ -584,6 +636,9 @@ model Organization {
   conversationAttachments               ConversationAttachment[]
   legalDocuments                        LegalDocument[]
   subscription                          OrganisationSubscription?
+  memoryRecords                         MemoryRecord[]
+  memoryAuditEvents                     MemoryAuditEvent[]
+  conversationSummaries                 ConversationSummary[]
 
   @@map("organizations")
 }
@@ -650,6 +705,27 @@ model CreditPurchaseOrder {
 
   @@index([organizationId, status])
   @@map("credit_purchase_orders")
+}
+
+/// Per-organization payment gateway credentials (currently Razorpay only). Owner-only: gated by the
+/// `billing.payment_settings.manage` permission, which is granted to the Owner system role alone (see
+/// seed.ts DEFAULT_PERMISSIONS) so Admins/Members can spend credits but never see or rotate the keys.
+/// Mirrors EmailDeliveryConfiguration's storage shape — non-secret `configuration` (the publishable
+/// key_id) plus AES-256-GCM `encryptedSecrets` (the key_secret), never returned decrypted to the client.
+model PaymentGatewayConfiguration {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  gateway          String       @default("RAZORPAY") @db.VarChar(20)
+  configuration    Json
+  encryptedSecrets Json         @map("encrypted_secrets")
+  updatedBy        String       @map("updated_by") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updater          User         @relation("PaymentGatewayConfigurationUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, gateway])
+  @@map("payment_gateway_configurations")
 }
 
 model UsageEvent {
@@ -728,6 +804,7 @@ model User {
   pluginAiConfigurationsUpdated                PluginAiConfiguration[]                @relation("PluginAiConfigurationUpdater")
   emailDeliveryConfigurationsUpdated           EmailDeliveryConfiguration[]           @relation("EmailDeliveryConfigurationUpdater")
   creditPurchaseOrdersCreated                  CreditPurchaseOrder[]
+  paymentGatewayConfigurationsUpdated          PaymentGatewayConfiguration[]           @relation("PaymentGatewayConfigurationUpdater")
   connectorInstallationsCreated                ConnectorInstallation[]                @relation("ConnectorInstallationCreator")
   connectorAuditEvents                         ConnectorAuditEvent[]
   knowledgeDocumentsUploaded                   KnowledgeDocument[]                    @relation("KnowledgeDocumentUploader")
@@ -742,6 +819,7 @@ model User {
   customerSupportEmployeeConfigurationsCreated CustomerSupportEmployeeConfiguration[] @relation("CustomerSupportEmployeeConfigurationCreator")
   conversationAttachmentsCreated               ConversationAttachment[]               @relation("ConversationAttachmentCreator")
   legalDocumentsCreated                        LegalDocument[]                        @relation("LegalDocumentCreator")
+  memoryRecords                                MemoryRecord[]
   deletedAt                                    DateTime?                              @map("deleted_at")
 
   @@index([organizationId])
@@ -895,6 +973,7 @@ model Plugin {
   customerSupportTickets               CustomerSupportTicket[]
   conversationAttachments              ConversationAttachment[]
   legalDocuments                       LegalDocument[]
+  memoryRecords                        MemoryRecord[]
 
   @@index([organizationId, slug])
   @@index([organizationId])
@@ -942,6 +1021,8 @@ model Conversation {
   customerSupportTickets CustomerSupportTicket[]
   attachments            ConversationAttachment[]
   legalDocuments         LegalDocument[]
+  memoryRecords          MemoryRecord[]
+  conversationSummaries  ConversationSummary[]
 
   @@index([organizationId, status, updatedAt])
   @@index([organizationId, pluginInstallationId])
@@ -2487,4 +2568,103 @@ model LegalDocument {
 
   @@index([organizationId, conversationId, createdAt])
   @@map("legal_documents")
+}
+
+/// Sprint 4.5: a single persistent memory record in the platform Memory Service. This is a SEPARATE
+/// capability from Knowledge (RAG), Conversation history, and the legacy AgentMemory conversation-state
+/// blobs — it never replaces or duplicates any of those. Every AI Employee benefits automatically because
+/// the shared AgentService run loop reads these records through MemoryService and injects them into every
+/// prompt. Scopes: USER (an individual user's durable facts), EMPLOYEE (an AI Employee's working memory),
+/// ORGANIZATION (shared org knowledge, admins edit, everyone reads), CONVERSATION (summarized history).
+/// Rows are hard-tenant-scoped by organizationId; every query in MemoryService filters by it before
+/// anything else, so a memory can never leak across tenants.
+model MemoryRecord {
+  id                  String                       @id @default(uuid()) @db.Uuid
+  organizationId      String                       @map("organization_id") @db.Uuid
+  /// The AI Employee (Plugin installation) this memory belongs to — null for org-wide/global records.
+  employeeId          String?                      @map("employee_id") @db.Uuid
+  /// The user this memory belongs to — null for employee/organization/global records.
+  userId              String?                      @map("user_id") @db.Uuid
+  /// The conversation this memory was captured from — null for non-conversation scopes.
+  conversationId      String?                      @map("conversation_id") @db.Uuid
+  scope               MemoryScope
+  /// Coarse grouping (e.g. "PREFERENCE", "TRAVEL", "CONTACT", "WORKFLOW", "SUMMARY").
+  category            String                       @db.VarChar(80)
+  /// Stable, reusable lookup key (e.g. "food.preference", "preferred.airline", "conversation.summary").
+  key                 String                       @db.VarChar(160)
+  value               Json
+  searchableText      String?                      @map("searchable_text") @db.Text
+  /// Extraction/recall confidence in [0,1].
+  confidence          Decimal                      @default(1) @map("confidence") @db.Decimal(4, 3)
+  importance          MemoryImportance             @default(MEDIUM)
+  source              MemorySource                 @default(DASHBOARD)
+  metadata            Json                         @default("{}")
+  /// Fixed-width pgvector embedding (1536) written/read via raw SQL — identical convention to
+  /// KnowledgeChunk.embedding (see docs/enterprise-knowledge.md). Optional: memories saved without an
+  /// embedding are still exact/keyword searchable and still surface in ranked recall.
+  embedding           Unsupported("vector(1536)")?
+  embeddingModel      String?                      @map("embedding_model") @db.VarChar(160)
+  embeddingDimensions Int?                         @map("embedding_dimensions")
+  /// When set, the memory is eligible for automatic expiry (memory decay).
+  expiresAt           DateTime?                    @map("expires_at")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  deletedAt           DateTime?                    @map("deleted_at")
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee            Plugin?                      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  user                User?                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation        Conversation?                @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  auditEvents         MemoryAuditEvent[]
+
+  @@index([organizationId, scope, deletedAt])
+  @@index([organizationId, employeeId, scope, deletedAt])
+  @@index([organizationId, userId, scope, deletedAt])
+  @@index([organizationId, conversationId, scope, deletedAt])
+  @@index([organizationId, category, key, deletedAt])
+  @@index([organizationId, updatedAt])
+  @@map("memory_records")
+}
+
+/// Durable, tenant-scoped audit trail for memory operations. Every remember/update/forget/expire/recall/
+/// search on a memory record writes an event here so "who changed what memory, when" is never lost.
+model MemoryAuditEvent {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  /// The authenticated user/service account that performed the action (null for system-triggered jobs).
+  actorId        String?           @map("actor_id") @db.Uuid
+  memoryId       String            @map("memory_id") @db.Uuid
+  action         MemoryAuditAction
+  scope          MemoryScope
+  key            String            @db.VarChar(160)
+  category       String            @db.VarChar(80)
+  changeSummary  String?           @map("change_summary") @db.VarChar(500)
+  metadata       Json              @default("{}")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memory         MemoryRecord      @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, memoryId])
+  @@index([organizationId, createdAt])
+  @@map("memory_audit_events")
+}
+
+/// Sprint 4.5: the rolling, summarized history of a conversation. The platform keeps every message row
+/// (so the dashboard conversation view and execution auditing stay intact) but the prompt injection only
+/// ever uses this summary plus the last N raw messages — that is what prevents token explosion on long
+/// conversations. Updated automatically every `summarizeInterval` turns by MemoryService.summarizeConversation.
+model ConversationSummary {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  conversationId         String       @unique @map("conversation_id") @db.Uuid
+  summary                String       @db.Text
+  /// Number of conversation messages covered by this summary when it was last written.
+  summarizedMessageCount Int          @map("summarized_message_count")
+  summaryVersion         Int          @default(1) @map("summary_version")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation           Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, updatedAt])
+  @@map("conversation_summaries")
 }
