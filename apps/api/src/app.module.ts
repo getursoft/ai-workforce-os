@@ -26,6 +26,8 @@ import { NotificationsModule } from "./notifications/notifications.module";
 import { MemoryModule } from "./memory/memory.module";
 import { WorkforceModule } from "./workforce/workforce.module";
 import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
+import { ObservabilityCoreModule } from "./observability/observability-core.module";
+import { ObservabilityModule } from "./observability/observability.module";
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
     }),
 
     NotificationsModule,
+    ObservabilityCoreModule,
     IdentityModule,
     TeamModule,
     ServiceAccountModule,
@@ -58,6 +61,7 @@ import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
     MemoryModule,
     WorkforceEventsModule,
     WorkforceModule,
+    ObservabilityModule,
   ],
 })
 export class AppModule {}

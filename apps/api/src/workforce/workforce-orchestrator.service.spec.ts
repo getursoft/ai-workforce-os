@@ -114,6 +114,30 @@ function buildOrchestrator(options: {
   };
   const events = { onApprovalDecided: vi.fn(), emitApprovalDecided: vi.fn() };
   const audit = { record: vi.fn() };
+  const FAKE_ROOT_CONTEXT = {
+    traceId: "trace-1",
+    spanId: "span-1",
+    parentSpanId: null,
+    correlationId: null,
+    causationId: null,
+    organizationId: "org-1",
+    sampled: false
+  };
+  const observability = {
+    withSpan: vi.fn((context: unknown, _metadata: unknown, callback: (span: unknown) => unknown) =>
+      callback(context ?? FAKE_ROOT_CONTEXT)
+    ),
+    startTrace: vi.fn().mockResolvedValue(FAKE_ROOT_CONTEXT),
+    completeTrace: vi.fn(),
+    failTrace: vi.fn(),
+    startSpan: vi.fn().mockResolvedValue(FAKE_ROOT_CONTEXT),
+    completeSpan: vi.fn(),
+    failSpan: vi.fn(),
+    addAttribute: vi.fn(),
+    addEvent: vi.fn(),
+    recordMetric: vi.fn(),
+    recordError: vi.fn()
+  };
 
   const orchestrator = new WorkforceOrchestratorService(
     prisma as never,
@@ -126,9 +150,10 @@ function buildOrchestrator(options: {
     memoryService as never,
     workflows as never,
     events as never,
-    audit as never
+    audit as never,
+    observability as never
   );
-  return { orchestrator, source, target, prisma, registry, router, policyService, agentService, memoryService, workflows, events };
+  return { orchestrator, source, target, prisma, registry, router, policyService, agentService, memoryService, workflows, events, observability };
 }
 
 const CONTRACT = { taskType: "GENERAL_QUERY", objective: "Help with something", input: {} };

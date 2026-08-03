@@ -14,6 +14,6 @@ import { EmployeeRouterService } from "./employee-router.service";
   imports: [PrismaModule, IdentityModule, PluginModule, AgentModule],
   controllers: [ChannelController, ChannelWebhookController, MetaWebhookController],
   providers: [ChannelService, ChannelMessageProcessor, EmployeeRouterService],
-  exports: [ChannelService]
+  exports: [ChannelService, ChannelMessageProcessor]
 })
 export class ChannelModule {}

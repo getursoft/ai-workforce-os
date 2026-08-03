@@ -110,7 +110,7 @@ describe("AgentService configured provider selection", () => {
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -284,7 +284,7 @@ describe("AgentService travel tool failure recovery", () => {
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -461,7 +461,7 @@ describe("AgentService end-to-end: Travel Employee live-conversation regressions
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -570,7 +570,7 @@ describe("AgentService: BELOW_MINIMUM in the integrated (PLATFORM_MANAGED) path 
       memories as unknown as MemoryService,
       pluginAi as unknown as PluginAiService,
       connectors as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -695,7 +695,7 @@ describe("AgentService end-to-end: live transcript regression (currency conversi
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -791,7 +791,7 @@ function harness(provider: { complete: ReturnType<typeof vi.fn> }, failAssistant
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -896,7 +896,10 @@ describe("AgentService knowledge grounding: conversation-context isolation", () 
         settings: { providerType: "OPENAI_COMPATIBLE", model: "gpt-4.1-mini", timeoutMs: 30000 }
       })
     };
-    const knowledge = { search: vi.fn().mockResolvedValue(CANCELLATION_SECTION) };
+    const knowledge = {
+      search: vi.fn().mockResolvedValue(CANCELLATION_SECTION),
+      searchWithMetrics: vi.fn().mockResolvedValue({ sources: CANCELLATION_SECTION, metrics: {} })
+    };
     const service = new AgentService(
       prisma as unknown as PrismaService,
       { getEffectivePermissions: vi.fn().mockResolvedValue([]) } as unknown as AuthorizationService,
@@ -931,7 +934,7 @@ describe("AgentService knowledge grounding: conversation-context isolation", () 
     expect(result.response).not.toMatch(/which date|kab ka plan|what date|travel date/i);
     // The retrieval query is the current message alone, not the booking dialogue appended to it — the
     // prior "delhi se london jana hai" / "Kab ka plan hai" turns must not distort policy retrieval.
-    expect(knowledge.search).toHaveBeenCalledWith("organization-1", "plugin-installation-1", {
+    expect(knowledge.searchWithMetrics).toHaveBeenCalledWith("organization-1", "plugin-installation-1", {
       query: "phle cancelation policy btao"
     });
   });
@@ -988,7 +991,7 @@ describe("AgentService proactive greeting", () => {
         toolHandlers: () => [],
         availableToolNames: vi.fn().mockResolvedValue([])
       } as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       TRAVEL_LEAD_SERVICE_STUB,
       SECURITY_CONFIG_STUB
@@ -1081,7 +1084,10 @@ describe("AgentService request routing: travel-planning bypass gate", () => {
       })
     };
     const memories = { search: vi.fn().mockResolvedValue([]), save: vi.fn().mockResolvedValue({}) };
-    const knowledge = { search: vi.fn().mockResolvedValue(knowledgeSources) };
+    const knowledge = {
+      search: vi.fn().mockResolvedValue(knowledgeSources),
+      searchWithMetrics: vi.fn().mockResolvedValue({ sources: knowledgeSources, metrics: {} })
+    };
     const service = new AgentService(
       prisma as unknown as PrismaService,
       { getEffectivePermissions: vi.fn().mockResolvedValue([]) } as unknown as AuthorizationService,
@@ -1232,7 +1238,11 @@ describe("AgentService orchestration: mixed conversations", () => {
     const knowledge = {
       search: vi.fn(async (_org: string, _emp: string, input: { query: string }) =>
         knowledgeSearchImpl(input.query)
-      )
+      ),
+      searchWithMetrics: vi.fn(async (_org: string, _emp: string, input: { query: string }) => ({
+        sources: knowledgeSearchImpl(input.query),
+        metrics: {}
+      }))
     };
     const service = new AgentService(
       prisma as unknown as PrismaService,
@@ -1727,7 +1737,7 @@ describe("AgentService: travel.create_lead tool (Conversation Completion & Lead 
       { search: vi.fn().mockResolvedValue([]) } as unknown as MemoryService,
       { resolveProvider: vi.fn() } as unknown as PluginAiService,
       connectors as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       travelLeadService,
       SECURITY_CONFIG_STUB
@@ -1848,7 +1858,7 @@ describe("AgentService: travel.create_lead tool (Conversation Completion & Lead 
       { search: vi.fn().mockResolvedValue([]) } as unknown as MemoryService,
       { resolveProvider: vi.fn() } as unknown as PluginAiService,
       connectors as unknown as ConnectorService,
-      { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
+      { search: vi.fn().mockResolvedValue([]), searchWithMetrics: vi.fn().mockResolvedValue({ sources: [], metrics: {} }) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
       travelLeadService,
       SECURITY_CONFIG_STUB

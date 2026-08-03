@@ -146,9 +146,14 @@ suite("Workforce delegation engine — async/parallel/approval/memory/security (
       expect(res.body.parentWorkflowExecutionId).toBeTruthy();
       const taskId = res.body.id as string;
 
+      // The response body itself (asserted above) is the non-racy proof that the task was QUEUED, not
+      // executed, synchronously within this request. This second read happens after the response has
+      // already returned, so the real background timer (300ms) may have legitimately already picked the
+      // task up by the time it runs — tolerate that instead of asserting an exact snapshot against a live
+      // timer race.
       const immediatelyAfterResponse = await prisma.employeeDelegatedTask.findUniqueOrThrow({ where: { id: taskId } });
-      expect(immediatelyAfterResponse.status).toBe("QUEUED");
-      expect(immediatelyAfterResponse.startedAt).toBeNull();
+      expect(["QUEUED", "RUNNING", "COMPLETED"]).toContain(immediatelyAfterResponse.status);
+      if (immediatelyAfterResponse.status === "QUEUED") expect(immediatelyAfterResponse.startedAt).toBeNull();
 
       // No manual tick() here — this relies entirely on WorkforceTaskProcessor's real setInterval,
       // started by OnModuleInit when the app booted, running completely independently of this request.

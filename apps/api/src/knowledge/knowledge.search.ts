@@ -81,6 +81,26 @@ export class KnowledgeSearchService {
     employeeId: string,
     input: KnowledgeSearchDto
   ): Promise<KnowledgeSource[]> {
+    const { sources } = await this.runSearch(organizationId, employeeId, input);
+    return sources;
+  }
+
+  /** Sprint 4.7A Phase 6: identical retrieval/ranking as `search()` (delegates to the same private
+   *  implementation — never a second, divergent copy of the scoring logic) but also returns the counts a
+   *  KNOWLEDGE_SEARCH trace span needs. Never returns chunk content beyond what `search()` already would. */
+  async searchWithMetrics(
+    organizationId: string,
+    employeeId: string,
+    input: KnowledgeSearchDto
+  ): Promise<{ sources: KnowledgeSource[]; metrics: KnowledgeSearchMetrics }> {
+    return this.runSearch(organizationId, employeeId, input);
+  }
+
+  private async runSearch(
+    organizationId: string,
+    employeeId: string,
+    input: KnowledgeSearchDto
+  ): Promise<{ sources: KnowledgeSource[]; metrics: KnowledgeSearchMetrics }> {
     const started = Date.now();
     if (!input.query.trim()) throw new BadRequestException("KNOWLEDGE_SEARCH_QUERY_REQUIRED");
     const topK = Math.min(
@@ -99,7 +119,20 @@ export class KnowledgeSearchService {
         ...(input.documentIds?.length ? { id: { in: input.documentIds } } : {})
       }
     });
-    if (!eligible) return [];
+    if (!eligible)
+      return {
+        sources: [],
+        metrics: {
+          chunksSearched: 0,
+          chunksReturned: 0,
+          collectionsSearched: 0,
+          topSimilarityScore: null,
+          rankingDurationMs: 0,
+          citationCount: 0,
+          grounded: false,
+          fallbackReason: "NO_ELIGIBLE_DOCUMENTS"
+        }
+      };
     const query = (await this.embeddings.embed(organizationId, employeeId, [input.query]))
       .vectors[0];
     if (!query) throw new BadRequestException("EMBEDDING_PROVIDER_RESPONSE_INVALID");
@@ -128,11 +161,13 @@ export class KnowledgeSearchService {
     const queryTerms = tokenize(normalizedQueryText);
     const queryGroups = groupsOf(queryTerms);
     const normalizedQuery = normalizePhrase(normalizedQueryText);
+    const rankingStarted = Date.now();
     const scored = rows
       .map((row) => scoreRow(row, queryTerms, queryGroups, normalizedQuery))
       .filter((source) => source.score >= scoreThreshold)
       .sort((left, right) => right.score - left.score)
       .slice(0, topK);
+    const rankingDurationMs = Date.now() - rankingStarted;
     const debug = this.security.knowledge.retrievalDebugLogging && input.debug === true;
     if (this.security.knowledge.retrievalDebugLogging)
       this.logger.log({
@@ -149,8 +184,31 @@ export class KnowledgeSearchService {
         selectedChunkIds: scored.map((source) => source.chunkId),
         durationMs: Date.now() - started
       });
-    return scored.map((source) => (debug ? source : withoutBreakdown(source)));
+    return {
+      sources: scored.map((source) => (debug ? source : withoutBreakdown(source))),
+      metrics: {
+        chunksSearched: rows.length,
+        chunksReturned: scored.length,
+        collectionsSearched: new Set(scored.map((source) => source.collectionId)).size,
+        topSimilarityScore: scored[0] ? Number(scored[0].score.toFixed(4)) : null,
+        rankingDurationMs,
+        citationCount: scored.length,
+        grounded: scored.length > 0,
+        fallbackReason: rows.length === 0 ? "NO_CANDIDATES_RETURNED" : scored.length === 0 ? "NO_MATCHES_ABOVE_THRESHOLD" : null
+      }
+    };
   }
+}
+
+export interface KnowledgeSearchMetrics {
+  chunksSearched: number;
+  chunksReturned: number;
+  collectionsSearched: number;
+  topSimilarityScore: number | null;
+  rankingDurationMs: number;
+  citationCount: number;
+  grounded: boolean;
+  fallbackReason: string | null;
 }
 
 function scoreRow(

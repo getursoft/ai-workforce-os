@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Inject,
   NotFoundException,
+  Optional,
   Param,
   ParseUUIDPipe,
   Post,
@@ -24,6 +25,7 @@ import {
 } from "../identity/infrastructure/security/security-config";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 import { ChannelMessageProcessor } from "./channel-message.processor";
+import { ObservabilityService } from "../observability/observability.service";
 import {
   normalizeInboundWhatsAppPayload,
   verifyTwilioSignature,
@@ -44,7 +46,8 @@ export class ChannelWebhookController {
     private readonly secrets: PluginSecretsEncryptionService,
     private readonly processor: ChannelMessageProcessor,
     private readonly auditLogger: AuditEventLogger,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() private readonly observability?: ObservabilityService
   ) {}
 
   @Post(":channelId")
@@ -82,27 +85,52 @@ export class ChannelWebhookController {
       throw new BadRequestException("CHANNEL_WEBHOOK_PAYLOAD_INVALID");
     }
 
-    try {
-      await this.prisma.channelMessage.create({
-        data: {
+    const webhookReceivedAt = Date.now();
+    // Sprint 4.7A Phase 4: same root-trace-at-webhook-receipt pattern as MetaWebhookController — see the
+    // comment there for why the background worker reattaches via rootedContext() instead of a live span.
+    const persist = async (span?: { traceId: string; sampled: boolean }) => {
+      try {
+        return await this.prisma.channelMessage.create({
+          data: {
+            organizationId: channel.organizationId,
+            channelConnectionId: channel.id,
+            provider: "TWILIO",
+            direction: "INBOUND",
+            status: "RECEIVED",
+            providerMessageSid: normalized.providerMessageSid,
+            fromAddress: normalized.fromAddress,
+            toAddress: normalized.toAddress,
+            body: normalized.body,
+            mediaMetadata: normalized.media as unknown as Prisma.InputJsonValue,
+            receivedAt: new Date(),
+            ...(span?.sampled ? { traceId: span.traceId } : {})
+          }
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return null;
+        throw error;
+      }
+    };
+    let created: Awaited<ReturnType<typeof persist>> = null;
+    if (this.observability)
+      created = await this.observability.withSpan(
+        null,
+        {
+          name: "CHANNEL_INBOUND_WEBHOOK",
+          spanType: "CHANNEL_MESSAGE",
+          component: "ChannelWebhookController",
           organizationId: channel.organizationId,
-          channelConnectionId: channel.id,
-          provider: "TWILIO",
-          direction: "INBOUND",
-          status: "RECEIVED",
-          providerMessageSid: normalized.providerMessageSid,
-          fromAddress: normalized.fromAddress,
-          toAddress: normalized.toAddress,
-          body: normalized.body,
-          mediaMetadata: normalized.media as unknown as Prisma.InputJsonValue,
-          receivedAt: new Date()
+          actorType: "CHANNEL",
+          inputSummary: { provider: "TWILIO", channelConnectionId: channel.id }
+        },
+        async (span) => {
+          const row = await persist(span);
+          await this.observability?.addAttribute(span, "webhook", { firstAckMs: Date.now() - webhookReceivedAt, provider: "TWILIO", duplicate: row === null });
+          return row;
         }
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
-        return {};
-      throw error;
-    }
+      );
+    else created = await persist();
+    if (!created) return {};
 
     this.auditLogger.record("CHANNEL_MESSAGE_RECEIVED", request.requestId, {
       organizationId: channel.organizationId,

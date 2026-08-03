@@ -16,6 +16,8 @@ import {
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 import { AgentService } from "../agents/agent.service";
 import type { AgentExecutionInput, ChannelContact } from "../agents/agent.runtime";
+import { ObservabilityService } from "../observability/observability.service";
+import { rootedContext, type TraceContext } from "../observability/trace-context";
 import { normalizeWhatsAppAddress, TwilioClient, TwilioProviderError } from "./channel.runtime";
 import { sendMetaWhatsAppText } from "./whatsapp/meta-whatsapp.client";
 import { EmployeeRouterService } from "./employee-router.service";
@@ -37,6 +39,14 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   private readonly twilio = new TwilioClient();
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
+  /** Sprint 4.7A Phase 7: last poll-tick timestamp, read by ObservabilityHealthService's "Background
+   *  Worker" check — a stale value means the interval stopped ticking (crash, event-loop stall), not just
+   *  that there was no work to do. */
+  private lastPollAt: Date | null = null;
+
+  getLastPollAt(): Date | null {
+    return this.lastPollAt;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -44,8 +54,23 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly secrets: PluginSecretsEncryptionService,
     private readonly auditLogger: AuditEventLogger,
     @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
-    @Optional() private readonly employeeRouter?: EmployeeRouterService
+    @Optional() private readonly employeeRouter?: EmployeeRouterService,
+    @Optional() private readonly observability?: ObservabilityService
   ) {}
+
+  /** Sprint 4.7A Phase 4: reattaches to the trace the webhook controller started (persisted as a plain
+   *  traceId column, same async-continuity pattern as EmployeeDelegatedTask.traceId — see trace-context.ts).
+   *  Runs `fn` inside a BACKGROUND_TASK span when a traceId exists and observability is available;
+   *  otherwise degrades to a plain passthrough (e.g. a message with no traceId, or observability disabled). */
+  private async tracedBackground<T>(message: ChannelMessage, name: string, fn: (span: TraceContext | undefined) => Promise<T>): Promise<T> {
+    if (!message.traceId || !this.observability) return fn(undefined);
+    const context = rootedContext(message.organizationId, message.traceId, true, {});
+    return this.observability.withSpan(
+      context,
+      { name, spanType: "BACKGROUND_TASK", component: "ChannelMessageProcessor", inputSummary: { channelConnectionId: message.channelConnectionId, direction: message.direction } },
+      fn
+    );
+  }
 
   onModuleInit() {
     if (this.security.nodeEnvironment === "test") return;
@@ -66,6 +91,7 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   async processOnce(limit = 10): Promise<number> {
     if (this.running) return 0;
     this.running = true;
+    this.lastPollAt = new Date();
     try {
       let processed = 0;
       for (const id of await this.findCandidateIds("INBOUND", "RECEIVED", limit, false)) {
@@ -138,6 +164,11 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleInbound(message: ChannelMessage): Promise<void> {
+    return this.tracedBackground(message, "CHANNEL_INBOUND_PROCESSING", (span) => this.handleInboundTraced(message, span));
+  }
+
+  private async handleInboundTraced(message: ChannelMessage, span?: TraceContext): Promise<void> {
+    const processingStartedAt = Date.now();
     try {
       const channel = await this.prisma.channelConnection.findFirst({
         where: { id: message.channelConnectionId, organizationId: message.organizationId, deletedAt: null },
@@ -224,7 +255,7 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
           await this.sendOutbound(channel as Parameters<typeof this.sendOutbound>[0], { id: `ack-${message.id}`, toAddress: message.fromAddress, body: ackMsg, provider: channel.provider } as Parameters<typeof this.sendOutbound>[1]);
         }
         try {
-          result = await this.agents.execute(Object.assign({ organizationId: message.organizationId, agentId, actor: { type: "CHANNEL" as const, channelConnectionId: channel.id, externalUserId }, text: message.body, source: { type: "CHANNEL" as const, channelId: channel.id, externalUserId }, requestId: message.id, metadata: { channelMessageId: message.id } }, conversationId ? { conversationId } : {}, channelContact ? { channelContact } : {}) as AgentExecutionInput);
+          result = await this.agents.execute(Object.assign({ organizationId: message.organizationId, agentId, actor: { type: "CHANNEL" as const, channelConnectionId: channel.id, externalUserId }, text: message.body, source: { type: "CHANNEL" as const, channelId: channel.id, externalUserId }, requestId: message.id, metadata: { channelMessageId: message.id } }, conversationId ? { conversationId } : {}, channelContact ? { channelContact } : {}, span ? { traceContext: span } : {}) as AgentExecutionInput);
           responseText = result?.response ?? "";
         } catch {
           responseText = DEFAULT_FAILURE_MESSAGE;
@@ -251,10 +282,23 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         toAddress: message.fromAddress,
         body: responseText,
         ...(resolvedConversationId ? { conversationId: resolvedConversationId } : {}),
-        ...(agentExecutionId ? { agentExecutionId } : {})
+        ...(agentExecutionId ? { agentExecutionId } : {}),
+        ...(message.traceId ? { traceId: message.traceId } : {})
       } as unknown as Prisma.ChannelMessageCreateInput;
       const outbound = await this.prisma.channelMessage.create({ data: outboundData });
-      const delivered = await this.sendOutbound(channel, outbound);
+      const deliveryStartedAt = Date.now();
+      const observability = this.observability;
+      const delivered = span && observability
+        ? await observability.withSpan(
+            span,
+            { name: "CHANNEL_OUTBOUND_DELIVERY", spanType: "MESSAGE_DELIVERY", component: "ChannelMessageProcessor", inputSummary: { provider: outboundData.provider } },
+            async (deliverySpan) => {
+              const sent = await this.sendOutbound(channel, outbound);
+              await observability.addAttribute(deliverySpan, "delivery", { deliveryMs: Date.now() - deliveryStartedAt, delivered: sent, provider: outboundData.provider });
+              return sent;
+            }
+          )
+        : await this.sendOutbound(channel, outbound);
       await this.prisma.channelMessage.update({
         where: { id: message.id },
         data: { status: ChannelMessageStatus.SENT }
@@ -264,9 +308,17 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         channel.id,
         delivered ? "CHANNEL_MESSAGE_SENT" : "CHANNEL_MESSAGE_FAILED"
       );
+      if (span)
+        await this.observability?.addAttribute(span, "pipeline", {
+          processingMs: Date.now() - processingStartedAt,
+          totalMs: Date.now() - message.createdAt.getTime(),
+          delivered
+        });
     } catch (error) {
       const code = safeCode(error);
       this.logger.warn({ event: "CHANNEL_INBOUND_PROCESSING_FAILED", messageId: message.id, code });
+      if (span && this.observability)
+        await this.observability.recordError(span, code, "Channel inbound processing failed");
       await this.retryOrFailInbound(message, code);
       this.audit(message.organizationId, message.channelConnectionId, "CHANNEL_MESSAGE_FAILED");
     }

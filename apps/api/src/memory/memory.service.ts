@@ -318,6 +318,51 @@ export class MemoryService {
     return buildMemoryContextBlock(context);
   }
 
+  /**
+   * Sprint 4.7A Phase 5: same recall as `recall()` (called unmodified — this never changes what memory
+   * content is returned or how it's filtered), plus three cheap parallel COUNT queries so the caller can
+   * attach real candidate/filtered/selected/expired/security-filtered numbers to a trace span. Never
+   * returns memory values themselves — only counts.
+   */
+  async recallWithMetrics(
+    organizationId: string,
+    actor: MemoryActor
+  ): Promise<{
+    context: MemoryContext;
+    metrics: {
+      candidateCount: number;
+      filteredCount: number;
+      selectedCount: number;
+      expiredCount: number;
+      securityFiltered: number;
+    };
+  }> {
+    const now = new Date();
+    const [context, totalInOrgScope, visibleRegardlessOfExpiry, visibleAndNotExpired] = await Promise.all([
+      this.recall(organizationId, actor),
+      this.prisma.memoryRecord.count({ where: { organizationId, deletedAt: null } }),
+      this.prisma.memoryRecord.count({ where: { organizationId, deletedAt: null, OR: this.visibilityOr(actor) } }),
+      this.prisma.memoryRecord.count({
+        where: {
+          organizationId,
+          deletedAt: null,
+          AND: [{ OR: this.visibilityOr(actor) }, { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }]
+        }
+      })
+    ]);
+    const selectedCount = context.organization.length + context.employee.length + context.user.length;
+    return {
+      context,
+      metrics: {
+        candidateCount: visibleRegardlessOfExpiry,
+        filteredCount: visibleAndNotExpired,
+        selectedCount,
+        expiredCount: Math.max(visibleRegardlessOfExpiry - visibleAndNotExpired, 0),
+        securityFiltered: Math.max(totalInOrgScope - visibleRegardlessOfExpiry, 0)
+      }
+    };
+  }
+
   /** Hybrid search: tenant+actor scoped, exact/keyword + optional semantic, ranked. */
   async search(
     organizationId: string,

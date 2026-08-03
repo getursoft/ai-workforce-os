@@ -9,6 +9,7 @@ import {
   Optional,
   RequestTimeoutException
 } from "@nestjs/common";
+import { ModuleRef } from "@nestjs/core";
 import {
   AgentExecutionStatus,
   AgentMemoryScope,
@@ -21,6 +22,12 @@ import {
 } from "@prisma/client";
 import type { AiProvider } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { ObservabilityService } from "../observability/observability.service";
+import type { TraceContext } from "../observability/trace-context";
+import { TraceContextStore } from "../observability/trace-context.store";
+import { summarizeText } from "../observability/observability-sanitizer";
+import type { ChatDelegationTriggerService } from "../workforce/chat-delegation-trigger.service";
+import { CHAT_DELEGATION_TRIGGER } from "../workforce/chat-delegation.token";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
 import { AuthorizationService } from "../identity/application/services/authorization.service";
 import {
@@ -313,7 +320,10 @@ export class AgentService {
     @Optional() workflowCoordinator?: WorkflowCoordinator,
     @Optional() private readonly travelBookingService?: TravelBookingService,
     @Optional() private readonly employeeArtifacts?: EmployeeArtifactService,
-    @Optional() private readonly platformMemory?: PlatformMemoryService
+    @Optional() private readonly platformMemory?: PlatformMemoryService,
+    @Optional() private readonly observability?: ObservabilityService,
+    @Optional() private readonly moduleRef?: ModuleRef,
+    @Optional() private readonly traceContextStore?: TraceContextStore
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -328,6 +338,31 @@ export class AgentService {
     this.registerEmployeeTools();
     for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
   }
+
+  /** Sprint 4.7: safe tracing wrapper — when ObservabilityService isn't injected (unit tests constructing
+   *  AgentService directly with a short arg list) this just runs the callback, unchanged. */
+  private async traced<T>(
+    context: TraceContext | null | undefined,
+    metadata: Parameters<ObservabilityService["withSpan"]>[1],
+    callback: (span: TraceContext | undefined) => Promise<T>
+  ): Promise<T> {
+    if (!this.observability) return callback(context ?? undefined);
+    return this.observability.withSpan(context, metadata, callback);
+  }
+
+  /** Resolved lazily via ModuleRef (not constructor DI) specifically to avoid a circular module
+   *  dependency: WorkforceModule already imports AgentModule for AgentService/WorkflowExecutionService,
+   *  so AgentModule cannot also import WorkforceModule for this. `{ strict: false }` searches the whole
+   *  application container, which is fine here since resolution only ever happens after bootstrap. */
+  private getChatDelegationTrigger(): ChatDelegationTriggerService | null {
+    if (!this.moduleRef) return null;
+    try {
+      return this.moduleRef.get<unknown, ChatDelegationTriggerService>(CHAT_DELEGATION_TRIGGER, { strict: false });
+    } catch {
+      return null;
+    }
+  }
+
   async run(organizationId: string, userId: string, requestId: string, dto: AgentRunDto) {
     return this.execute({
       organizationId,
@@ -346,6 +381,24 @@ export class AgentService {
    * determines conversation ownership and tool permissions; everything else is identical.
    */
   async execute(input: AgentExecutionInput) {
+    return this.traced(
+      input.traceContext,
+      {
+        name: "AGENT_EXECUTION",
+        spanType: "AGENT_EXECUTION",
+        component: "AgentService",
+        organizationId: input.organizationId,
+        actorType: input.actor.type,
+        actorId: input.actor.type === "USER" ? input.actor.userId : input.actor.type === "CHANNEL" ? input.actor.externalUserId : null,
+        conversationId: input.conversationId ?? null,
+        inputSummary: { agentId: input.agentId, source: input.source.type, message: summarizeText(input.text) },
+        traceMetadata: { agentId: input.agentId, source: input.source.type }
+      },
+      async (span) => this.executeTraced(input, span)
+    );
+  }
+
+  private async executeTraced(input: AgentExecutionInput, span: TraceContext | undefined) {
     const { organizationId } = input;
     const actorUserId = input.actor.type === "USER" ? input.actor.userId : null;
     const plugin = await this.prisma.plugin.findFirst({
@@ -405,6 +458,7 @@ export class AgentService {
     if (!conversation) throw new NotFoundException("CONVERSATION_NOT_FOUND");
     if (conversation.status === ConversationStatus.ARCHIVED)
       throw new ConflictException("CONVERSATION_ARCHIVED");
+    if (span) await this.observability?.linkTrace(span, { conversationId: conversation.id });
     let travelOrchestrator: TravelEmployeeLlmOrchestrator | null = null;
     let deterministicTravelProvider: TravelEmployeeProvider | null = null;
     const persistedTravelState = travelConfig
@@ -653,9 +707,11 @@ export class AgentService {
         model: configuredModel,
         requestId: input.requestId,
         metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
-        startedAt: new Date()
+        startedAt: new Date(),
+        traceId: span?.sampled ? span.traceId : null
       }
     });
+    if (span) await this.observability?.linkTrace(span, { agentExecutionId: execution.id });
     const started = Date.now();
     let failureStage: "prompt" | "provider_call" | "response_parse" | "tool_loop" | "persistence" =
       "prompt";
@@ -872,19 +928,34 @@ export class AgentService {
         resolvedTravelInput?.kind === "STANDALONE_CONTACT_DECLINED"
           ? []
           : isKnowledgeEligible(requestIntent)
-            ? await this.knowledge.search(organizationId, plugin.id, { query: effectiveText })
+            ? await this.traced(
+                span,
+                { name: "KNOWLEDGE_SEARCH", spanType: "KNOWLEDGE_SEARCH", component: "KnowledgeSearchService", employeeInstallationId: plugin.id, inputSummary: { requestIntent } },
+                async (knowledgeSpan) => {
+                  const { sources, metrics } = await this.knowledge.searchWithMetrics(organizationId, plugin.id, { query: effectiveText });
+                  // Phase 9: explicit RAG-routing visibility — proves/disproves "this intent should not
+                  // have reached knowledge search" from the trace alone, without opening document content.
+                  // Phase 6: full retrieval-quality breakdown — never includes chunk content, only counts/
+                  // scores/timings, so this is safe to persist even at full sampling.
+                  if (knowledgeSpan) {
+                    await this.observability?.addAttribute(knowledgeSpan, "resultCount", sources.length);
+                    await this.observability?.addAttribute(knowledgeSpan, "retrieval", metrics);
+                  }
+                  return sources;
+                }
+              )
             : [];
+      if (span) await this.observability?.addAttribute(span, "routing", { requestIntent, knowledgeSearchInvoked: isKnowledgeEligible(requestIntent) });
       const knowledgePrompt = buildKnowledgeBlock(knowledgeSources);
       // Sprint 4.5: platform memory context (Organization -> Employee -> User -> Conversation Summary)
       // is recalled for this exact turn and injected ahead of the legacy tool-saved memories. The whole
       // memory block is placed before retrieved knowledge by PromptBuilder (see agent.runtime.ts), so
       // memory is never buried behind RAG. When a conversation summary exists, the prompt history uses
       // only the last N raw messages (token-explosion guard) instead of the oldest messages.
-      const memoryContext = await this.recallMemoryContext(
-        organizationId,
-        actorUserId,
-        plugin.id,
-        conversation.id
+      const memoryContext = await this.traced(
+        span,
+        { name: "MEMORY_RECALL", spanType: "MEMORY_RECALL", component: "MemoryService", employeeInstallationId: plugin.id, inputSummary: { requestedScopes: ["ORGANIZATION", "EMPLOYEE", "USER", "CONVERSATION_SUMMARY"] } },
+        (memorySpan) => this.recallMemoryContext(organizationId, actorUserId, plugin.id, conversation.id, memorySpan)
       );
       const memoryBlock = memoryContext ? formatMemoryContextBlock(memoryContext) : "";
       const promptHistory = memoryContext?.conversationSummary
@@ -1087,6 +1158,18 @@ export class AgentService {
         });
       let travelToolRecoveryText: string | null = null;
       let travelToolCallsAttempted = 0;
+      // Sprint 4.7A Phase 1: per-provider-call timing breakdown, accumulated across every iteration of the
+      // tool-calling loop and attached once to the PROVIDER_CALL span (a single addAttribute write instead
+      // of one per iteration keeps this out of the hot path — see Phase 13). serializeMs/fetchMs/parseMs are
+      // real, measured durations; statusCode/networkConnectMs/providerQueueMs/firstTokenMs/cachedInputTokens/
+      // reasoningTokens are left null with an explicit key (never fabricated) because the AiProvider
+      // abstraction (packages/plugin-sdk) has no HTTP status, no raw socket hook, and no streaming/prompt-
+      // caching support to measure them from.
+      const providerCallTimings: Array<Record<string, unknown>> = [];
+      await this.traced(
+        span,
+        { name: "PROVIDER_CALL", spanType: "PROVIDER_CALL", component: "AiProvider", employeeInstallationId: plugin.id, inputSummary: { providerType: settings.providerType, model: configuredModel } },
+        async (providerSpan) => {
       for (
         let iteration = 0;
         leadStatusAnswer === null &&
@@ -1097,23 +1180,77 @@ export class AgentService {
         iteration++
       ) {
         failureStage = "provider_call";
-        const response = await withTimeout(
-          provider.complete({
-            messages: request.messages,
-            tools: request.tools.map(({ name, description, inputSchema }) => ({
-              name,
-              description,
-              inputSchema
-            })),
-            maxOutputTokens: 1000
-          }),
-          settings.timeoutMs + 1_000,
-          "MODEL_EXECUTION_TIMEOUT"
-        );
+        const outgoingRequest = {
+          messages: request.messages,
+          tools: request.tools.map(({ name, description, inputSchema }) => ({
+            name,
+            description,
+            inputSchema
+          })),
+          maxOutputTokens: 1000
+        };
+        const serializeStartedAt = Date.now();
+        const serializedByteLength = Buffer.byteLength(JSON.stringify(outgoingRequest), "utf8");
+        const serializeMs = Date.now() - serializeStartedAt;
+        const fetchStartedAt = Date.now();
+        let response: Awaited<ReturnType<typeof provider.complete>>;
+        // No retry-on-failure wraps provider.complete() today (withTimeout makes a single attempt), so this
+        // is always 0 — a real, honest fact rather than a placeholder for retry logic that doesn't exist.
+        const retryCount = 0;
+        let timedOut = false;
+        try {
+          response = await withTimeout(
+            provider.complete(outgoingRequest),
+            settings.timeoutMs + 1_000,
+            "MODEL_EXECUTION_TIMEOUT"
+          );
+        } catch (providerError) {
+          timedOut = providerError instanceof Error && providerError.message === "MODEL_EXECUTION_TIMEOUT";
+          providerCallTimings.push({
+            iteration,
+            provider: responseProvider,
+            model: configuredModel,
+            serializeMs,
+            requestBytes: serializedByteLength,
+            fetchMs: Date.now() - fetchStartedAt,
+            parseMs: null,
+            totalMs: Date.now() - serializeStartedAt,
+            statusCode: null,
+            retryCount,
+            timeout: timedOut,
+            failed: true
+          });
+          throw providerError;
+        }
+        const fetchMs = Date.now() - fetchStartedAt;
+        const parseStartedAt = Date.now();
         inputTokens += response.usage?.inputTokens ?? 0;
         outputTokens += response.usage?.outputTokens ?? 0;
         responseModel = response.model;
         responseProvider = response.provider;
+        const parseMs = Date.now() - parseStartedAt;
+        providerCallTimings.push({
+          iteration,
+          provider: response.provider,
+          model: response.model,
+          serializeMs,
+          requestBytes: serializedByteLength,
+          networkConnectMs: null,
+          providerQueueMs: null,
+          firstTokenMs: null,
+          fetchMs,
+          parseMs,
+          totalMs: serializeMs + fetchMs + parseMs,
+          statusCode: null,
+          inputTokens: response.usage?.inputTokens ?? 0,
+          cachedInputTokens: null,
+          outputTokens: response.usage?.outputTokens ?? 0,
+          reasoningTokens: null,
+          toolCalls: response.toolCalls.length,
+          retryCount,
+          timeout: timedOut,
+          failed: false
+        });
         if (travelOrchestrator) {
           const diagnostics = travelOrchestrator.lastDiagnostics;
           this.logger.log({
@@ -1149,6 +1286,22 @@ export class AgentService {
             }
           });
           const toolStarted = Date.now();
+          // Sprint 4.7A Phase 2: one TOOL_CALL span per tool invocation, nested under the PROVIDER_CALL
+          // span. Uses explicit startSpan/completeSpan/failSpan (not the `traced()` exception-based helper)
+          // because this loop intentionally swallows some tool errors into a recoverable in-conversation
+          // fallback rather than rethrowing — the span must still be marked FAILED in that case, which a
+          // throw/catch-driven helper would miss.
+          const [connectorName, ...capabilityParts] = call.name.split(".");
+          const toolSpan =
+            providerSpan && this.observability
+              ? await this.observability.startSpan(providerSpan, {
+                  name: `TOOL_CALL:${call.name}`,
+                  spanType: "TOOL_CALL",
+                  component: "ToolExecutor",
+                  employeeInstallationId: plugin.id,
+                  inputSummary: { tool: call.name, connector: connectorName, capability: capabilityParts.join(".") || call.name }
+                })
+              : undefined;
           try {
             const output = await this.executor.execute(
               call.name,
@@ -1174,6 +1327,17 @@ export class AgentService {
                 latencyMs: Date.now() - toolStarted
               }
             });
+            if (toolSpan)
+              await this.observability?.completeSpan(toolSpan, toolStarted, {
+                attributes: {
+                  tool: call.name,
+                  connector: connectorName,
+                  capability: capabilityParts.join(".") || call.name,
+                  status: "COMPLETED",
+                  retryCount: 0,
+                  approvalRequired: handler.definition.requiredPermissions.some((permission) => /approv/i.test(permission))
+                }
+              });
             const content = JSON.stringify(output).slice(0, 12_000);
             await this.prisma.conversationMessage.create({
               data: {
@@ -1195,6 +1359,27 @@ export class AgentService {
             };
           } catch (error) {
             const code = safeCode(error);
+            if (toolSpan && this.observability) {
+              await this.observability.failSpan(
+                toolSpan,
+                {
+                  name: `TOOL_CALL:${call.name}`,
+                  spanType: "TOOL_CALL",
+                  component: "ToolExecutor",
+                  employeeInstallationId: plugin.id
+                },
+                toolStarted,
+                error
+              );
+              await this.observability.addAttribute(toolSpan, "tool", {
+                tool: call.name,
+                connector: connectorName,
+                capability: capabilityParts.join(".") || call.name,
+                retryCount: 0,
+                approvalRequired: handler.definition.requiredPermissions.some((permission) => /approv/i.test(permission)),
+                safeErrorCode: code
+              });
+            }
             await this.prisma.agentToolExecution.update({
               where: { id: row.id },
               data: {
@@ -1280,7 +1465,29 @@ export class AgentService {
           break;
         }
       }
+      if (providerSpan && providerCallTimings.length)
+        await this.observability?.addAttribute(providerSpan, "providerCalls", providerCallTimings);
+        }
+      );
       if (!finalText) throw new Error("AGENT_ITERATION_LIMIT_EXCEEDED");
+
+      // Sprint 4.7 Phase 0: only ever evaluated for a genuine customer/dashboard-user message, never for
+      // the SYSTEM actor a delegated task's own execution runs as — that gate is what keeps this from ever
+      // re-triggering delegation off a server-generated internal task-handoff instruction (loop safety).
+      const chatDelegation = input.actor.type === "USER" || input.actor.type === "CHANNEL" ? this.getChatDelegationTrigger() : null;
+      if (chatDelegation) {
+        const consult = await chatDelegation.maybeDelegate({
+          organizationId,
+          primaryEmployeeInstallationId: plugin.id,
+          conversationId: conversation.id,
+          messageText: input.text,
+          traceContext: span ?? null
+        });
+        if (consult.delegated && consult.contribution) {
+          finalText = `${finalText}\n\n(I checked with ${consult.targetDisplayName}: ${consult.contribution})`;
+        }
+      }
+
       if (
         leadStatusAnswer === null &&
         knowledgeAnswer === null &&
@@ -1777,6 +1984,17 @@ export class AgentService {
           });
         }
       }
+      if (span)
+        await this.observability?.addAttribute(span, "execution", {
+          employeeInstallationId: plugin.id,
+          providerType: settings.providerType,
+          model: responseModel,
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          toolCount: travelToolCallsAttempted,
+          status: "COMPLETED"
+        });
       return {
         conversationId: conversation.id,
         executionId: execution.id,
@@ -1991,15 +2209,21 @@ export class AgentService {
     organizationId: string,
     actorUserId: string | null,
     employeeId: string,
-    conversationId: string
+    conversationId: string,
+    memorySpan?: TraceContext
   ) {
     if (!this.platformMemory) return null;
     try {
-      return await this.platformMemory.recall(organizationId, {
+      // Sprint 4.7A Phase 5: candidateCount/filteredCount/selectedCount/expiredCount/securityFiltered are
+      // real counts from parallel COUNT queries (see MemoryService.recallWithMetrics) — never the memory
+      // values themselves, which never reach a span attribute.
+      const { context, metrics } = await this.platformMemory.recallWithMetrics(organizationId, {
         userId: actorUserId,
         employeeId,
         conversationId
       });
+      if (memorySpan) await this.observability?.addAttribute(memorySpan, "recall", metrics);
+      return context;
     } catch (error) {
       this.logger.warn({
         event: "MEMORY_RECALL_FAILED",
@@ -2935,21 +3159,51 @@ export class AgentService {
         }
         const [firstName, ...rest] = lead.customerName?.split(" ").filter(Boolean) ?? [];
         const lastName = rest.join(" ");
-        await this.executor.execute(
-          crmToolName,
-          {
-            ...(firstName ? { firstName } : {}),
-            ...(lastName ? { lastName } : {}),
-            phone: lead.phoneNumber,
-            source: "TravelEmployee",
-            interest: lead.destination ? `${lead.destination} trip` : "Travel enquiry",
-            notes: lead.conversationSummary,
-            metadata: { travelLeadId: lead.id, travelLeadReference: lead.reference }
-          },
-          context,
-          new Set([crmToolName]),
-          new Set(["agents.tools.execute"])
-        );
+        // Sprint 4.7A Phase 2: this fire-and-forget sync runs detached from any awaited caller, but it is
+        // still invoked synchronously from within the request's own AsyncLocalStorage continuation (see
+        // TraceContextStore), so the ambient span is still available here without a parameter to thread it.
+        const ambientContext = this.traceContextStore?.get();
+        const [crmConnector, ...crmCapabilityParts] = crmToolName.split(".");
+        const crmToolSpan =
+          ambientContext && this.observability
+            ? await this.observability.startSpan(ambientContext, {
+                name: `TOOL_CALL:${crmToolName}`,
+                spanType: "TOOL_CALL",
+                component: "ToolExecutor",
+                inputSummary: { tool: crmToolName, connector: crmConnector, capability: crmCapabilityParts.join(".") || crmToolName }
+              })
+            : undefined;
+        const crmToolStarted = Date.now();
+        try {
+          await this.executor.execute(
+            crmToolName,
+            {
+              ...(firstName ? { firstName } : {}),
+              ...(lastName ? { lastName } : {}),
+              phone: lead.phoneNumber,
+              source: "TravelEmployee",
+              interest: lead.destination ? `${lead.destination} trip` : "Travel enquiry",
+              notes: lead.conversationSummary,
+              metadata: { travelLeadId: lead.id, travelLeadReference: lead.reference }
+            },
+            context,
+            new Set([crmToolName]),
+            new Set(["agents.tools.execute"])
+          );
+          if (crmToolSpan)
+            await this.observability?.completeSpan(crmToolSpan, crmToolStarted, {
+              attributes: { tool: crmToolName, connector: crmConnector, capability: crmCapabilityParts.join(".") || crmToolName, status: "COMPLETED", retryCount: 0, approvalRequired: false }
+            });
+        } catch (toolError) {
+          if (crmToolSpan && this.observability)
+            await this.observability.failSpan(
+              crmToolSpan,
+              { name: `TOOL_CALL:${crmToolName}`, spanType: "TOOL_CALL", component: "ToolExecutor" },
+              crmToolStarted,
+              toolError
+            );
+          throw toolError;
+        }
         await this.travelLeadService.markCrmSyncStatus(lead.id, TravelLeadCrmSyncStatus.SYNCED);
       } catch (error) {
         // Best-effort only — see the doc comment above. Logged (never surfaced to the customer) so a

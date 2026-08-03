@@ -645,6 +645,10 @@ model Organization {
   employeeDelegatedTasks                EmployeeDelegatedTask[]
   employeeDelegationJoins               EmployeeDelegationJoin[]
   workforceCollaborationPolicy          WorkforceCollaborationPolicy?
+  executionTraces                       ExecutionTrace[]
+  executionSpans                        ExecutionSpan[]
+  observabilityAlerts                   ObservabilityAlert[]
+  observabilitySettings                 ObservabilitySettings?
 
   @@map("organizations")
 }
@@ -1129,6 +1133,9 @@ model AgentExecution {
   errorCode                 String?              @map("error_code") @db.VarChar(100)
   errorMessage              String?              @map("error_message") @db.VarChar(500)
   requestId                 String?              @map("request_id") @db.VarChar(100)
+  /// Sprint 4.7: the ExecutionTrace.traceId this execution belongs to — plain scalar, no FK, so trace
+  /// retention (Phase 15) never restricts deleting/pruning this business record.
+  traceId                   String?              @map("trace_id") @db.VarChar(64)
   metadata                  Json                 @default("{}")
   createdAt                 DateTime             @default(now()) @map("created_at")
   updatedAt                 DateTime             @updatedAt @map("updated_at")
@@ -1143,6 +1150,7 @@ model AgentExecution {
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
   @@index([conversationId])
+  @@index([organizationId, traceId])
   @@map("agent_executions")
 }
 
@@ -1205,6 +1213,8 @@ model WorkflowExecution {
   /// Non-null only while active; its unique constraint enforces one active workflow per
   /// organization+plugin installation+conversation+workflowType.
   activeKey            String?           @unique @map("active_key") @db.VarChar(500)
+  /// Sprint 4.7: the ExecutionTrace.traceId this workflow was started under — plain scalar, no FK.
+  traceId              String?           @map("trace_id") @db.VarChar(64)
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
   completedAt          DateTime?         @map("completed_at")
@@ -1214,6 +1224,7 @@ model WorkflowExecution {
   approvalRequests     ApprovalRequest[]
 
   @@index([organizationId, pluginInstallationId, conversationId, workflowType])
+  @@index([organizationId, traceId])
   @@index([organizationId, status, updatedAt])
   @@map("workflow_executions")
 }
@@ -2033,6 +2044,8 @@ model ChannelMessage {
   nextAttemptAt       DateTime?               @map("next_attempt_at")
   receivedAt          DateTime?               @map("received_at")
   sentAt              DateTime?               @map("sent_at")
+  /// Sprint 4.7: the ExecutionTrace.traceId this channel message belongs to — plain scalar, no FK.
+  traceId             String?                 @map("trace_id") @db.VarChar(64)
   createdAt           DateTime                @default(now()) @map("created_at")
   updatedAt           DateTime                @updatedAt @map("updated_at")
   organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -2044,6 +2057,7 @@ model ChannelMessage {
   @@index([organizationId, status])
   @@index([conversationId])
   @@index([status, nextAttemptAt])
+  @@index([organizationId, traceId])
   @@map("channel_messages")
 }
 
@@ -2142,6 +2156,10 @@ model EmployeeDelegatedTask {
   cancelledAt                  DateTime?                   @map("cancelled_at")
   errorCode                    String?                     @map("error_code") @db.VarChar(100)
   errorMessageSafe             String?                     @map("error_message_safe") @db.VarChar(500)
+  /// Sprint 4.7: the ExecutionTrace.traceId of the request that originated this delegation — read back
+  /// by WorkforceTaskProcessor when it dispatches this task later, in a different call stack, so the
+  /// async/background execution still attaches its spans to the SAME trace. Plain scalar, no FK.
+  traceId                      String?                     @map("trace_id") @db.VarChar(64)
   createdAt                    DateTime                    @default(now()) @map("created_at")
   updatedAt                    DateTime                    @updatedAt @map("updated_at")
   organization                 Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -2150,6 +2168,7 @@ model EmployeeDelegatedTask {
   @@index([sourceEmployeeInstallationId, createdAt])
   @@index([targetEmployeeInstallationId, status])
   @@index([parentWorkflowExecutionId])
+  @@index([organizationId, traceId])
   @@index([correlationId])
   @@map("employee_delegated_tasks")
 }
@@ -2828,4 +2847,124 @@ model ConversationSummary {
 
   @@index([organizationId, updatedAt])
   @@map("conversation_summaries")
+}
+
+/// Sprint 4.7: one row per correlated end-to-end request (a chat turn, an async delegation, a channel
+/// webhook) — the root of one execution tree. Additive, unified observability layer: does not replace or
+/// duplicate AgentExecution/WorkflowExecution/EmployeeDelegatedTask/UsageEvent/AuditEvent, it correlates
+/// them via traceId (a plain scalar carried by those tables, not a foreign key) so retention here never
+/// restricts deleting/pruning those business records.
+model ExecutionTrace {
+  id                  String       @id @default(uuid()) @db.Uuid
+  organizationId      String       @map("organization_id") @db.Uuid
+  traceId             String       @unique @map("trace_id") @db.VarChar(64)
+  rootSpanId          String       @map("root_span_id") @db.VarChar(64)
+  parentTraceId       String?      @map("parent_trace_id") @db.VarChar(64)
+  conversationId      String?      @map("conversation_id") @db.Uuid
+  agentExecutionId    String?      @map("agent_execution_id") @db.Uuid
+  workflowExecutionId String?      @map("workflow_execution_id") @db.Uuid
+  delegatedTaskId     String?      @map("delegated_task_id") @db.Uuid
+  channelConnectionId String?      @map("channel_connection_id") @db.Uuid
+  actorType           String       @map("actor_type") @db.VarChar(40)
+  actorId             String?      @map("actor_id") @db.VarChar(200)
+  status              String       @default("RUNNING") @db.VarChar(20)
+  startedAt           DateTime     @default(now()) @map("started_at")
+  completedAt         DateTime?    @map("completed_at")
+  durationMs          Int?         @map("duration_ms")
+  errorCode           String?      @map("error_code") @db.VarChar(100)
+  errorMessageSafe    String?      @map("error_message_safe") @db.VarChar(500)
+  /// Sanitized-only (see ObservabilitySanitizer) — never raw prompts, secrets, tokens or full documents.
+  metadataJson        Json         @default("{}") @map("metadata_json")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt])
+  @@index([organizationId, status])
+  @@index([organizationId, conversationId])
+  @@index([agentExecutionId])
+  @@index([workflowExecutionId])
+  @@index([delegatedTaskId])
+  @@map("execution_traces")
+}
+
+/// Sprint 4.7: one node in an ExecutionTrace's span tree. Linked to its trace by traceId (string, not a
+/// Prisma relation) so span writes never need to load the trace row first — keeps span-creation overhead
+/// low (Phase 23) and lets spans be written even if the trace row write is still in flight.
+model ExecutionSpan {
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @map("organization_id") @db.Uuid
+  traceId                String       @map("trace_id") @db.VarChar(64)
+  spanId                 String       @unique @map("span_id") @db.VarChar(64)
+  parentSpanId           String?      @map("parent_span_id") @db.VarChar(64)
+  name                   String       @db.VarChar(160)
+  spanType               String       @map("span_type") @db.VarChar(40)
+  component              String       @db.VarChar(80)
+  employeeInstallationId String?      @map("employee_installation_id") @db.Uuid
+  workflowExecutionId    String?      @map("workflow_execution_id") @db.Uuid
+  delegatedTaskId        String?      @map("delegated_task_id") @db.Uuid
+  status                 String       @default("RUNNING") @db.VarChar(20)
+  startedAt              DateTime     @default(now()) @map("started_at")
+  completedAt            DateTime?    @map("completed_at")
+  durationMs             Int?         @map("duration_ms")
+  /// Sanitized-only summaries (counts, IDs, safe scalars) — never raw prompts/documents/secrets.
+  inputSummaryJson       Json?        @map("input_summary_json")
+  outputSummaryJson      Json?        @map("output_summary_json")
+  errorCode              String?      @map("error_code") @db.VarChar(100)
+  errorMessageSafe       String?      @map("error_message_safe") @db.VarChar(500)
+  attributesJson         Json?        @map("attributes_json")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, traceId])
+  @@index([organizationId, spanType, startedAt])
+  @@index([organizationId, status])
+  @@index([parentSpanId])
+  @@map("execution_spans")
+}
+
+/// Sprint 4.7 Phase 16: an in-app operational alert derived from trace/span/task/workflow state on read
+/// (no external PagerDuty/Slack integration). Deduplicated per (organizationId, ruleCode, relatedEntity)
+/// at the service layer so a repeatedly-detected condition updates one row instead of spawning duplicates.
+model ObservabilityAlert {
+  id                   String       @id @default(uuid()) @db.Uuid
+  organizationId       String       @map("organization_id") @db.Uuid
+  ruleCode             String       @map("rule_code") @db.VarChar(60)
+  severity             String       @default("WARNING") @db.VarChar(20)
+  status               String       @default("OPEN") @db.VarChar(20)
+  title                String       @db.VarChar(200)
+  detailsJson          Json         @default("{}") @map("details_json")
+  relatedTraceId       String?      @map("related_trace_id") @db.VarChar(64)
+  relatedEntityType    String?      @map("related_entity_type") @db.VarChar(40)
+  relatedEntityId      String?      @map("related_entity_id") @db.VarChar(200)
+  createdAt            DateTime     @default(now()) @map("created_at")
+  updatedAt            DateTime     @updatedAt @map("updated_at")
+  acknowledgedAt       DateTime?    @map("acknowledged_at")
+  acknowledgedByUserId String?      @map("acknowledged_by_user_id") @db.Uuid
+  resolvedAt           DateTime?    @map("resolved_at")
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([organizationId, ruleCode, relatedEntityType, relatedEntityId])
+  @@map("observability_alerts")
+}
+
+/// Sprint 4.7 Phase 15: per-organization tracing sampling/retention configuration. One row per
+/// organization, upserted lazily the same way WorkforceCollaborationPolicy is.
+model ObservabilitySettings {
+  id                         String       @id @default(uuid()) @db.Uuid
+  organizationId             String       @unique @map("organization_id") @db.Uuid
+  tracingEnabled             Boolean      @default(true) @map("tracing_enabled")
+  sampleRate                 Float        @default(1.0) @map("sample_rate")
+  errorTraceRetentionDays    Int          @default(30) @map("error_trace_retention_days")
+  successTraceRetentionDays  Int          @default(7) @map("success_trace_retention_days")
+  includeSafeInputSummaries  Boolean      @default(true) @map("include_safe_input_summaries")
+  includeSafeOutputSummaries Boolean      @default(true) @map("include_safe_output_summaries")
+  providerDetailVisible      Boolean      @default(true) @map("provider_detail_visible")
+  toolDetailVisible          Boolean      @default(true) @map("tool_detail_visible")
+  createdAt                  DateTime     @default(now()) @map("created_at")
+  updatedAt                  DateTime     @updatedAt @map("updated_at")
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("observability_settings")
 }

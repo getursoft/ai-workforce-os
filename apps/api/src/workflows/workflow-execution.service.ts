@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import {
   ConversationStatus,
   Prisma,
@@ -6,6 +6,8 @@ import {
   type WorkflowExecution
 } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { ObservabilityService } from "../observability/observability.service";
+import { TraceContextStore } from "../observability/trace-context.store";
 import type { WorkflowExecutionScope } from "./workflow-runtime.contracts";
 
 const ACTIVE_STATUSES: readonly PrismaWorkflowStatus[] = [
@@ -34,7 +36,28 @@ export class WorkflowExecutionRevisionConflictError extends Error {
  */
 @Injectable()
 export class WorkflowExecutionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly observability?: ObservabilityService,
+    @Optional() private readonly traceContextStore?: TraceContextStore
+  ) {}
+
+  /**
+   * Sprint 4.7A Phase 3: every workflow status transition funnels through this one class (createWorkflow /
+   * updateWorkflowState / markTerminal), so instrumenting it here — rather than WorkflowCoordinator or any
+   * of the per-workflow-type services (ContactCapture/BookingHandoff/TripSubmission), none of which this
+   * pass may modify — covers booking, HR leave, cancellation, refund, expense, and approval workflows alike
+   * with a single, low-risk choke point. The ambient TraceContext comes from TraceContextStore (set by
+   * ObservabilityService.withSpan around AgentService's root span), so no method signature here changes and
+   * no caller needs to pass anything new. When there's no ambient trace (e.g. a unit test constructing this
+   * service directly) or no ObservabilityService, this degrades to a plain passthrough — `fn()` runs exactly
+   * as it always did.
+   */
+  private async traceTransition<T>(name: string, inputSummary: Record<string, unknown>, fn: () => Promise<T>): Promise<T> {
+    const context = this.traceContextStore?.get();
+    if (!context || !this.observability) return fn();
+    return this.observability.withSpan(context, { name, spanType: "WORKFLOW_STEP", component: "WorkflowExecutionService", inputSummary }, () => fn());
+  }
 
   async findActiveWorkflow(scope: WorkflowExecutionScope): Promise<WorkflowExecution | null> {
     return this.prisma.workflowExecution.findFirst({
@@ -82,35 +105,44 @@ export class WorkflowExecutionService {
     state: Record<string, unknown>;
     turnId: string;
   }): Promise<WorkflowExecutionMutationResult> {
-    const activeKey = this.activeKey(input.scope);
-    const data = {
-      organizationId: input.scope.organizationId,
-      pluginInstallationId: input.scope.pluginInstallationId,
-      conversationId: input.scope.conversationId,
-      workflowType: input.scope.workflowType,
-      status: statusForPendingInput(input.pendingInput),
-      currentStep: input.currentStep,
-      pendingInput: input.pendingInput,
-      state: input.state as Prisma.InputJsonValue,
-      revision: 0,
-      processedTurnIds: [input.turnId],
-      activeKey
-    };
-    try {
-      const execution = await this.prisma.workflowExecution.create({ data });
-      return { execution, applied: true, idempotentReplay: false };
-    } catch (error) {
-      if (isUniqueConflict(error)) {
-        const winner = await this.findActiveWorkflow(input.scope);
-        if (winner)
-          return {
-            execution: winner,
-            applied: false,
-            idempotentReplay: hasTurn(winner, input.turnId)
-          };
+    return this.traceTransition(
+      `WORKFLOW_STEP:${input.scope.workflowType}:CREATE:${input.currentStep}`,
+      { workflowType: input.scope.workflowType, toStep: input.currentStep, toStatus: statusForPendingInput(input.pendingInput) },
+      async () => {
+        const activeKey = this.activeKey(input.scope);
+        const context = this.traceContextStore?.get();
+        const data = {
+          organizationId: input.scope.organizationId,
+          pluginInstallationId: input.scope.pluginInstallationId,
+          conversationId: input.scope.conversationId,
+          workflowType: input.scope.workflowType,
+          status: statusForPendingInput(input.pendingInput),
+          currentStep: input.currentStep,
+          pendingInput: input.pendingInput,
+          state: input.state as Prisma.InputJsonValue,
+          revision: 0,
+          processedTurnIds: [input.turnId],
+          activeKey,
+          ...(context?.sampled ? { traceId: context.traceId } : {})
+        };
+        try {
+          const execution = await this.prisma.workflowExecution.create({ data });
+          if (context) await this.observability?.linkTrace(context, { workflowExecutionId: execution.id });
+          return { execution, applied: true, idempotentReplay: false };
+        } catch (error) {
+          if (isUniqueConflict(error)) {
+            const winner = await this.findActiveWorkflow(input.scope);
+            if (winner)
+              return {
+                execution: winner,
+                applied: false,
+                idempotentReplay: hasTurn(winner, input.turnId)
+              };
+          }
+          throw error;
+        }
       }
-      throw error;
-    }
+    );
   }
 
   async updateWorkflowState(input: {
@@ -132,28 +164,40 @@ export class WorkflowExecutionService {
     if (!existing) throw new WorkflowExecutionRevisionConflictError();
     if (hasTurn(existing, input.turnId))
       return { execution: existing, applied: false, idempotentReplay: true };
-    const processedTurnIds = [...readTurnIds(existing), input.turnId].slice(-MAX_PROCESSED_TURNS);
-    const result = await this.prisma.workflowExecution.updateMany({
-      where: {
-        id: input.id,
-        organizationId: input.organizationId,
-        revision: input.expectedRevision,
-        activeKey: { not: null },
-        status: { in: [...ACTIVE_STATUSES] }
+    return this.traceTransition(
+      `WORKFLOW_STEP:${existing.workflowType}:${existing.currentStep}->${input.currentStep}`,
+      {
+        workflowType: existing.workflowType,
+        fromStep: existing.currentStep,
+        toStep: input.currentStep,
+        fromStatus: existing.status,
+        toStatus: input.status ?? statusForPendingInput(input.pendingInput)
       },
-      data: {
-        currentStep: input.currentStep,
-        pendingInput: input.pendingInput,
-        status: input.status ?? statusForPendingInput(input.pendingInput),
-        state: input.state as Prisma.InputJsonValue,
-        revision: { increment: 1 },
-        processedTurnIds
+      async () => {
+        const processedTurnIds = [...readTurnIds(existing), input.turnId].slice(-MAX_PROCESSED_TURNS);
+        const result = await this.prisma.workflowExecution.updateMany({
+          where: {
+            id: input.id,
+            organizationId: input.organizationId,
+            revision: input.expectedRevision,
+            activeKey: { not: null },
+            status: { in: [...ACTIVE_STATUSES] }
+          },
+          data: {
+            currentStep: input.currentStep,
+            pendingInput: input.pendingInput,
+            status: input.status ?? statusForPendingInput(input.pendingInput),
+            state: input.state as Prisma.InputJsonValue,
+            revision: { increment: 1 },
+            processedTurnIds
+          }
+        });
+        if (result.count !== 1) throw new WorkflowExecutionRevisionConflictError();
+        const execution = await this.loadWorkflow(input.organizationId, input.id);
+        if (!execution) throw new WorkflowExecutionRevisionConflictError();
+        return { execution, applied: true, idempotentReplay: false };
       }
-    });
-    if (result.count !== 1) throw new WorkflowExecutionRevisionConflictError();
-    const execution = await this.loadWorkflow(input.organizationId, input.id);
-    if (!execution) throw new WorkflowExecutionRevisionConflictError();
-    return { execution, applied: true, idempotentReplay: false };
+    );
   }
 
   markCompleted(input: TerminalInput): Promise<WorkflowExecution> {
@@ -172,26 +216,28 @@ export class WorkflowExecutionService {
     input: TerminalInput,
     status: PrismaWorkflowStatus
   ): Promise<WorkflowExecution> {
-    const result = await this.prisma.workflowExecution.updateMany({
-      where: {
-        id: input.id,
-        organizationId: input.organizationId,
-        revision: input.expectedRevision,
-        activeKey: { not: null }
-      },
-      data: {
-        status,
-        activeKey: null,
-        completedAt: new Date(),
-        state: input.state as Prisma.InputJsonValue,
-        revision: { increment: 1 },
-        ...(input.currentStep !== undefined ? { currentStep: input.currentStep } : {})
-      }
+    return this.traceTransition(`WORKFLOW_STEP:TERMINAL:${status}`, { toStatus: status, toStep: input.currentStep }, async () => {
+      const result = await this.prisma.workflowExecution.updateMany({
+        where: {
+          id: input.id,
+          organizationId: input.organizationId,
+          revision: input.expectedRevision,
+          activeKey: { not: null }
+        },
+        data: {
+          status,
+          activeKey: null,
+          completedAt: new Date(),
+          state: input.state as Prisma.InputJsonValue,
+          revision: { increment: 1 },
+          ...(input.currentStep !== undefined ? { currentStep: input.currentStep } : {})
+        }
+      });
+      if (result.count !== 1) throw new WorkflowExecutionRevisionConflictError();
+      const execution = await this.loadWorkflow(input.organizationId, input.id);
+      if (!execution) throw new WorkflowExecutionRevisionConflictError();
+      return execution;
     });
-    if (result.count !== 1) throw new WorkflowExecutionRevisionConflictError();
-    const execution = await this.loadWorkflow(input.organizationId, input.id);
-    if (!execution) throw new WorkflowExecutionRevisionConflictError();
-    return execution;
   }
 
   private activeKey(scope: WorkflowExecutionScope): string {

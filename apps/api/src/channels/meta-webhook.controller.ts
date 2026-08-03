@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Param, Query, Headers, Body, HttpCode, Logger } from "@nestjs/common";
+import { Controller, Get, Post, Param, Query, Headers, Body, HttpCode, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
 import { verifyMetaWebhookSignature } from "./whatsapp/meta-whatsapp.client";
 import { ChannelMessageProcessor } from "./channel-message.processor";
+import { ObservabilityService } from "../observability/observability.service";
 
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 10_000;
@@ -26,7 +27,8 @@ export class MetaWebhookController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly secrets: PluginSecretsEncryptionService,
-    private readonly processor: ChannelMessageProcessor
+    private readonly processor: ChannelMessageProcessor,
+    @Optional() private readonly observability?: ObservabilityService
   ) {}
 
   /**
@@ -118,28 +120,56 @@ export class MetaWebhookController {
       const textObj = msg.text as Record<string, unknown> | undefined;
       const bodyText = textObj?.body as string ?? "";
       const msgType = String(msg.type ?? "unknown");
-      try {
-        await this.prisma.channelMessage.create({
-          data: {
+      const webhookReceivedAt = Date.now();
+      // Sprint 4.7A Phase 4: this webhook receipt is the trace's own origin (signature already verified
+      // above, this is dedup+persist) — a genuine root span/trace, distinct from the background worker's
+      // own later BACKGROUND_TASK span, which reattaches to the SAME traceId via rootedContext() once it
+      // picks the row up (same async-continuity pattern already used for delegated task dispatch). A
+      // duplicate delivery (P2002, Meta's own webhook retries) is caught and swallowed INSIDE the span so
+      // it completes normally rather than being recorded as a false-positive trace failure.
+      const persist = async (span?: { traceId: string; sampled: boolean }) => {
+        try {
+          return await this.prisma.channelMessage.create({
+            data: {
+              organizationId: channel.organizationId,
+              channelConnectionId: channelId,
+              provider: "META_CLOUD_API",
+              direction: "INBOUND",
+              status: "RECEIVED",
+              providerMessageSid: providerMessageId,
+              fromAddress: senderNumber,
+              toAddress: recipientNumberId,
+              body: bodyText,
+              mediaMetadata: msgType !== "text" ? [{ type: msgType }] : [],
+              receivedAt: new Date(),
+              ...(span?.sampled ? { traceId: span.traceId } : {})
+            }
+          });
+        } catch (error: unknown) {
+          const prismaError = error as { code?: string };
+          if (prismaError.code === "P2002") return null;
+          this.logger.error({ event: "META_WEBHOOK_PERSIST_FAILED", channelId, providerMessageId, error: String(error) });
+          return null;
+        }
+      };
+      if (this.observability)
+        await this.observability.withSpan(
+          null,
+          {
+            name: "CHANNEL_INBOUND_WEBHOOK",
+            spanType: "CHANNEL_MESSAGE",
+            component: "MetaWebhookController",
             organizationId: channel.organizationId,
-            channelConnectionId: channelId,
-            provider: "META_CLOUD_API",
-            direction: "INBOUND",
-            status: "RECEIVED",
-            providerMessageSid: providerMessageId,
-            fromAddress: senderNumber,
-            toAddress: recipientNumberId,
-            body: bodyText,
-            mediaMetadata: msgType !== "text" ? [{ type: msgType }] : [],
-            receivedAt: new Date()
+            actorType: "CHANNEL",
+            inputSummary: { provider: "META_CLOUD_API", channelConnectionId: channelId, messageType: msgType }
+          },
+          async (span) => {
+            const created = await persist(span);
+            await this.observability?.addAttribute(span, "webhook", { firstAckMs: Date.now() - webhookReceivedAt, provider: "META_CLOUD_API", duplicate: created === null });
+            return created;
           }
-        });
-      } catch (error: unknown) {
-        const prismaError = error as { code?: string };
-        if (prismaError.code === "P2002") continue;
-        this.logger.error({ event: "META_WEBHOOK_PERSIST_FAILED", channelId, providerMessageId, error: String(error) });
-        continue;
-      }
+        );
+      else await persist();
     }
     this.processor.trigger();
     return {};

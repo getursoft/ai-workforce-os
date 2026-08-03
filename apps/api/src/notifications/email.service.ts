@@ -62,6 +62,19 @@ export class EmailService {
     return Boolean(process.env.SMTP_HOST?.trim());
   }
 
+  /** Sprint 4.7A Phase 7: a real connectivity check (nodemailer's SMTP handshake/verify — no email sent)
+   *  for the live health dashboard. Returns false for both "not configured" and "configured but
+   *  unreachable" — callers that need to distinguish those call `isConfigured()` first. */
+  async verifyConnection(): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      await this.getEnvTransporter().verify();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private buildTransporter(config: SmtpTransportConfig): Transporter {
     return nodemailer.createTransport({
       host: config.host,

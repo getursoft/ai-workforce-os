@@ -9,6 +9,8 @@ import { DelegationContractValidator } from "./delegation-contract";
 import { WorkforceCollaborationPolicyService } from "./workforce-collaboration-policy.service";
 import { WorkforceOrchestratorService } from "./workforce-orchestrator.service";
 import { WorkforceTaskProcessor } from "./workforce-task-processor";
+import { ChatDelegationTriggerService } from "./chat-delegation-trigger.service";
+import { CHAT_DELEGATION_TRIGGER } from "./chat-delegation.token";
 import { WorkforceController } from "./workforce.controller";
 
 @Module({
@@ -20,8 +22,17 @@ import { WorkforceController } from "./workforce.controller";
     DelegationContractValidator,
     WorkforceCollaborationPolicyService,
     WorkforceOrchestratorService,
-    WorkforceTaskProcessor
+    WorkforceTaskProcessor,
+    ChatDelegationTriggerService,
+    { provide: CHAT_DELEGATION_TRIGGER, useExisting: ChatDelegationTriggerService }
   ],
-  exports: [EmployeeRegistry, EmployeeCollaborationRouter, WorkforceOrchestratorService, WorkforceCollaborationPolicyService]
+  exports: [
+    EmployeeRegistry,
+    EmployeeCollaborationRouter,
+    WorkforceOrchestratorService,
+    WorkforceCollaborationPolicyService,
+    ChatDelegationTriggerService,
+    CHAT_DELEGATION_TRIGGER
+  ]
 })
 export class WorkforceModule {}

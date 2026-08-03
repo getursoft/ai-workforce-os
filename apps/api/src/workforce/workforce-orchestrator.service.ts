@@ -13,6 +13,8 @@ import { EmployeeCollaborationRouter, type DelegationRoutingResult } from "./emp
 import { DelegationContractValidator, type DelegationContract } from "./delegation-contract";
 import { WorkforceCollaborationPolicyService } from "./workforce-collaboration-policy.service";
 import { WorkforceEventBus, type ApprovalDecidedEvent } from "./workforce-event-bus";
+import { ObservabilityService } from "../observability/observability.service";
+import { rootedContext, type TraceContext } from "../observability/trace-context";
 
 export interface DelegateInput {
   organizationId: string;
@@ -29,6 +31,8 @@ export interface DelegateInput {
   /** Parallel-group internals — set only by delegateParallel(), never by a direct top-level caller. */
   correlationId?: string;
   joinPolicy?: string | null;
+  /** Sprint 4.7: the caller's active trace — when omitted, delegate() starts a new trace of its own. */
+  traceContext?: TraceContext | null;
 }
 
 export interface DelegationPlan {
@@ -74,6 +78,7 @@ export interface ParallelDelegateInput {
   requestedByActorId?: string | null;
   mode?: "SYNCHRONOUS" | "ASYNCHRONOUS";
   parentWorkflowExecutionId?: string | null;
+  traceContext?: TraceContext | null;
 }
 
 export interface JoinView {
@@ -108,7 +113,8 @@ export class WorkforceOrchestratorService implements OnModuleInit {
     private readonly memoryService: MemoryService,
     private readonly workflows: WorkflowExecutionService,
     private readonly events: WorkforceEventBus,
-    private readonly audit: AuditEventLogger
+    private readonly audit: AuditEventLogger,
+    private readonly observability: ObservabilityService
   ) {}
 
   /** Push-based approval resumption: subscribes once, for the lifetime of this singleton service, to
@@ -279,6 +285,23 @@ export class WorkforceOrchestratorService implements OnModuleInit {
   // ---------------------------------------------------------------------
 
   async delegate(input: DelegateInput): Promise<DelegatedTaskView> {
+    return this.observability.withSpan(
+      input.traceContext,
+      {
+        name: "DELEGATION",
+        spanType: "DELEGATION",
+        component: "WorkforceOrchestratorService",
+        organizationId: input.organizationId,
+        actorType: input.requestedByActorType ?? "EMPLOYEE",
+        actorId: input.requestedByActorId ?? null,
+        employeeInstallationId: input.sourceEmployeeInstallationId,
+        inputSummary: { sourceEmployeeInstallationId: input.sourceEmployeeInstallationId, targetEmployeeInstallationId: input.targetEmployeeInstallationId ?? null, mode: input.mode ?? null }
+      },
+      async (span) => this.delegateTraced(input, span)
+    );
+  }
+
+  private async delegateTraced(input: DelegateInput, span: TraceContext): Promise<DelegatedTaskView> {
     if (input.idempotencyKey) {
       const existing = await this.prisma.employeeDelegatedTask.findUnique({
         where: { idempotencyKey: input.idempotencyKey }
@@ -336,7 +359,8 @@ export class WorkforceOrchestratorService implements OnModuleInit {
         joinPolicy: input.joinPolicy ?? null,
         mode,
         maxAttempts: requiresApproval ? 1 : 2,
-        timeoutAt: new Date(Date.now() + (plan.contract.constraints?.timeoutMs ?? 15_000))
+        timeoutAt: new Date(Date.now() + (plan.contract.constraints?.timeoutMs ?? 15_000)),
+        traceId: span.sampled ? span.traceId : null
       }
     });
 
@@ -394,6 +418,21 @@ export class WorkforceOrchestratorService implements OnModuleInit {
    *  as a standalone delegation (same security, same routing, same execution) — parallelism here means
    *  "many concurrently in-flight children", not a second execution mechanism. */
   async delegateParallel(input: ParallelDelegateInput): Promise<JoinView> {
+    return this.observability.withSpan(
+      input.traceContext,
+      {
+        name: "PARALLEL_JOIN",
+        spanType: "PARALLEL_JOIN",
+        component: "WorkforceOrchestratorService",
+        organizationId: input.organizationId,
+        employeeInstallationId: input.sourceEmployeeInstallationId,
+        inputSummary: { joinPolicy: input.joinPolicy, totalChildren: input.requests.length }
+      },
+      async (span) => this.delegateParallelTraced(input, span)
+    );
+  }
+
+  private async delegateParallelTraced(input: ParallelDelegateInput, span: TraceContext): Promise<JoinView> {
     if (input.requests.length === 0) {
       throw new IdentityApplicationError("TASK_SCHEMA_INVALID", "A parallel delegation requires at least one request.");
     }
@@ -435,7 +474,8 @@ export class WorkforceOrchestratorService implements OnModuleInit {
         requestedByActorId: input.requestedByActorId ?? null,
         mode: input.mode ?? "SYNCHRONOUS",
         correlationId,
-        joinPolicy: input.joinPolicy
+        joinPolicy: input.joinPolicy,
+        traceContext: span
       }).catch((error) => {
         // A single sibling failing to even PLAN (e.g. NO_ELIGIBLE_EMPLOYEE) must not corrupt the group —
         // it still counts as a terminal (failed) member once we synthesize its absence below.
@@ -570,6 +610,15 @@ export class WorkforceOrchestratorService implements OnModuleInit {
       targetEmployeeInstallationId: task.targetEmployeeInstallationId
     });
 
+    // Rebuilt from the task row rather than threaded through the call stack: dispatch() may run in this
+    // same request (synchronous delegation) or much later, on a totally different call stack, when
+    // WorkforceTaskProcessor's background timer picks up a QUEUED task — either way the child's
+    // AGENT_EXECUTION span still attaches to the SAME trace the original request started (Phase 2: "async
+    // execution must preserve the original traceId").
+    const dispatchTraceContext = task.traceId
+      ? rootedContext(task.organizationId, task.traceId, true, { delegatedTaskId: task.id })
+      : undefined;
+
     try {
       const result = await this.agentService.execute({
         organizationId: task.organizationId,
@@ -579,7 +628,8 @@ export class WorkforceOrchestratorService implements OnModuleInit {
         text: task.instructions,
         source: { type: "DASHBOARD" },
         requestId: `workforce-${task.id}`,
-        metadata: { delegatedTaskId: task.id, correlationId: task.correlationId }
+        metadata: { delegatedTaskId: task.id, correlationId: task.correlationId },
+        ...(dispatchTraceContext ? { traceContext: dispatchTraceContext } : {})
       });
 
       if (!task.childConversationId) {

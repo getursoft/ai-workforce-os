@@ -1,5 +1,6 @@
 import Ajv, { type ValidateFunction } from "ajv";
 import { EMPLOYEE_SYSTEM_IDENTITY_PROMPT } from "../knowledge/knowledge.prompt";
+import type { TraceContext } from "../observability/trace-context";
 
 export type ModelRole = "system" | "user" | "assistant" | "tool";
 export interface ModelMessage {
@@ -140,6 +141,9 @@ export interface AgentExecutionInput {
   /** Ids of uploaded conversation attachments whose extracted text should be injected into this turn's
    *  context so the AI Employee can read the file contents (PDF/DOCX/TXT/JPG/PNG). */
   attachmentIds?: string[];
+  /** Sprint 4.7: an existing trace to continue (e.g. WorkforceOrchestratorService dispatching a delegated
+   *  task) — when omitted, AgentService.execute() starts a brand-new trace and becomes its root. */
+  traceContext?: TraceContext;
 }
 export interface ToolHandler {
   definition: ToolDefinition;

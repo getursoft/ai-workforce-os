@@ -142,7 +142,14 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "workforce.task.read",
     "workforce.task.manage",
     "workforce.collaboration.configure",
-    "workforce.audit.read"
+    "workforce.audit.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read",
+    "observability.alert.manage",
+    "observability.operation.execute",
+    "observability.platform.read"
   ],
   Admin: [
     "organization.manage",
@@ -238,7 +245,13 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "workforce.task.read",
     "workforce.task.manage",
     "workforce.collaboration.configure",
-    "workforce.audit.read"
+    "workforce.audit.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read",
+    "observability.alert.manage",
+    "observability.operation.execute"
   ],
   Manager: [
     "TEAM_READ",
@@ -296,7 +309,11 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "hr.leave.submit",
     "hr.leave.approve",
     "workforce.read",
-    "workforce.task.read"
+    "workforce.task.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read"
   ],
   Member: [
     "TEAM_READ",

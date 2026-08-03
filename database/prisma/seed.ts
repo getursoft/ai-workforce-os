@@ -142,7 +142,14 @@ export const DEFAULT_PERMISSIONS = {
     "workforce.task.read",
     "workforce.task.manage",
     "workforce.collaboration.configure",
-    "workforce.audit.read"
+    "workforce.audit.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read",
+    "observability.alert.manage",
+    "observability.operation.execute",
+    "observability.platform.read"
   ],
   Admin: [
     "organization.manage",
@@ -238,7 +245,13 @@ export const DEFAULT_PERMISSIONS = {
     "workforce.task.read",
     "workforce.task.manage",
     "workforce.collaboration.configure",
-    "workforce.audit.read"
+    "workforce.audit.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read",
+    "observability.alert.manage",
+    "observability.operation.execute"
   ],
   Manager: [
     "TEAM_READ",
@@ -296,7 +309,11 @@ export const DEFAULT_PERMISSIONS = {
     "hr.leave.submit",
     "hr.leave.approve",
     "workforce.read",
-    "workforce.task.read"
+    "workforce.task.read",
+    "observability.read",
+    "observability.trace.read",
+    "observability.metrics.read",
+    "observability.alert.read"
   ],
   Member: [
     "TEAM_READ",
@@ -452,7 +469,14 @@ const descriptions: Record<string, string> = {
   "workforce.task.read": "View delegated tasks between AI Employees",
   "workforce.task.manage": "Trigger, cancel, and retry delegated tasks between AI Employees",
   "workforce.collaboration.configure": "Configure organization-wide AI Employee collaboration policy",
-  "workforce.audit.read": "View audit events for AI Employee delegation"
+  "workforce.audit.read": "View audit events for AI Employee delegation",
+  "observability.read": "View the observability overview (executions, success rate, running work)",
+  "observability.trace.read": "View individual execution traces and their span trees",
+  "observability.metrics.read": "View aggregated observability metrics and charts",
+  "observability.alert.read": "View operational alerts",
+  "observability.alert.manage": "Acknowledge and resolve operational alerts",
+  "observability.operation.execute": "Perform safe operational actions (retry task, resume workflow) from observability",
+  "observability.platform.read": "View cross-organization platform health (platform operators only)"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
