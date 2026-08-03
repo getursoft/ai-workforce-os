@@ -140,7 +140,11 @@ suite("Identity HTTP API", () => {
 
     const loggedIn = await request(app.getHttpServer())
       .post("/api/v1/auth/login")
-      .send({ email: "ADMIN@Getursoft.com", password: registration.password })
+      .send({
+        email: "ADMIN@Getursoft.com",
+        password: registration.password,
+        organizationName: registration.organizationName
+      })
       .expect(200);
     const loggedInBody = loggedIn.body as AuthenticationEnvelope;
     expect(loggedInBody.data.user.email).toBe(registration.email);
@@ -171,7 +175,11 @@ suite("Identity HTTP API", () => {
 
     const logoutLogin = await agent
       .post("/api/v1/auth/login")
-      .send({ email: registration.email, password: registration.password })
+      .send({
+        email: registration.email,
+        password: registration.password,
+        organizationName: registration.organizationName
+      })
       .expect(200);
     const logoutTokens = (logoutLogin.body as AuthenticationEnvelope).data.tokens;
     await agent
@@ -197,7 +205,11 @@ suite("Identity HTTP API", () => {
         .expect(409),
       await request(app.getHttpServer())
         .post("/api/v1/auth/login")
-        .send({ email: registration.email, password: "IncorrectPassword@123" })
+        .send({
+          email: registration.email,
+          password: "IncorrectPassword@123",
+          organizationName: registration.organizationName
+        })
         .expect(401),
       await request(app.getHttpServer()).get("/api/v1/auth/me").expect(401),
       await request(app.getHttpServer())

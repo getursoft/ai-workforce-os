@@ -11,6 +11,13 @@ export interface SecurityConfig {
   apiPublicUrl: string;
   serverPort: number;
   allowDevelopmentImplementations: boolean;
+  /** The single universal platform-owner email (env PLATFORM_OWNER_EMAIL). This account is a
+   *  superadmin that can access and administer every organization. */
+  platformOwnerEmail: string;
+  /** When false, public self-registration is disabled — organizations can only be created by the
+   *  platform owner. Defaults to enabled outside production/staging so the test suite can provision
+   *  throwaway organizations via /auth/register. */
+  publicSignupEnabled: boolean;
   pluginDirectory?: string;
   passwordHash: {
     memoryCost: number;
@@ -203,6 +210,14 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
     "ALLOW_DEVELOPMENT_IMPLEMENTATIONS",
     !productionLike
   );
+  const publicSignupEnabled = boolean(
+    environment,
+    "PUBLIC_SIGNUP_ENABLED",
+    !productionLike
+  );
+  const platformOwnerEmail = (
+    optionalString(environment, "PLATFORM_OWNER_EMAIL") ?? "krpandey25646@gmail.com"
+  ).trim().toLowerCase();
   const pluginDirectory = optionalString(environment, "PLUGIN_DIRECTORY");
   if (productionLike && allowDevelopmentImplementations)
     throw new InvalidSecurityConfigurationError("ALLOW_DEVELOPMENT_IMPLEMENTATIONS");
@@ -226,6 +241,8 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
     apiPublicUrl,
     serverPort,
     allowDevelopmentImplementations,
+    platformOwnerEmail,
+    publicSignupEnabled,
     ...(pluginDirectory ? { pluginDirectory } : {}),
     passwordHash: {
       memoryCost: integer(environment, "PASSWORD_HASH_MEMORY_COST", 8192, 1_048_576),

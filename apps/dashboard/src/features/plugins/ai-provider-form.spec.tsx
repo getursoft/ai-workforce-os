@@ -168,7 +168,7 @@ describe("AI provider form", () => {
       "Apply the latest migrations"
     );
     expect(providerConfigurationErrorMessage({ code: "AUTHORIZATION_FAILED" })).toContain(
-      "Owners and Admins"
+      "platform owner"
     );
     expect(providerConfigurationErrorMessage({ code: "PLUGIN_NOT_FOUND" })).toContain(
       "no longer available"

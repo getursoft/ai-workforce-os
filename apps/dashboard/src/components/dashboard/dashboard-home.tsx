@@ -1,20 +1,29 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AreaChart, Area, XAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { Line, LineChart, XAxis, YAxis, Legend, Tooltip, ResponsiveContainer } from "recharts";
 import { MessagesSquare, Zap, Wallet, ShieldAlert, type LucideIcon } from "lucide-react";
 import { useAuth, useCurrentUser } from "../../features/auth/auth-provider";
 import { createAgentApi } from "../../features/agents/agent-api";
 import { createBillingApi } from "../../features/billing/billing-api";
 import { createApprovalApi } from "../../features/approvals/approval-api";
-import { firstNameOrEmail, relativeTime, toneForExecutionStatus } from "./dashboard-home.logic";
+import { firstNameOrEmail } from "./dashboard-home.logic";
 import { Badge, Card, PageHeader, Skeleton } from "../ui";
 
-function monthStart(): string {
+// A categorical palette where adjacent entries stay visually distinct even as thin 2px lines —
+// avoids picking two reds/pinks next to each other, which read as the same color at a glance.
+const EMPLOYEE_LINE_COLORS = [
+  "#4e79a7", "#f28e2b", "#e15759", "#76b7b2",
+  "#59a14f", "#edc949", "#af7aa1", "#9c755f"
+];
+
+/** Rolling window, not calendar-month start — a calendar-month default collapses to a single day
+ *  whenever today is the 1st of the month, showing an empty dashboard right when the month rolls over. */
+function daysAgo(days: number): string {
   const d = new Date();
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), 1).toISOString().slice(0, 10);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
 }
 
 function todayString(): string {
@@ -55,13 +64,14 @@ export function DashboardHome() {
 
   const conversations = useQuery({ queryKey: ["dashboard", "conversations"], queryFn: () => agentsApi.conversations(1) });
   const executions = useQuery({ queryKey: ["dashboard", "executions"], queryFn: () => agentsApi.executions(1) });
+  const employees = useQuery({ queryKey: ["dashboard", "employees"], queryFn: () => agentsApi.employees() });
   const summary = useQuery({
     queryKey: ["dashboard", "billing-summary"],
-    queryFn: () => billingApi.summary(monthStart(), todayString())
+    queryFn: () => billingApi.summary(daysAgo(30), todayString())
   });
-  const trend = useQuery({
-    queryKey: ["dashboard", "billing-trend"],
-    queryFn: () => billingApi.trend(monthStart(), todayString())
+  const employeeTrend = useQuery({
+    queryKey: ["dashboard", "billing-trend-by-employee"],
+    queryFn: () => billingApi.trendByEmployee(daysAgo(30), todayString())
   });
   const approvals = useQuery({
     queryKey: ["dashboard", "approvals-pending", organization?.id],
@@ -69,8 +79,19 @@ export function DashboardHome() {
     enabled: Boolean(organization?.id)
   });
 
-  const recentExecutions = (executions.data?.items ?? []).slice(0, 5);
-  const chartData = (trend.data ?? []).map((p) => ({ date: p.date, requests: p.requests }));
+  const employeesInUse = (employees.data ?? []).filter((e) => e.status === "ACTIVE" && e.runtimeReady);
+  const employeeRequestTrendData = employeeTrend.data?.requestPoints ?? [];
+  const employeeTrendData = employeeTrend.data?.points ?? [];
+  const employeeTokenTrendData = employeeTrend.data?.tokenPoints ?? [];
+  const employeeTimeSavedData = employeeTrend.data?.timeSavedPoints ?? [];
+  const employeeTrendSeries = employeeTrend.data?.employees ?? [];
+  const assumedMinutesSaved = employeeTrend.data?.assumedMinutesSavedPerExecution ?? 8;
+  const employeeColorOf = useMemo(() => {
+    const colorByName = new Map(
+      employeeTrendSeries.map((name, index) => [name, EMPLOYEE_LINE_COLORS[index % EMPLOYEE_LINE_COLORS.length] ?? "var(--primary)"])
+    );
+    return (name: string) => colorByName.get(name) ?? "var(--primary)";
+  }, [employeeTrendSeries]);
 
   return (
     <div className="dashboard-home">
@@ -99,7 +120,7 @@ export function DashboardHome() {
           icon={Wallet}
           label="Credits Used"
           value={formatCompact(summary.data?.usedCredits ?? 0)}
-          hint="This month"
+          hint="Last 30 days"
           tint="stat-tint--purple"
           loading={summary.isLoading}
         />
@@ -115,66 +136,118 @@ export function DashboardHome() {
       <section className="dashboard-grid dashboard-grid--two">
         <Card>
           <h2>Requests over time</h2>
-          {trend.isLoading ? (
-            <Skeleton className="dashboard-home__chart-skeleton" />
-          ) : chartData.length > 0 ? (
-            <div className="dashboard-home__chart">
-              <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="dashboardActivityFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.28} />
-                      <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(value) => [Number(value).toLocaleString(), "Requests"]} contentStyle={{ fontSize: "0.8rem", borderRadius: 10 }} />
-                  <Area type="monotone" dataKey="requests" stroke="var(--primary)" strokeWidth={2} fill="url(#dashboardActivityFill)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+          <EmployeeLineChart
+            loading={employeeTrend.isLoading}
+            series={employeeTrendSeries}
+            data={employeeRequestTrendData}
+            colorOf={employeeColorOf}
+            emptyMessage="No AI activity has been recorded yet in the last 30 days."
+          />
+        </Card>
+
+        <Card>
+          <h2>Time Saved by AI Employee</h2>
+          <p className="dashboard-home__muted">
+            Estimated at {assumedMinutesSaved} minutes of manual work per completed request.
+          </p>
+          <EmployeeLineChart
+            loading={employeeTrend.isLoading}
+            series={employeeTrendSeries}
+            data={employeeTimeSavedData}
+            colorOf={employeeColorOf}
+            unit="h"
+            emptyMessage="No AI activity has been recorded yet in the last 30 days."
+          />
+        </Card>
+      </section>
+
+      <section className="dashboard-grid dashboard-grid--two">
+        <Card>
+          <h2>AI Employees in Use</h2>
+          {employees.isLoading ? (
+            <Skeleton className="dashboard-home__list-skeleton" />
           ) : (
-            <p className="dashboard-home__muted">No AI activity has been recorded yet this month.</p>
+            <>
+              <p className="dashboard-stat-card__value">
+                {employeesInUse.length.toLocaleString()}
+                <span className="dashboard-home__muted"> / {(employees.data ?? []).length.toLocaleString()} installed</span>
+              </p>
+              {employeesInUse.length > 0 ? (
+                <ul className="dashboard-activity-list">
+                  {employeesInUse.map((employee) => (
+                    <li key={employee.id} className="dashboard-activity-list__row">
+                      <Badge tone="success">Active</Badge>
+                      <span className="dashboard-activity-list__label">{employee.displayName}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="dashboard-home__muted">No AI Employee is active and configured yet.</p>
+              )}
+            </>
           )}
         </Card>
 
         <Card>
-          <h2>Recent Activity</h2>
-          {executions.isLoading ? (
-            <Skeleton className="dashboard-home__list-skeleton" />
-          ) : recentExecutions.length > 0 ? (
-            <ul className="dashboard-activity-list">
-              {recentExecutions.map((execution) => (
-                <li key={execution.id} className="dashboard-activity-list__row">
-                  <Badge tone={toneForExecutionStatus(execution.status)}>{execution.status}</Badge>
-                  <span className="dashboard-activity-list__label">{execution.pluginInstallation.displayName}</span>
-                  <span className="dashboard-activity-list__time">{relativeTime(execution.createdAt)}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="dashboard-home__muted">No AI Employee activity yet — run one from AI Employees to see it here.</p>
-          )}
+          <h2>Credits by AI Employee</h2>
+          <EmployeeLineChart
+            loading={employeeTrend.isLoading}
+            series={employeeTrendSeries}
+            data={employeeTrendData}
+            colorOf={employeeColorOf}
+            emptyMessage="No credit usage has been recorded yet in the last 30 days."
+          />
+
+          <h2>Tokens by AI Employee</h2>
+          <EmployeeLineChart
+            loading={employeeTrend.isLoading}
+            series={employeeTrendSeries}
+            data={employeeTokenTrendData}
+            colorOf={employeeColorOf}
+            emptyMessage="No token usage has been recorded yet in the last 30 days."
+          />
         </Card>
       </section>
+    </div>
+  );
+}
 
-      <Card>
-        <h2>Getting started</h2>
-        <ol className="dashboard-list">
-          <li>
-            <Link href="/ai-employees">Create your first AI Employee</Link>
-          </li>
-          <li>
-            <Link href="/dashboard/integrations">Connect a communication channel</Link>
-          </li>
-          <li>
-            <Link href="/knowledge">Add a knowledge source</Link>
-          </li>
-          <li>
-            <Link href="/ai-employees">Test your AI Employee</Link>
-          </li>
-        </ol>
-      </Card>
+function EmployeeLineChart({
+  loading, series, data, colorOf, emptyMessage, unit
+}: Readonly<{
+  loading: boolean;
+  series: string[];
+  data: Array<Record<string, string | number>>;
+  colorOf: (name: string) => string;
+  emptyMessage: string;
+  unit?: string;
+}>) {
+  if (loading) return <Skeleton className="dashboard-home__chart-skeleton" />;
+  if (series.length === 0) return <p className="dashboard-home__muted">{emptyMessage}</p>;
+  return (
+    <div className="dashboard-home__chart">
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={data}>
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--muted)" }} axisLine={false} tickLine={false} width={40} />
+          <Tooltip
+            formatter={(value, name) => [`${Number(value).toLocaleString()}${unit ? ` ${unit}` : ""}`, name]}
+            contentStyle={{ fontSize: "0.8rem", borderRadius: 10 }}
+          />
+          <Legend wrapperStyle={{ fontSize: "0.75rem" }} />
+          {series.map((name) => (
+            <Line
+              key={name}
+              type="monotone"
+              dataKey={name}
+              name={name}
+              stroke={colorOf(name)}
+              strokeWidth={2}
+              dot={false}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }

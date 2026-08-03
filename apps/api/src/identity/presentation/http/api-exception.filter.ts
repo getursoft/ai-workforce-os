@@ -39,6 +39,9 @@ const STATUS: Record<IdentityErrorCode, number> = {
   VALIDATION_ERROR: HttpStatus.BAD_REQUEST,
   AUTHENTICATION_FAILED: HttpStatus.UNAUTHORIZED,
   AUTHORIZATION_FAILED: HttpStatus.FORBIDDEN,
+  SIGNUP_DISABLED: HttpStatus.FORBIDDEN,
+  PLATFORM_OWNER_REQUIRED: HttpStatus.FORBIDDEN,
+  ORGANIZATION_SWITCH_DENIED: HttpStatus.FORBIDDEN,
   EMAIL_ALREADY_EXISTS: HttpStatus.CONFLICT,
   USER_NOT_FOUND: HttpStatus.NOT_FOUND,
   ORGANIZATION_NOT_FOUND: HttpStatus.NOT_FOUND,
@@ -102,7 +105,23 @@ const STATUS: Record<IdentityErrorCode, number> = {
   CREDIT_PURCHASE_ORDER_NOT_PENDING: HttpStatus.CONFLICT,
   CREDIT_PURCHASE_ORDER_MISMATCH: HttpStatus.BAD_REQUEST,
   PAYMENT_SIGNATURE_INVALID: HttpStatus.BAD_REQUEST,
-  PAYMENT_SETTINGS_INVALID: HttpStatus.UNPROCESSABLE_ENTITY
+  PAYMENT_SETTINGS_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  NO_ELIGIBLE_EMPLOYEE: HttpStatus.UNPROCESSABLE_ENTITY,
+  DELEGATION_NOT_ALLOWED: HttpStatus.FORBIDDEN,
+  DELEGATION_CYCLE_DETECTED: HttpStatus.CONFLICT,
+  DELEGATION_DEPTH_EXCEEDED: HttpStatus.CONFLICT,
+  TASK_SCHEMA_INVALID: HttpStatus.UNPROCESSABLE_ENTITY,
+  TARGET_EXECUTION_FAILED: HttpStatus.BAD_GATEWAY,
+  TASK_TIMED_OUT: HttpStatus.GATEWAY_TIMEOUT,
+  RESULT_SCHEMA_INVALID: HttpStatus.BAD_GATEWAY,
+  PARENT_EXECUTION_CLOSED: HttpStatus.CONFLICT,
+  WORKFORCE_TASK_NOT_FOUND: HttpStatus.NOT_FOUND,
+  WORKFORCE_JOIN_NOT_FOUND: HttpStatus.NOT_FOUND,
+  WORKFORCE_CAPABILITY_NOT_GRANTED: HttpStatus.FORBIDDEN,
+  WORKFORCE_CROSS_TENANT_DENIED: HttpStatus.FORBIDDEN,
+  WORKFORCE_DUPLICATE_COMPLETION: HttpStatus.CONFLICT,
+  WORKFORCE_EMPLOYEE_NOT_INSTALLED: HttpStatus.UNPROCESSABLE_ENTITY,
+  WORKFORCE_TARGET_DISABLED: HttpStatus.CONFLICT
 };
 
 @Catch()
@@ -224,7 +243,8 @@ function stableHttpErrorCode(exception: HttpException): IdentityErrorCode | unde
         : undefined;
   return message?.startsWith("CONNECTOR_") ||
     message?.startsWith("KNOWLEDGE_") ||
-    message?.startsWith("EMBEDDING_")
+    message?.startsWith("EMBEDDING_") ||
+    message?.startsWith("WORKFORCE_")
     ? (message as IdentityErrorCode)
     : undefined;
 }
@@ -251,7 +271,9 @@ function stableHttpErrorMessage(code: IdentityErrorCode): string {
     KNOWLEDGE_SEARCH_QUERY_REQUIRED: "A knowledge search query is required.",
     EMBEDDING_PROVIDER_NOT_CONFIGURED: "An embedding provider is not configured.",
     EMBEDDING_PROVIDER_REQUEST_FAILED: "The embedding provider request failed.",
-    EMBEDDING_PROVIDER_RESPONSE_INVALID: "The embedding provider returned an invalid response."
+    EMBEDDING_PROVIDER_RESPONSE_INVALID: "The embedding provider returned an invalid response.",
+    WORKFORCE_TASK_NOT_FOUND: "The delegated task was not found.",
+    WORKFORCE_JOIN_NOT_FOUND: "The parallel delegation join was not found."
   };
   return messages[code] ?? "The connector operation could not be completed safely.";
 }

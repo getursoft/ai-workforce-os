@@ -52,6 +52,15 @@ export interface TrendPoint {
   requests: number;
 }
 
+export interface EmployeeTrend {
+  employees: string[];
+  requestPoints: Array<Record<string, string | number>>;
+  points: Array<Record<string, string | number>>;
+  tokenPoints: Array<Record<string, string | number>>;
+  timeSavedPoints: Array<Record<string, string | number>>;
+  assumedMinutesSavedPerExecution: number;
+}
+
 export interface UserUsage {
   userId: string;
   name: string;
@@ -108,6 +117,8 @@ export function createBillingApi(client: ApiClient) {
       client.request<ModelUsage[]>(`/billing/usage/by-model${qs(start, end)}`),
     trend: (start?: string, end?: string) =>
       client.request<TrendPoint[]>(`/billing/usage/trend${qs(start, end)}`),
+    trendByEmployee: (start?: string, end?: string) =>
+      client.request<EmployeeTrend>(`/billing/usage/trend-by-employee${qs(start, end)}`),
     byUser: (start?: string, end?: string) =>
       client.request<UserUsage[]>(`/billing/usage/by-user${qs(start, end)}`),
     creditPackages: () =>

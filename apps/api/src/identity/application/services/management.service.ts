@@ -49,6 +49,8 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "plugin.install",
     "plugin.update",
     "plugin.delete",
+    "plugin.ai.manage",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -135,16 +137,14 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "support.tickets.read",
     "support.tickets.update",
     "hr.leave.submit",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read",
+    "workforce.task.manage",
+    "workforce.collaboration.configure",
+    "workforce.audit.read"
   ],
   Admin: [
-    "users.read",
-    "users.write",
-    "users.delete",
-    "roles.read",
-    "roles.write",
-    "invitations.read",
-    "invitations.write",
     "organization.manage",
     "TEAM_READ",
     "TEAM_CREATE",
@@ -153,19 +153,8 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
     "TEAM_MEMBER_UPDATE",
-    "service_accounts.read",
-    "service_accounts.create",
-    "service_accounts.update",
-    "service_accounts.delete",
-    "service_accounts.roles.manage",
-    "api_keys.read",
-    "api_keys.create",
-    "api_keys.rotate",
-    "api_keys.revoke",
     "plugin.read",
-    "plugin.install",
-    "plugin.update",
-    "plugin.delete",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -244,24 +233,22 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "support.conversation.reset",
     "support.tickets.read",
     "support.tickets.update",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read",
+    "workforce.task.manage",
+    "workforce.collaboration.configure",
+    "workforce.audit.read"
   ],
   Manager: [
-    "users.read",
-    "roles.read",
-    "invitations.read",
-    "invitations.write",
     "TEAM_READ",
     "TEAM_CREATE",
     "TEAM_UPDATE",
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
     "TEAM_MEMBER_UPDATE",
-    "service_accounts.read",
-    "api_keys.read",
     "plugin.read",
-    "plugin.install",
-    "plugin.update",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -307,14 +294,15 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "support.conversation.reset",
     "support.tickets.read",
     "hr.leave.submit",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read"
   ],
   Member: [
-    "users.read",
-    "roles.read",
     "TEAM_READ",
     "plugin.read",
     "plugin.execute",
+    "plugin.email.manage",
     "agents.run",
     "agents.conversations.read",
     "agents.memory.read",
@@ -324,9 +312,9 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "knowledge.search"
   ],
   Viewer: [
-    "users.read",
     "TEAM_READ",
     "plugin.read",
+    "plugin.email.manage",
     "connector.read",
     "knowledge.read",
     "channel.read",
@@ -361,6 +349,11 @@ export class ManagementService {
       await this.prisma.rolePermission.createMany({
         data: ids.map((permissionId) => ({ roleId: role.id, permissionId })),
         skipDuplicates: true
+      });
+      // System roles are fully owned by DEFAULT_PERMISSIONS: revoke any grant no longer declared for
+      // this role so a permission removed here also takes effect for orgs that were already seeded.
+      await this.prisma.rolePermission.deleteMany({
+        where: { roleId: role.id, permissionId: { notIn: ids } }
       });
     }
     const legacyUsers = await this.prisma.user.findMany({
@@ -486,6 +479,23 @@ export class ManagementService {
     if (this.isOwner(user) && input.status && input.status !== UserStatus.ACTIVE)
       throw new ForbiddenException("The owner cannot be deactivated");
     return this.prisma.user.update({ where: { id }, data: input, omit: { passwordHash: true } });
+  }
+
+  /** Owner/admin reset of another user's password — the target's sessions are revoked so they must
+   *  sign back in with the new password. */
+  async resetUserPassword(org: string, id: string, actorId: string, password: string) {
+    if (id === actorId) throw new ForbiddenException("You cannot reset your own password here");
+    const user = await this.getUser(org, id);
+    const passwordHash = await argon2.hash(password);
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id }, data: { passwordHash } }),
+      this.prisma.authenticationSession.deleteMany({ where: { userId: id } })
+    ]);
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      omit: { passwordHash: true },
+      include: { userRoles: { include: { role: true } } }
+    });
   }
   async deleteUser(org: string, id: string, actorId: string) {
     const user = await this.getUser(org, id);

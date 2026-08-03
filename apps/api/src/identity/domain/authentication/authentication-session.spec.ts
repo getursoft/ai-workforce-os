@@ -49,6 +49,7 @@ describe("AuthenticationSession", () => {
       AuthenticationSession.reconstruct({
         id: AuthenticationSessionId.from("00000000-0000-4000-8000-000000000003"),
         userId: UserId.from("00000000-0000-4000-8000-000000000002"),
+        activeOrganizationId: null,
         tokenHash: "token-hash",
         tokenFamilyId: TokenFamilyId.from("00000000-0000-4000-8000-000000000005"),
         createdAt,
@@ -67,6 +68,7 @@ describe("AuthenticationSession", () => {
       AuthenticationSession.reconstruct({
         id: AuthenticationSessionId.from("00000000-0000-4000-8000-000000000003"),
         userId: UserId.from("00000000-0000-4000-8000-000000000002"),
+        activeOrganizationId: null,
         tokenHash: "token-hash",
         tokenFamilyId: TokenFamilyId.from("00000000-0000-4000-8000-000000000005"),
         createdAt,

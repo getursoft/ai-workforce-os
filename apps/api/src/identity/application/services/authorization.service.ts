@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
+import { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 
 interface CacheEntry {
   permissions: ReadonlySet<string>;
@@ -11,7 +12,10 @@ export class AuthorizationService {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly ttlMs = 5 * 60 * 1000;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly platformOwner: PlatformOwnerService
+  ) {}
 
   async getEffectivePermissions(
     userId: string,
@@ -26,28 +30,37 @@ export class AuthorizationService {
       this.cache.set(key, { permissions, expiresAt: Date.now() + this.ttlMs });
       return [...permissions].sort();
     }
-    const assignments = await this.prisma.userRole.findMany({
-      where: {
-        userId,
-        user: { organizationId, deletedAt: null, status: "ACTIVE" },
-        role: { organizationId }
-      },
-      select: {
-        role: { select: { permissions: { select: { permission: { select: { key: true } } } } } }
-      }
-    });
+    const [assignments, userInOrg, anyUser] = await Promise.all([
+      this.prisma.userRole.findMany({
+        where: {
+          userId,
+          user: { organizationId, deletedAt: null, status: "ACTIVE" },
+          role: { organizationId }
+        },
+        select: {
+          role: { select: { permissions: { select: { permission: { select: { key: true } } } } } }
+        }
+      }),
+      this.prisma.user.findFirst({
+        where: { id: userId, organizationId, deletedAt: null },
+        select: { role: true }
+      }),
+      this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        select: { email: true }
+      })
+    ]);
     const permissions = new Set(
       assignments.flatMap(({ role }) => role.permissions.map(({ permission }) => permission.key))
     );
-    if (assignments.length === 0) {
-      const user = await this.prisma.user.findFirst({
-        where: { id: userId, organizationId, deletedAt: null, status: "ACTIVE" },
-        select: { role: true }
-      });
-      if (user?.role === "OWNER" || user?.role === "ADMIN") {
-        for (const permission of await this.prisma.permission.findMany({ select: { key: true } })) {
-          permissions.add(permission.key);
-        }
+    // The universal platform owner is a superadmin in EVERY organization — all permissions apply,
+    // including in organizations they have no membership row in (org-switch sessions).
+    if (anyUser && this.platformOwner.isPlatformOwnerEmail(anyUser.email)) {
+      const all = await this.prisma.permission.findMany({ select: { key: true } });
+      for (const permission of all) permissions.add(permission.key);
+    } else if (assignments.length === 0 && (userInOrg?.role === "OWNER" || userInOrg?.role === "ADMIN")) {
+      for (const permission of await this.prisma.permission.findMany({ select: { key: true } })) {
+        permissions.add(permission.key);
       }
     }
     this.cache.set(key, { permissions, expiresAt: Date.now() + this.ttlMs });
@@ -78,6 +91,11 @@ export class AuthorizationService {
     return permissions.every((permission) => effective.has(permission));
   }
   async canAccessOrganization(userId: string, organizationId: string): Promise<boolean> {
+    const owner = await this.prisma.user.findFirst({
+      where: { id: userId },
+      select: { email: true }
+    });
+    if (owner && this.platformOwner.isPlatformOwnerEmail(owner.email)) return true;
     return (
       (await this.prisma.user.count({
         where: { id: userId, organizationId, deletedAt: null, status: "ACTIVE" }

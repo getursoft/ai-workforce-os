@@ -13,6 +13,7 @@ import type { IdentityUnitOfWork } from "../ports/identity-unit-of-work";
 import type { PasswordHasher } from "../ports/password-hasher";
 import { PersistenceConflictError } from "../ports/persistence-error";
 import type { RefreshTokenService } from "../ports/refresh-token-service";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 import { uniqueOrganizationSlug } from "../services/organization-slug";
 import { validatePassword } from "../services/password-policy";
 import { AuthenticationSession } from "../../domain/authentication/authentication-session";
@@ -44,7 +45,8 @@ export class RegisterOrganizationHandler {
     private readonly refreshTokens: RefreshTokenService,
     private readonly clock: Clock,
     private readonly identifiers: IdentifierGenerator,
-    private readonly lifetimes: AuthenticationLifetimes
+    private readonly lifetimes: AuthenticationLifetimes,
+    private readonly platformOwner: PlatformOwnerService
   ) {}
 
   async execute(command: RegisterOrganizationCommand): Promise<AuthenticationResult> {
@@ -96,12 +98,19 @@ export class RegisterOrganizationHandler {
         return { organization, user };
       });
       const accessToken = await this.accessTokens.issue(
-        principalFor(persisted.user, sessionId),
+        principalFor(persisted.user, sessionId, {
+          isPlatformOwner: this.platformOwner.isPlatformOwnerEmail(
+            persisted.user.email.toString()
+          )
+        }),
         now
       );
       return {
         organization: publicOrganization(persisted.organization),
-        user: publicUser(persisted.user),
+        user: publicUser(
+          persisted.user,
+          this.platformOwner.isPlatformOwnerEmail(persisted.user.email.toString())
+        ),
         tokens: {
           accessToken,
           refreshToken: rawRefreshToken,

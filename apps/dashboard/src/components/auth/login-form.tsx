@@ -25,8 +25,13 @@ export function LoginForm() {
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{
+    email?: string;
+    password?: string;
+    organizationName?: string;
+  }>({});
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -42,7 +47,7 @@ export function LoginForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
-    const nextFieldErrors = validateLoginForm(email, password);
+    const nextFieldErrors = validateLoginForm(email, password, organizationName);
     if (Object.keys(nextFieldErrors).length > 0) {
       setFieldErrors(nextFieldErrors);
       return;
@@ -50,11 +55,11 @@ export function LoginForm() {
     setFieldErrors({});
     setSubmitting(true);
     try {
-      await login({ email, password });
+      await login({ email, password, organizationName: organizationName.trim() });
       router.replace(returnUrl);
     } catch (caught: unknown) {
       const apiError = caught instanceof ApiError ? caught : null;
-      setError(getLoginFailureMessage(apiError?.kind ?? null));
+      setError(getLoginFailureMessage(apiError?.kind ?? null, apiError?.code ?? null));
     } finally {
       setSubmitting(false);
     }
@@ -113,6 +118,35 @@ export function LoginForm() {
           autoComplete="current-password"
         />
         {fieldErrors.password ? <p className="ui-field__error">{fieldErrors.password}</p> : null}
+        <p className="auth-form__links">
+          <Link href="/forgot-password">Forgot password?</Link>
+        </p>
+        <div className="ui-field">
+          <Label htmlFor="organizationName">Organization ID</Label>
+          <Input
+            id="organizationName"
+            name="organizationName"
+            type="text"
+            autoComplete="organization"
+            value={organizationName}
+            aria-invalid={fieldErrors.organizationName ? "true" : "false"}
+            onChange={(event) => {
+              setOrganizationName(event.target.value);
+              if (fieldErrors.organizationName) {
+                setFieldErrors((current) => {
+                  const next = { ...current };
+                  delete next.organizationName;
+                  return next;
+                });
+              }
+            }}
+          />
+          {fieldErrors.organizationName ? (
+            <p className="ui-field__error">{fieldErrors.organizationName}</p>
+          ) : (
+            <small>Your organization&apos;s name, as shown to you by your organization owner.</small>
+          )}
+        </div>
         <Button
           type="submit"
           loading={isLoginSubmitDisabled(submitting)}
@@ -120,9 +154,6 @@ export function LoginForm() {
         >
           Sign in
         </Button>
-        <p className="auth-form__links">
-          Don&apos;t have an account? <Link href="/signup">Create account</Link>
-        </p>
       </form>
     </Card>
   );

@@ -1,5 +1,6 @@
 import type { AuthenticatedPrincipal } from "../ports/authenticated-principal";
 import type { Organization } from "../../domain/organization/organization";
+import type { OrganizationId } from "../../domain/organization/organization-id";
 import type { User } from "../../domain/user/user";
 
 export interface PublicOrganization {
@@ -17,6 +18,8 @@ export interface PublicUser {
   email: string;
   role: string;
   status: string;
+  /** True when this is the universal platform owner (see SecurityConfig.platformOwnerEmail). */
+  isPlatformOwner: boolean;
 }
 
 export interface TokenPair {
@@ -46,7 +49,7 @@ export function publicOrganization(organization: Organization): PublicOrganizati
   };
 }
 
-export function publicUser(user: User): PublicUser {
+export function publicUser(user: User, isPlatformOwner = false): PublicUser {
   return {
     id: user.id.toString(),
     organizationId: user.organizationId.toString(),
@@ -54,18 +57,21 @@ export function publicUser(user: User): PublicUser {
     ...(user.lastName ? { lastName: user.lastName } : {}),
     email: user.email.toString(),
     role: user.role,
-    status: user.status
+    status: user.status,
+    isPlatformOwner
   };
 }
 
 export function principalFor(
   user: User,
-  sessionId: AuthenticatedPrincipal["sessionId"]
+  sessionId: AuthenticatedPrincipal["sessionId"],
+  options: { isPlatformOwner?: boolean; organizationId?: OrganizationId } = {}
 ): AuthenticatedPrincipal {
   return {
     userId: user.id,
-    organizationId: user.organizationId,
+    organizationId: options.organizationId ?? user.organizationId,
     role: user.role,
-    sessionId
+    sessionId,
+    ...(options.isPlatformOwner ? { isPlatformOwner: true } : {})
   };
 }

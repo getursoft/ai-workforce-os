@@ -5,6 +5,7 @@ import type { OrganizationSlug } from "../../domain/organization/organization-sl
 export interface OrganizationRepository {
   findById(id: OrganizationId): Promise<Organization | null>;
   findBySlug(slug: OrganizationSlug): Promise<Organization | null>;
+  findByName(name: string): Promise<Organization | null>;
   existsBySlug(slug: OrganizationSlug): Promise<boolean>;
   save(organization: Organization): Promise<void>;
 }

@@ -19,11 +19,13 @@ import type { AuthenticatedPrincipal } from "../../application/ports/authenticat
 import { CurrentPrincipal } from "./current-principal.decorator";
 import type { IdentityRequest } from "./request-context";
 import { JwtAccessGuard } from "./jwt-access.guard";
+import { PermissionGuard } from "./permission.guard";
+import { RequirePermission } from "./permission.decorators";
 import { AuditEventLogger } from "./audit-event.logger";
 import { UpdateOrganizationDto, UpdateOrganizationSettingsDto } from "./organizations.dto";
 
 @Controller("organizations")
-@UseGuards(JwtAccessGuard)
+@UseGuards(JwtAccessGuard, PermissionGuard)
 export class OrganizationsController {
   constructor(
     @Inject(GET_ORGANIZATION)
@@ -44,6 +46,7 @@ export class OrganizationsController {
 
   @Patch("me")
   @HttpCode(200)
+  @RequirePermission("organization.manage")
   async updateMe(
     @Body() dto: UpdateOrganizationDto,
     @Req() request: IdentityRequest,
@@ -63,6 +66,7 @@ export class OrganizationsController {
 
   @Patch("me/settings")
   @HttpCode(200)
+  @RequirePermission("organization.manage")
   async updateMeSettings(
     @Body() dto: UpdateOrganizationSettingsDto,
     @Req() request: IdentityRequest,

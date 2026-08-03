@@ -79,7 +79,11 @@ export function UsersPage() {
     [status, setStatus] = useState<UserStatus | "">(""),
     [role, setRole] = useState(""),
     [createOpen, setCreateOpen] = useState(false),
-    [createError, setCreateError] = useState<string | null>(null);
+    [createError, setCreateError] = useState<string | null>(null),
+    [orgMode, setOrgMode] = useState<"current" | "new">("current"),
+    [newOrgName, setNewOrgName] = useState(""),
+    [orgCreatedMessage, setOrgCreatedMessage] = useState<string | null>(null);
+  const { state, client } = useAuth();
   const query = useUsers({ page, pageSize: 10, search, ...(status ? { status } : {}) }),
     roles = useRoles(),
     mutations = useAdminMutations();
@@ -106,6 +110,11 @@ export function UsersPage() {
             </div>
           </Can>
         </header>
+        {orgCreatedMessage ? (
+          <Alert tone="success" title="Organization created">
+            {orgCreatedMessage}
+          </Alert>
+        ) : null}
         <Card className="admin-toolbar">
           <Label htmlFor="user-search">Search</Label>
           <Input
@@ -202,15 +211,20 @@ export function UsersPage() {
           open={createOpen}
           title="Create user"
           description="Create an active account with a temporary password and exact role assignments."
-          onCancel={() => setCreateOpen(false)}
+          onCancel={() => {
+            setCreateOpen(false);
+            setOrgMode("current");
+            setNewOrgName("");
+            setCreateError(null);
+          }}
           onConfirm={() => {
             const form = document.getElementById("create-user-form") as HTMLFormElement;
             const values = new FormData(form);
-            const ids = values.getAll("roleIds").map(String);
-            if (ids.length === 0) {
-              setCreateError("Select at least one role.");
-              return;
-            }
+            const firstName = String(values.get("firstName") ?? "").trim();
+            const lastName = String(values.get("lastName") ?? "").trim();
+            const email = String(values.get("email") ?? "")
+              .trim()
+              .toLowerCase();
             const password = String(values.get("password") ?? "");
             if (password.length < 12) {
               setCreateError(
@@ -218,16 +232,39 @@ export function UsersPage() {
               );
               return;
             }
+            if (orgMode === "new") {
+              const organizationName = newOrgName.trim();
+              if (organizationName.length < 2) {
+                setCreateError("Enter a name for the new organization.");
+                return;
+              }
+              void client
+                .createPlatformOrganization({
+                  name: organizationName,
+                  ownerEmail: email,
+                  ownerFirstName: firstName,
+                  ownerLastName: lastName,
+                  ownerPassword: password
+                })
+                .then((result) => {
+                  setCreateOpen(false);
+                  setCreateError(null);
+                  setOrgMode("current");
+                  setNewOrgName("");
+                  setOrgCreatedMessage(
+                    `"${result.organization.name}" was created with owner account ${result.owner?.email ?? email}.`
+                  );
+                })
+                .catch((e) => setCreateError(message(e)));
+              return;
+            }
+            const ids = values.getAll("roleIds").map(String);
+            if (ids.length === 0) {
+              setCreateError("Select at least one role.");
+              return;
+            }
             void mutations.createUser
-              .mutateAsync({
-                firstName: String(values.get("firstName") ?? "").trim(),
-                lastName: String(values.get("lastName") ?? "").trim(),
-                email: String(values.get("email") ?? "")
-                  .trim()
-                  .toLowerCase(),
-                password,
-                roleIds: ids
-              })
+              .mutateAsync({ firstName, lastName, email, password, roleIds: ids })
               .then(() => {
                 setCreateOpen(false);
                 setCreateError(null);
@@ -236,6 +273,43 @@ export function UsersPage() {
           }}
         >
           <form id="create-user-form" className="admin-form" onSubmit={(e) => e.preventDefault()}>
+            <Label htmlFor="create-org-mode">Organization</Label>
+            <select
+              id="create-org-mode"
+              className="ui-input"
+              value={orgMode}
+              onChange={(e) => setOrgMode(e.target.value as "current" | "new")}
+            >
+              <option value="current">
+                {state.organization?.name ?? "Current organization"} — assign a role below
+              </option>
+              {state.user?.isPlatformOwner ? (
+                <option value="new">Create a brand-new organization (user becomes its Owner)</option>
+              ) : null}
+            </select>
+            {orgMode === "new" ? (
+              <>
+                <Label htmlFor="create-org-name">New organization name</Label>
+                <Input
+                  id="create-org-name"
+                  value={newOrgName}
+                  onChange={(e) => setNewOrgName(e.target.value)}
+                  required
+                />
+                <small>
+                  This creates an entirely separate organization and makes the user below its Owner —
+                  not a user in your current organization. There is no role picker because a brand-new
+                  organization&apos;s first user always starts as Owner. To add a restricted (non-Owner)
+                  user to your own organization instead, switch the dropdown above back to{" "}
+                  {state.organization?.name ?? "your organization"}.
+                </small>
+              </>
+            ) : (
+              <small>
+                The new user will belong to this organization and must enter this exact name as the
+                Organization ID when they log in.
+              </small>
+            )}
             <Label htmlFor="create-first">First name</Label>
             <Input id="create-first" name="firstName" required />
             <Label htmlFor="create-last">Last name</Label>
@@ -244,14 +318,16 @@ export function UsersPage() {
             <Input id="create-email" name="email" type="email" required />
             <Label htmlFor="create-password">Temporary password</Label>
             <Input id="create-password" name="password" type="password" required />
-            <fieldset>
-              <legend>Roles</legend>
-              {roles.data?.map((item) => (
-                <label key={item.id}>
-                  <input type="checkbox" name="roleIds" value={item.id} /> {item.name}
-                </label>
-              ))}
-            </fieldset>
+            {orgMode === "current" ? (
+              <fieldset>
+                <legend>Roles</legend>
+                {roles.data?.map((item) => (
+                  <label key={item.id}>
+                    <input type="checkbox" name="roleIds" value={item.id} /> {item.name}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
             {createError ? (
               <Alert tone="danger" title="Unable to create user">
                 {createError}

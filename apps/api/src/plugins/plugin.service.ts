@@ -582,7 +582,9 @@ export class PluginService implements OnModuleInit {
           excludedIntents: (routing?.excludedIntents ?? defaults.excludedIntents) as unknown as Prisma.InputJsonValue,
           routingKeywords: (routing?.routingKeywords ?? defaults.routingKeywords) as unknown as Prisma.InputJsonValue,
           enabledForChannelRouting: true,
-          routingPriority: (routing?.routingPriority as number) ?? defaults.routingPriority
+          routingPriority: (routing?.routingPriority as number) ?? defaults.routingPriority,
+          supportedTaskTypes: (routing?.supportedTaskTypes ?? defaults.supportedTaskTypes) as unknown as Prisma.InputJsonValue,
+          requiredCapabilities: (routing?.requiredCapabilities ?? defaults.requiredCapabilities) as unknown as Prisma.InputJsonValue
         }
       });
       this.logger.log({ event: "RoutingProfileCreated", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source, profileSource: routing ? "MANIFEST" : "DEFAULTS" });
@@ -593,102 +595,155 @@ export class PluginService implements OnModuleInit {
     }
   }
 
+  /**
+   * Ordered category table for `defaultRoutingProfile()`. Each category owns a `slugPattern` (matched
+   * against the plugin's precise, curated slug, e.g. "finance-employee") and a looser `descPattern`
+   * (matched against free-text manifest description prose). Order matters only as a same-pass tie-break —
+   * see the two-pass matching in `defaultRoutingProfile` below for why that keeps categories from
+   * stealing each other's plugins via incidental keyword overlap in prose.
+   */
+  private static readonly ROUTING_CATEGORIES: ReadonlyArray<{
+    employeeType: string;
+    slugPattern: RegExp;
+    descPattern: RegExp;
+    summary: string;
+    supportedDomains: string[];
+    supportedIntents: string[];
+    exampleQueries: string[];
+    excludedIntents: string[];
+    routingKeywords: string[];
+  }> = [
+    {
+      employeeType: "TRAVEL",
+      slugPattern: /travel|trip|holiday|booking|flight|hotel|vacation|tour/i,
+      descPattern: /travel|trip|booking|holiday|vacation/i,
+      summary: "Helps customers with: trip planning, hotels, visas, itinerary, travel budget.",
+      supportedDomains: ["Travel"],
+      supportedIntents: ["Trip Planning", "Hotel Booking", "Visa", "Budget", "Itinerary"],
+      exampleQueries: ["Plan my Dubai trip", "Suggest hotels", "Estimate travel budget"],
+      excludedIntents: ["HR", "Payroll", "IT Support", "Finance", "Legal"],
+      routingKeywords: ["travel", "hotel", "visa", "flight", "holiday", "trip", "booking", "vacation", "tour"]
+    },
+    {
+      employeeType: "IT_SUPPORT",
+      // Deliberately does NOT match bare "it" or bare "support" — those are common English substrings
+      // ("w-IT-h", "sen-sit-ive", "cus-tomer-SUPPORT-employee", "Support-s") that previously misclassified
+      // Marketing/HR/Finance/Customer Support as IT_SUPPORT.
+      slugPattern: /\bit[\s-]?support\b|\btech(?:nical)?[\s-]?support\b|\bhelpdesk\b|\bvpn\b|\bnetwork\b|\bcomputer\b|\bsoftware\b|\bhardware\b/i,
+      descPattern: /\bit[\s-]?support\b|\btech(?:nical)?[\s-]?support\b|\bhelpdesk\b|\bvpn\b|\bnetwork\b/i,
+      summary: "Helps customers with: IT support, VPN, network, software, hardware, password reset.",
+      supportedDomains: ["IT"],
+      supportedIntents: ["VPN Troubleshooting", "Password Reset", "Software Installation", "Network Issue", "Hardware Support"],
+      exampleQueries: ["My VPN is not working", "I forgot my password", "My laptop is slow"],
+      excludedIntents: ["HR", "Payroll", "Travel", "Finance", "Legal"],
+      routingKeywords: ["vpn", "computer", "laptop", "password", "network", "software", "it support", "tech support", "helpdesk"]
+    },
+    {
+      employeeType: "HR_POLICY",
+      slugPattern: /hr|human.?resource|policy|leave|payroll|benefit|hiring|recruit/i,
+      descPattern: /human.?resource|\bleave\b|\bpayroll\b|\bbenefit/i,
+      summary: "Helps customers with: HR policies, leave, payroll, benefits, hiring.",
+      supportedDomains: ["HR"],
+      supportedIntents: ["Leave Policy", "Payroll Inquiry", "Benefits", "Hiring Process", "Employee Relations"],
+      exampleQueries: ["What is the maternity leave policy?", "How do I apply for leave?", "What are my benefits?"],
+      excludedIntents: ["Travel", "IT Support", "Finance", "Legal", "Sales"],
+      routingKeywords: ["hr", "human resource", "leave", "maternity", "paternity", "policy", "payroll", "benefit", "hiring"]
+    },
+    {
+      employeeType: "SALES",
+      slugPattern: /sales|crm|sell|purchase|product|pricing|quote|order/i,
+      descPattern: /\bsales\b|\bcrm\b|\bsell\b|\bpurchase\b|\bpricing\b|\bquote\b|\border\b/i,
+      summary: "Helps customers with: product information, pricing, quotes, orders, invoices.",
+      supportedDomains: ["Sales"],
+      supportedIntents: ["Product Inquiry", "Pricing", "Quote Request", "Order Status", "Invoice"],
+      exampleQueries: ["What products do you offer?", "I need a quote", "Where is my order?"],
+      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Legal"],
+      routingKeywords: ["sales", "product", "pricing", "quote", "order", "invoice", "purchase"]
+    },
+    {
+      employeeType: "FINANCE",
+      slugPattern: /finance|expense|invoice|budget|reimburse|accounting/i,
+      descPattern: /\bfinance\b|\bexpense\b|\binvoice\b|\bbudget\b|\breimburse/i,
+      summary: "Helps customers with: reports, invoices, expense classification, budgets, reimbursements.",
+      supportedDomains: ["Finance"],
+      supportedIntents: ["Expense Classification", "Invoice Support", "Budget Summary", "Report", "Approval Threshold"],
+      exampleQueries: ["Classify this expense", "What is our budget?", "Check an invoice status"],
+      excludedIntents: ["HR", "IT Support", "Travel", "Sales", "Legal"],
+      routingKeywords: ["finance", "expense", "invoice", "budget", "report", "reimburse", "spend", "tax"]
+    },
+    {
+      employeeType: "MARKETING",
+      slugPattern: /marketing|campaign|content|brand|social|advert/i,
+      descPattern: /\bmarketing\b|\bcampaign\b|\bbrand\b|\bsocial\b/i,
+      summary: "Helps customers with: campaign planning, content, brand, social, performance.",
+      supportedDomains: ["Marketing"],
+      supportedIntents: ["Campaign Planning", "Content", "Social", "Performance Summary"],
+      exampleQueries: ["Plan an email campaign", "Draft social content", "Summarise performance"],
+      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal"],
+      routingKeywords: ["marketing", "campaign", "content", "brand", "social", "email marketing", "webinar"]
+    },
+    {
+      employeeType: "LEGAL",
+      slugPattern: /legal|notice|compliance|regulatory|gst|income.?tax|advocat|\bca\b/i,
+      descPattern: /\blegal\b|\bnotice\b|\bcompliance\b|\bregulatory\b|\bgst\b/i,
+      summary: "Helps customers with: legal and regulatory notices, reply drafting, deadlines.",
+      supportedDomains: ["Legal"],
+      supportedIntents: ["Notice Summarisation", "Reply Drafting", "Deadline Tracking"],
+      exampleQueries: ["Summarise this GST notice", "Draft a reply to a show-cause notice", "When is the deadline?"],
+      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Marketing"],
+      routingKeywords: ["legal", "notice", "gst", "income tax", "scrutiny", "compliance", "regulatory", "advocate", "ca"]
+    },
+    {
+      employeeType: "CUSTOMER_SUPPORT",
+      slugPattern: /customer.?support|helpdesk|ticket/i,
+      descPattern: /customer.?support|helpdesk|\bticket/i,
+      summary: "Helps customers with: order status, refunds, returns, billing, accounts, troubleshooting.",
+      supportedDomains: ["Customer Support"],
+      supportedIntents: ["Order Status", "Refund", "Return", "Billing", "Account", "Troubleshooting"],
+      exampleQueries: ["Where is my order?", "Request a refund", "Reset my password"],
+      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal", "Marketing"],
+      routingKeywords: ["customer support", "support", "help", "refund", "order status", "billing", "ticket", "complaint"]
+    }
+  ];
+
   private defaultRoutingProfile(plugin: { slug: string; displayName: string; description: string }): {
     displayName: string; employeeType: string | null; summary: string;
     supportedDomains: string[]; supportedIntents: string[]; exampleQueries: string[];
     excludedIntents: string[]; routingKeywords: string[]; routingPriority: number;
+    supportedTaskTypes: string[]; requiredCapabilities: string[];
   } {
     const slug = plugin.slug.toLowerCase();
     const desc = (plugin.description ?? "").toLowerCase();
     const displayName = plugin.displayName;
 
-    if (/travel|trip|holiday|booking|flight|hotel|vacation|tour/i.test(slug) || /travel|trip|booking|holiday|vacation/i.test(desc)) {
-      return {
-        displayName, employeeType: "TRAVEL",
-        summary: `Helps customers with: trip planning, hotels, visas, itinerary, travel budget.`,
-        supportedDomains: ["Travel"], supportedIntents: ["Trip Planning", "Hotel Booking", "Visa", "Budget", "Itinerary"],
-        exampleQueries: ["Plan my Dubai trip", "Suggest hotels", "Estimate travel budget"],
-        excludedIntents: ["HR", "Payroll", "IT Support", "Finance", "Legal"],
-        routingKeywords: ["travel", "hotel", "visa", "flight", "holiday", "trip", "booking", "vacation", "tour"],
-        routingPriority: 100
-      };
+    // Every employee that can reason at all needs LLM — this is the one capability requirement that's
+    // genuinely universal rather than category-specific, so it's applied uniformly below rather than
+    // hardcoded per category.
+    const requiredCapabilities = ["LLM"];
+
+    // Two-pass matching: the slug is a precise, curated identifier ("finance-employee") while the
+    // description is free-text marketing prose that legitimately contains other categories' keywords in
+    // passing (a Finance employee's description mentions "invoices", which is also a Sales keyword). Every
+    // category's slug is checked before ANY category's description, so the authoritative signal always
+    // wins over an incidental one — this is what actually fixes cross-category misclassification, not just
+    // moving which single collision happens to occur first.
+    for (const category of PluginService.ROUTING_CATEGORIES) {
+      if (category.slugPattern.test(slug)) {
+        const profile = pickCategoryProfile(category);
+        return {
+          displayName, routingPriority: 100, ...profile,
+          supportedTaskTypes: taskTypesFromIntents(profile.supportedIntents), requiredCapabilities
+        };
+      }
     }
-    if (/it|tech|support|helpdesk|vpn|network|computer|software|hardware/i.test(slug) || /it|tech|support|helpdesk|vpn|network/i.test(desc)) {
-      return {
-        displayName, employeeType: "IT_SUPPORT",
-        summary: `Helps customers with: IT support, VPN, network, software, hardware, password reset.`,
-        supportedDomains: ["IT"], supportedIntents: ["VPN Troubleshooting", "Password Reset", "Software Installation", "Network Issue", "Hardware Support"],
-        exampleQueries: ["My VPN is not working", "I forgot my password", "My laptop is slow"],
-        excludedIntents: ["HR", "Payroll", "Travel", "Finance", "Legal"],
-        routingKeywords: ["vpn", "computer", "laptop", "password", "network", "software", "it support", "tech support", "helpdesk"],
-        routingPriority: 100
-      };
-    }
-    if (/hr|human.?resource|policy|leave|payroll|benefit|hiring|recruit/i.test(slug) || /hr|human.?resource|policy|leave|payroll|benefit/i.test(desc)) {
-      return {
-        displayName, employeeType: "HR_POLICY",
-        summary: `Helps customers with: HR policies, leave, payroll, benefits, hiring.`,
-        supportedDomains: ["HR"], supportedIntents: ["Leave Policy", "Payroll Inquiry", "Benefits", "Hiring Process", "Employee Relations"],
-        exampleQueries: ["What is the maternity leave policy?", "How do I apply for leave?", "What are my benefits?"],
-        excludedIntents: ["Travel", "IT Support", "Finance", "Legal", "Sales"],
-        routingKeywords: ["hr", "human resource", "leave", "maternity", "paternity", "policy", "payroll", "benefit", "hiring"],
-        routingPriority: 100
-      };
-    }
-    if (/sales|crm|sell|purchase|product|pricing|quote|order|invoice/i.test(slug) || /sales|crm|sell|purchase|pricing|quote|order|invoice/i.test(desc)) {
-      return {
-        displayName, employeeType: "SALES",
-        summary: `Helps customers with: product information, pricing, quotes, orders, invoices.`,
-        supportedDomains: ["Sales"], supportedIntents: ["Product Inquiry", "Pricing", "Quote Request", "Order Status", "Invoice"],
-        exampleQueries: ["What products do you offer?", "I need a quote", "Where is my order?"],
-        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Legal"],
-        routingKeywords: ["sales", "product", "pricing", "quote", "order", "invoice", "purchase"],
-        routingPriority: 100
-      };
-    }
-    if (/finance|expense|invoice|budget|report|reimburse|accounting/i.test(slug) || /finance|expense|invoice|budget|report|reimburse/i.test(desc)) {
-      return {
-        displayName, employeeType: "FINANCE",
-        summary: `Helps customers with: reports, invoices, expense classification, budgets, reimbursements.`,
-        supportedDomains: ["Finance"], supportedIntents: ["Expense Classification", "Invoice Support", "Budget Summary", "Report", "Approval Threshold"],
-        exampleQueries: ["Classify this expense", "What is our budget?", "Check an invoice status"],
-        excludedIntents: ["HR", "IT Support", "Travel", "Sales", "Legal"],
-        routingKeywords: ["finance", "expense", "invoice", "budget", "report", "reimburse", "spend", "tax"],
-        routingPriority: 100
-      };
-    }
-    if (/marketing|campaign|content|brand|social|advert/i.test(slug) || /marketing|campaign|content|brand|social/i.test(desc)) {
-      return {
-        displayName, employeeType: "MARKETING",
-        summary: `Helps customers with: campaign planning, content, brand, social, performance.`,
-        supportedDomains: ["Marketing"], supportedIntents: ["Campaign Planning", "Content", "Social", "Performance Summary"],
-        exampleQueries: ["Plan an email campaign", "Draft social content", "Summarise performance"],
-        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal"],
-        routingKeywords: ["marketing", "campaign", "content", "brand", "social", "email marketing", "webinar"],
-        routingPriority: 100
-      };
-    }
-    if (/legal|notice|compliance|regulatory|gst|income.?tax|advocat|ca\b/i.test(slug) || /legal|notice|compliance|regulatory|gst|income.?tax/i.test(desc)) {
-      return {
-        displayName, employeeType: "LEGAL",
-        summary: `Helps customers with: legal and regulatory notices, reply drafting, deadlines.`,
-        supportedDomains: ["Legal"], supportedIntents: ["Notice Summarisation", "Reply Drafting", "Deadline Tracking"],
-        exampleQueries: ["Summarise this GST notice", "Draft a reply to a show-cause notice", "When is the deadline?"],
-        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Marketing"],
-        routingKeywords: ["legal", "notice", "gst", "income tax", "scrutiny", "compliance", "regulatory", "advocate", "ca"],
-        routingPriority: 100
-      };
-    }
-    if (/customer.?support|support|helpdesk|ticket|help/i.test(slug) || /customer.?support|helpdesk|ticket/i.test(desc)) {
-      return {
-        displayName, employeeType: "CUSTOMER_SUPPORT",
-        summary: `Helps customers with: order status, refunds, returns, billing, accounts, troubleshooting.`,
-        supportedDomains: ["Customer Support"], supportedIntents: ["Order Status", "Refund", "Return", "Billing", "Account", "Troubleshooting"],
-        exampleQueries: ["Where is my order?", "Request a refund", "Reset my password"],
-        excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal", "Marketing"],
-        routingKeywords: ["customer support", "support", "help", "refund", "order status", "billing", "ticket", "complaint"],
-        routingPriority: 100
-      };
+    for (const category of PluginService.ROUTING_CATEGORIES) {
+      if (category.descPattern.test(desc)) {
+        const profile = pickCategoryProfile(category);
+        return {
+          displayName, routingPriority: 100, ...profile,
+          supportedTaskTypes: taskTypesFromIntents(profile.supportedIntents), requiredCapabilities
+        };
+      }
     }
     // Conservative default
     return {
@@ -696,6 +751,7 @@ export class PluginService implements OnModuleInit {
       summary: `Helps customers with requests related to ${displayName}.`,
       supportedDomains: [], supportedIntents: [], exampleQueries: [],
       excludedIntents: [],
+      supportedTaskTypes: ["GENERAL_QUERY"], requiredCapabilities,
       routingKeywords: plugin.slug ? [plugin.slug.toLowerCase()] : [],
       routingPriority: 100
     };
@@ -714,6 +770,94 @@ export class PluginService implements OnModuleInit {
     return count;
   }
 
+  /**
+   * Recomputes and repairs routing profiles that were derived from `defaultRoutingProfile()` (i.e. the
+   * plugin's manifest never declared its own `routing` block) and no longer match what fresh computation
+   * would produce — e.g. after fixing a classification bug. Profiles sourced from an explicit manifest
+   * `routing` block are left untouched, since those represent deliberate configuration, not a guess.
+   * Returns the number of profiles actually changed.
+   */
+  async repairRoutingProfiles(organizationId?: string): Promise<number> {
+    const plugins = await this.prisma.plugin.findMany({
+      where: { deletedAt: null, ...(organizationId ? { organizationId } : {}) }
+    });
+    let repaired = 0;
+    for (const plugin of plugins) {
+      const manifest = (plugin.manifest as Record<string, unknown>) ?? {};
+      if (manifest.routing) continue; // explicit manifest configuration — never auto-repaired
+      const existing = await this.prisma.employeeRoutingProfile.findUnique({
+        where: { pluginInstallationId: plugin.id }
+      });
+      if (!existing) continue;
+      const fresh = this.defaultRoutingProfile(plugin);
+      const changed =
+        existing.employeeType !== fresh.employeeType ||
+        JSON.stringify(existing.supportedDomains) !== JSON.stringify(fresh.supportedDomains) ||
+        JSON.stringify(existing.supportedIntents) !== JSON.stringify(fresh.supportedIntents) ||
+        JSON.stringify(existing.routingKeywords) !== JSON.stringify(fresh.routingKeywords) ||
+        JSON.stringify(existing.excludedIntents) !== JSON.stringify(fresh.excludedIntents) ||
+        JSON.stringify(existing.supportedTaskTypes) !== JSON.stringify(fresh.supportedTaskTypes) ||
+        JSON.stringify(existing.requiredCapabilities) !== JSON.stringify(fresh.requiredCapabilities) ||
+        existing.summary !== fresh.summary;
+      if (!changed) continue;
+      await this.prisma.employeeRoutingProfile.update({
+        where: { pluginInstallationId: plugin.id },
+        data: {
+          employeeType: fresh.employeeType,
+          summary: fresh.summary,
+          supportedDomains: fresh.supportedDomains as unknown as Prisma.InputJsonValue,
+          supportedIntents: fresh.supportedIntents as unknown as Prisma.InputJsonValue,
+          exampleQueries: fresh.exampleQueries as unknown as Prisma.InputJsonValue,
+          excludedIntents: fresh.excludedIntents as unknown as Prisma.InputJsonValue,
+          routingKeywords: fresh.routingKeywords as unknown as Prisma.InputJsonValue,
+          supportedTaskTypes: fresh.supportedTaskTypes as unknown as Prisma.InputJsonValue,
+          requiredCapabilities: fresh.requiredCapabilities as unknown as Prisma.InputJsonValue
+        }
+      });
+      this.logger.log({
+        event: "RoutingProfileRepaired",
+        employeeInstallationId: plugin.id,
+        organizationId: plugin.organizationId,
+        from: existing.employeeType,
+        to: fresh.employeeType
+      });
+      repaired++;
+    }
+    return repaired;
+  }
+
   // Wire startup consistency check
   // Note: onModuleInit already calls synchronizeRegistry. The check below is separate.
+}
+
+interface RoutingCategoryProfile {
+  employeeType: string; summary: string; supportedDomains: string[]; supportedIntents: string[];
+  exampleQueries: string[]; excludedIntents: string[]; routingKeywords: string[];
+}
+
+/** Strips the regex-matching fields off a ROUTING_CATEGORIES entry, leaving only the storable profile
+ *  data — explicit field selection instead of destructure-and-discard so unused-var lint stays clean. */
+function pickCategoryProfile(category: RoutingCategoryProfile & { slugPattern: RegExp; descPattern: RegExp }): RoutingCategoryProfile {
+  return {
+    employeeType: category.employeeType,
+    summary: category.summary,
+    supportedDomains: category.supportedDomains,
+    supportedIntents: category.supportedIntents,
+    exampleQueries: category.exampleQueries,
+    excludedIntents: category.excludedIntents,
+    routingKeywords: category.routingKeywords
+  };
+}
+
+/** "Leave Policy" -> "LEAVE_POLICY". Derives collaboration task-type identifiers from an employee's own
+ *  declared intents rather than inventing a separate, hardcoded task-type taxonomy per category. */
+function taskTypesFromIntents(intents: readonly string[]): string[] {
+  const derived = intents.map((intent) =>
+    intent
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+  );
+  return [...new Set([...derived, "GENERAL_QUERY"])];
 }

@@ -103,10 +103,14 @@ export interface ToolExecutionContext {
   conversationId: string;
 }
 
-/** Identifies who triggered an agent execution: a dashboard user, or an external channel counterpart. */
+/** Identifies who triggered an agent execution: a dashboard user, an external channel counterpart, or
+ *  (Sprint 4.6) another AI Employee delegating a task through WorkforceOrchestratorService. A SYSTEM actor
+ *  behaves like CHANNEL everywhere actor.type is checked today — no dashboard user to resolve RBAC for,
+ *  baseline CHANNEL_ACTOR_PERMISSIONS apply, and it never resolves to a customer identity. */
 export type AgentActor =
   | { type: "USER"; userId: string }
-  | { type: "CHANNEL"; channelConnectionId: string; externalUserId: string };
+  | { type: "CHANNEL"; channelConnectionId: string; externalUserId: string }
+  | { type: "SYSTEM"; sourceEmployeeInstallationId: string; delegatedTaskId: string };
 
 /** Verified channel-contact identity, passed by the channel adapter when the sender identity is
  *  cryptographically or provider-verified (e.g. WhatsApp sender number from Meta webhook). The Agent

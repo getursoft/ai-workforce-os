@@ -1,6 +1,23 @@
 import { LegacyUserRole, PrismaClient } from "@prisma/client";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const prisma = new PrismaClient();
+
+// argon2 is a dependency of the API package, not the root package the seed runs from — load it from
+// the API's node_modules so the platform-owner password hash uses the same verifier as LoginHandler.
+const requireFromApi = createRequire(
+  resolve(dirname(fileURLToPath(import.meta.url)), "../../apps/api/package.json")
+);
+const argon2 = requireFromApi("argon2") as typeof import("argon2");
+
+export const PLATFORM_OWNER_EMAIL =
+  process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_PASSWORD =
+  process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
+const PLATFORM_OWNER_FIRST_NAME = process.env.PLATFORM_OWNER_FIRST_NAME || "Krishna";
+const PLATFORM_OWNER_LAST_NAME = process.env.PLATFORM_OWNER_LAST_NAME || "Pandey";
 
 export const DEFAULT_PERMISSIONS = {
   Owner: [
@@ -32,6 +49,8 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.install",
     "plugin.update",
     "plugin.delete",
+    "plugin.ai.manage",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -73,7 +92,6 @@ export const DEFAULT_PERMISSIONS = {
     "usage.read",
     "billing.read",
     "billing.manage",
-    "billing.payment_settings.manage",
     "approval.read",
     "approval.create",
     "approval.decide",
@@ -119,16 +137,14 @@ export const DEFAULT_PERMISSIONS = {
     "support.tickets.read",
     "support.tickets.update",
     "hr.leave.submit",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read",
+    "workforce.task.manage",
+    "workforce.collaboration.configure",
+    "workforce.audit.read"
   ],
   Admin: [
-    "users.read",
-    "users.write",
-    "users.delete",
-    "roles.read",
-    "roles.write",
-    "invitations.read",
-    "invitations.write",
     "organization.manage",
     "TEAM_READ",
     "TEAM_CREATE",
@@ -137,19 +153,8 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
     "TEAM_MEMBER_UPDATE",
-    "service_accounts.read",
-    "service_accounts.create",
-    "service_accounts.update",
-    "service_accounts.delete",
-    "service_accounts.roles.manage",
-    "api_keys.read",
-    "api_keys.create",
-    "api_keys.rotate",
-    "api_keys.revoke",
     "plugin.read",
-    "plugin.install",
-    "plugin.update",
-    "plugin.delete",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -228,24 +233,22 @@ export const DEFAULT_PERMISSIONS = {
     "support.conversation.reset",
     "support.tickets.read",
     "support.tickets.update",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read",
+    "workforce.task.manage",
+    "workforce.collaboration.configure",
+    "workforce.audit.read"
   ],
   Manager: [
-    "users.read",
-    "roles.read",
-    "invitations.read",
-    "invitations.write",
     "TEAM_READ",
     "TEAM_CREATE",
     "TEAM_UPDATE",
     "TEAM_MEMBER_ADD",
     "TEAM_MEMBER_REMOVE",
     "TEAM_MEMBER_UPDATE",
-    "service_accounts.read",
-    "api_keys.read",
     "plugin.read",
-    "plugin.install",
-    "plugin.update",
+    "plugin.email.manage",
     "plugin.execute",
     "agents.run",
     "agents.conversations.read",
@@ -291,14 +294,15 @@ export const DEFAULT_PERMISSIONS = {
     "support.conversation.reset",
     "support.tickets.read",
     "hr.leave.submit",
-    "hr.leave.approve"
+    "hr.leave.approve",
+    "workforce.read",
+    "workforce.task.read"
   ],
   Member: [
-    "users.read",
-    "roles.read",
     "TEAM_READ",
     "plugin.read",
     "plugin.execute",
+    "plugin.email.manage",
     "agents.run",
     "agents.conversations.read",
     "agents.memory.read",
@@ -308,9 +312,9 @@ export const DEFAULT_PERMISSIONS = {
     "knowledge.search"
   ],
   Viewer: [
-    "users.read",
     "TEAM_READ",
     "plugin.read",
+    "plugin.email.manage",
     "connector.read",
     "knowledge.read",
     "channel.read",
@@ -360,6 +364,8 @@ const descriptions: Record<string, string> = {
   "agents.executions.read": "View agent execution history",
   "agents.memory.read": "Read scoped agent memory",
   "agents.memory.write": "Manage scoped agent memory",
+  "plugin.ai.manage": "Configure AI model providers for employees",
+  "plugin.email.manage": "Configure email delivery for employee notifications",
   "agents.tools.execute": "Execute approved agent tools",
   "connector.read": "View connector catalogue and installations",
   "connector.install": "Install organization connectors",
@@ -441,10 +447,18 @@ const descriptions: Record<string, string> = {
   "usage.read": "View AI-credit usage, token, and request metrics",
   "billing.read": "View billing plan and invoices",
   "billing.manage": "Purchase AI credit top-ups",
-  "billing.payment_settings.manage": "Configure the payment gateway (Razorpay) credentials"
+  "billing.payment_settings.manage": "Configure the payment gateway (Razorpay) credentials",
+  "workforce.read": "View installed AI Employees and their collaboration profiles",
+  "workforce.task.read": "View delegated tasks between AI Employees",
+  "workforce.task.manage": "Trigger, cancel, and retry delegated tasks between AI Employees",
+  "workforce.collaboration.configure": "Configure organization-wide AI Employee collaboration policy",
+  "workforce.audit.read": "View audit events for AI Employee delegation"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
+  // Bootstrap the platform owner's home organization + account FIRST so the role loop below also
+  // seeds the "Owner" system role and userRole assignment for it.
+  await seedPlatformOwner(client);
   for (const [key, description] of Object.entries(descriptions)) {
     await client.permission.upsert({
       where: { key },
@@ -466,12 +480,20 @@ export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
         },
         update: { isSystem: true }
       });
+      const declaredPermissionIds = permissions
+        .filter(({ key }) => (permissionKeys as readonly string[]).includes(key))
+        .map(({ id }) => id);
       await client.rolePermission.createMany({
-        data: permissions
-          .filter(({ key }) => (permissionKeys as readonly string[]).includes(key))
-          .map(({ id }) => ({ roleId: role.id, permissionId: id })),
+        data: declaredPermissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
         skipDuplicates: true
       });
+      // System roles are fully owned by DEFAULT_PERMISSIONS: revoke any grant that is no longer
+      // declared for this role so removing a key here also takes effect for already-seeded orgs.
+      if (role.isSystem) {
+        await client.rolePermission.deleteMany({
+          where: { roleId: role.id, permissionId: { notIn: declaredPermissionIds } }
+        });
+      }
     }
     const users = await client.user.findMany({
       where: { organizationId: organization.id, userRoles: { none: {} } },
@@ -496,6 +518,61 @@ export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
     });
   }
   // Seed subscription plan and org subscription for the first organisation
+  const org = await client.organization.findFirst();
+  if (org) {
+    const plan = await client.subscriptionPlan.upsert({
+      where: { code: "GROWTH" },
+      update: {},
+      create: { code: "GROWTH", name: "Growth", description: "Shared AI credit pool for growing teams", monthlyCreditAllowance: 500000, overageEnabled: true, overageRateMicrosPerCredit: 1000 }
+    });
+    const now = new Date();
+    const cycleStart = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const cycleEnd = new Date(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999);
+    await client.organisationSubscription.upsert({
+      where: { organizationId: org.id },
+      update: {},
+      create: { organizationId: org.id, planId: plan.id, status: "ACTIVE", billingCycleStart: cycleStart, billingCycleEnd: cycleEnd }
+    });
+  }
+  await seedPlatformOwner(client);
+  await seedSubscription(client);
+}
+
+/**
+ * Bootstraps the single universal platform-owner account (SecurityConfig.platformOwnerEmail).
+ * The account lives in a dedicated "AI Workforce OS Platform" home organization with legacy OWNER
+ * role; seedRbac's role loop (which runs after this) assigns the Owner system role + permissions.
+ * Idempotent: on re-seed it never duplicates the owner or resets an existing password.
+ */
+export async function seedPlatformOwner(client: PrismaClient = prisma): Promise<void> {
+  const slug = "ai-workforce-os-platform";
+  const organization = await client.organization.upsert({
+    where: { slug },
+    update: {},
+    create: {
+      name: "AI Workforce OS Platform",
+      slug,
+      status: "ACTIVE"
+    }
+  });
+  const normalized = PLATFORM_OWNER_EMAIL;
+  const existing = await client.user.findUnique({ where: { normalizedEmail: normalized } });
+  if (existing) return;
+  await client.user.create({
+    data: {
+      organizationId: organization.id,
+      firstName: PLATFORM_OWNER_FIRST_NAME,
+      lastName: PLATFORM_OWNER_LAST_NAME,
+      email: normalized,
+      normalizedEmail: normalized,
+      passwordHash: await argon2.hash(PLATFORM_OWNER_PASSWORD),
+      role: LegacyUserRole.OWNER,
+      status: "ACTIVE"
+    }
+  });
+}
+
+async function seedSubscription(client: PrismaClient = prisma): Promise<void> {
   const org = await client.organization.findFirst();
   if (org) {
     const plan = await client.subscriptionPlan.upsert({

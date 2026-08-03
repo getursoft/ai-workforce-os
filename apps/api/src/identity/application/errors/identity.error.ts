@@ -2,6 +2,9 @@ export type IdentityErrorCode =
   | "VALIDATION_ERROR"
   | "AUTHENTICATION_FAILED"
   | "AUTHORIZATION_FAILED"
+  | "SIGNUP_DISABLED"
+  | "PLATFORM_OWNER_REQUIRED"
+  | "ORGANIZATION_SWITCH_DENIED"
   | "EMAIL_ALREADY_EXISTS"
   | "USER_NOT_FOUND"
   | "ORGANIZATION_NOT_FOUND"
@@ -65,7 +68,24 @@ export type IdentityErrorCode =
   | "CREDIT_PURCHASE_ORDER_NOT_PENDING"
   | "CREDIT_PURCHASE_ORDER_MISMATCH"
   | "PAYMENT_SIGNATURE_INVALID"
-  | "PAYMENT_SETTINGS_INVALID";
+  | "PAYMENT_SETTINGS_INVALID"
+  // Sprint 4.6 — Workforce delegation engine.
+  | "NO_ELIGIBLE_EMPLOYEE"
+  | "DELEGATION_NOT_ALLOWED"
+  | "DELEGATION_CYCLE_DETECTED"
+  | "DELEGATION_DEPTH_EXCEEDED"
+  | "TASK_SCHEMA_INVALID"
+  | "TARGET_EXECUTION_FAILED"
+  | "TASK_TIMED_OUT"
+  | "RESULT_SCHEMA_INVALID"
+  | "PARENT_EXECUTION_CLOSED"
+  | "WORKFORCE_TASK_NOT_FOUND"
+  | "WORKFORCE_JOIN_NOT_FOUND"
+  | "WORKFORCE_CAPABILITY_NOT_GRANTED"
+  | "WORKFORCE_CROSS_TENANT_DENIED"
+  | "WORKFORCE_DUPLICATE_COMPLETION"
+  | "WORKFORCE_EMPLOYEE_NOT_INSTALLED"
+  | "WORKFORCE_TARGET_DISABLED";
 
 export class IdentityApplicationError extends Error {
   constructor(
@@ -85,6 +105,18 @@ export const identityError = {
     new IdentityApplicationError("AUTHENTICATION_FAILED", "Invalid email or password."),
   authorizationFailed: () =>
     new IdentityApplicationError("AUTHORIZATION_FAILED", "Access is denied."),
+  signupDisabled: () =>
+    new IdentityApplicationError(
+      "SIGNUP_DISABLED",
+      "Self-service signup is disabled. Organizations are provisioned by the platform owner."
+    ),
+  platformOwnerRequired: () =>
+    new IdentityApplicationError("PLATFORM_OWNER_REQUIRED", "Only the platform owner can do this."),
+  organizationSwitchDenied: () =>
+    new IdentityApplicationError(
+      "ORGANIZATION_SWITCH_DENIED",
+      "You are not allowed to operate in that organization."
+    ),
   emailAlreadyExists: () =>
     new IdentityApplicationError("EMAIL_ALREADY_EXISTS", "An account with this email exists."),
   userNotFound: () => new IdentityApplicationError("USER_NOT_FOUND", "User was not found."),

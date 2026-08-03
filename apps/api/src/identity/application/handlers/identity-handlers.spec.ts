@@ -11,6 +11,7 @@ import type { OrganizationSettingRepository } from "../ports/organization-settin
 import type { PasswordHasher } from "../ports/password-hasher";
 import type { RefreshTokenService } from "../ports/refresh-token-service";
 import type { UserRepository } from "../ports/user-repository";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 import { InvalidRefreshTokenFormatError } from "../errors/security.error";
 import { AuthenticationSession } from "../../domain/authentication/authentication-session";
 import { AuthenticationSessionId } from "../../domain/authentication/authentication-session-id";
@@ -123,6 +124,16 @@ class MemoryOrganizations implements OrganizationRepository {
   findBySlug(slug: OrganizationSlug): Promise<Organization | null> {
     return Promise.resolve(
       this.store.organizations.find((item) => item.slug.toString() === slug.toString()) ?? null
+    );
+  }
+  findByName(name: string): Promise<Organization | null> {
+    const normalized = name.trim().toLowerCase();
+    return Promise.resolve(
+      this.store.organizations.find(
+        (item) =>
+          item.name.toString().toLowerCase() === normalized ||
+          item.slug.toString().toLowerCase() === normalized
+      ) ?? null
     );
   }
   existsBySlug(slug: OrganizationSlug): Promise<boolean> {
@@ -268,6 +279,10 @@ function harness() {
   const refreshTokens = new FakeRefreshTokens();
   const clock = new FixedClock();
   const identifiers = new SequentialIdentifiers();
+  const platformOwner = {
+    isPlatformOwnerEmail: () => false,
+    isPlatformOwnerPrincipal: () => false
+  } as unknown as PlatformOwnerService;
   return {
     store,
     repos,
@@ -279,7 +294,8 @@ function harness() {
       refreshTokens,
       clock,
       identifiers,
-      lifetimes
+      lifetimes,
+      platformOwner
     ),
     login: new LoginHandler(
       repos.users,
@@ -290,7 +306,8 @@ function harness() {
       refreshTokens,
       clock,
       identifiers,
-      lifetimes
+      lifetimes,
+      platformOwner
     ),
     refresh: new RefreshSessionHandler(
       repos.sessions,
@@ -301,25 +318,33 @@ function harness() {
       refreshTokens,
       clock,
       identifiers,
-      lifetimes
+      lifetimes,
+      platformOwner
     ),
     logout: new LogoutHandler(repos.sessions, unitOfWork, refreshTokens, clock),
-    current: new GetCurrentUserHandler(repos.users, repos.organizations),
-    getOrganization: new GetOrganizationHandler(repos.users, repos.organizations),
-    updateOrganization: new UpdateOrganizationHandler(repos.users, repos.organizations, unitOfWork),
+    current: new GetCurrentUserHandler(repos.users, repos.organizations, platformOwner),
+    getOrganization: new GetOrganizationHandler(repos.users, repos.organizations, platformOwner),
+    updateOrganization: new UpdateOrganizationHandler(
+      repos.users,
+      repos.organizations,
+      unitOfWork,
+      platformOwner
+    ),
     getOrganizationSettings: new GetOrganizationSettingsHandler(
       repos.users,
       repos.organizations,
       repos.organizationSettings,
       unitOfWork,
-      identifiers
+      identifiers,
+      platformOwner
     ),
     updateOrganizationSettings: new UpdateOrganizationSettingsHandler(
       repos.users,
       repos.organizations,
       repos.organizationSettings,
       unitOfWork,
-      identifiers
+      identifiers,
+      platformOwner
     )
   };
 }
@@ -386,7 +411,8 @@ describe("identity application handlers", () => {
     await context.register.execute(registration);
     const result = await context.login.execute({
       email: " admin@getursoft.com ",
-      password: registration.password
+      password: registration.password,
+      organizationName: registration.organizationName
     });
     expect(result.user.email).toBe("admin@getursoft.com");
     expect(context.store.sessions).toHaveLength(2);
@@ -397,8 +423,16 @@ describe("identity application handlers", () => {
     const context = harness();
     await context.register.execute(registration);
     const attempts = [
-      context.login.execute({ email: "missing@example.com", password: registration.password }),
-      context.login.execute({ email: registration.email, password: "IncorrectPassword@123" })
+      context.login.execute({
+        email: "missing@example.com",
+        password: registration.password,
+        organizationName: registration.organizationName
+      }),
+      context.login.execute({
+        email: registration.email,
+        password: "IncorrectPassword@123",
+        organizationName: registration.organizationName
+      })
     ];
     for (const attempt of attempts) {
       await expect(attempt).rejects.toMatchObject({
@@ -442,6 +476,7 @@ describe("identity application handlers", () => {
     context.store.sessions[0] = AuthenticationSession.reconstruct({
       id: current.id,
       userId: current.userId,
+      activeOrganizationId: null,
       tokenHash: current.tokenHashForPersistence(),
       tokenFamilyId: current.tokenFamilyId,
       createdAt: new Date(now.getTime() - 10_000),
@@ -520,7 +555,11 @@ describe("identity application handlers", () => {
       updatedAt: user.updatedAt
     });
     await expect(
-      context.login.execute({ email: registration.email, password: registration.password })
+      context.login.execute({
+        email: registration.email,
+        password: registration.password,
+        organizationName: registration.organizationName
+      })
     ).rejects.toMatchObject({ code: "AUTHENTICATION_FAILED" });
     context.store.users[0] = user;
     context.store.organizations[0] = Organization.reconstruct({
@@ -532,7 +571,11 @@ describe("identity application handlers", () => {
       updatedAt: organization.updatedAt
     });
     await expect(
-      context.login.execute({ email: registration.email, password: registration.password })
+      context.login.execute({
+        email: registration.email,
+        password: registration.password,
+        organizationName: registration.organizationName
+      })
     ).rejects.toMatchObject({ code: "AUTHENTICATION_FAILED" });
   });
 

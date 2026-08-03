@@ -19,7 +19,8 @@ import {
   SECURITY_CONFIG,
   type SecurityConfig
 } from "../../infrastructure/security/security-config";
-import { LoginDto, RefreshTokenDto, RegisterOrganizationDto } from "./auth.dto";
+import { LoginDto, RefreshTokenDto, RegisterOrganizationDto, ForgotPasswordDto, ResetPasswordDto } from "./auth.dto";
+import { PasswordResetService } from "../../application/services/password-reset.service";
 import {
   clearRefreshTokenCookie,
   readRefreshTokenFromRequest,
@@ -40,6 +41,7 @@ export class AuthController {
     @Inject(LOGOUT) private readonly logoutHandler: LogoutHandler,
     @Inject(GET_CURRENT_USER) private readonly getCurrentUser: GetCurrentUserHandler,
     @Inject(SECURITY_CONFIG) private readonly securityConfig: SecurityConfig,
+    private readonly passwordReset: PasswordResetService,
     private readonly securityLogger: SecurityEventLogger
   ) {}
 
@@ -49,6 +51,12 @@ export class AuthController {
     @Req() request: IdentityRequest,
     @Res({ passthrough: true }) response: IdentityResponse
   ) {
+    if (!this.securityConfig.publicSignupEnabled) {
+      throw new IdentityApplicationError(
+        "SIGNUP_DISABLED",
+        "Self-service signup is disabled. Organizations are provisioned by the platform owner."
+      );
+    }
     try {
       const result = await this.registerOrganization.execute(dto);
       this.setRefreshCookie(response, result.tokens.refreshToken);
@@ -133,6 +141,44 @@ export class AuthController {
       return { data: await this.getCurrentUser.execute(principal) };
     } catch (error: unknown) {
       this.logFailure("me_unauthorized", request.requestId, error);
+      throw error;
+    }
+  }
+
+  @Post("forgot-password")
+  @HttpCode(200)
+  async forgotPassword(@Body() dto: ForgotPasswordDto, @Req() request: IdentityRequest) {
+    try {
+      const result = await this.passwordReset.requestReset(dto.email);
+      // In production the reset token must be delivered out-of-band (email/SMS). In development/test it
+      // is returned so the flow is usable end-to-end without an SMTP transport.
+      const returnToken = this.securityConfig.allowDevelopmentImplementations;
+      this.securityLogger.success("forgot_password_requested", request.requestId);
+      return {
+        data: {
+          email: result.email,
+          ...(returnToken && result.resetToken ? { resetToken: result.resetToken } : {})
+        }
+      };
+    } catch (error: unknown) {
+      this.logFailure("forgot_password_failed", request.requestId, error);
+      throw error;
+    }
+  }
+
+  @Post("reset-password")
+  @HttpCode(200)
+  async resetPassword(@Body() dto: ResetPasswordDto, @Req() request: IdentityRequest) {
+    try {
+      await this.passwordReset.confirmReset({
+        email: dto.email,
+        token: dto.token,
+        newPassword: dto.newPassword
+      });
+      this.securityLogger.success("password_reset", request.requestId);
+      return { data: { success: true } };
+    } catch (error: unknown) {
+      this.logFailure("password_reset_failed", request.requestId, error);
       throw error;
     }
   }

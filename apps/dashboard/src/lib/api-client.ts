@@ -28,6 +28,12 @@ type SessionCallbacks = Readonly<{
 export interface LoginRequest {
   email: string;
   password: string;
+  organizationName: string;
+}
+
+export interface ForgotPasswordResult {
+  email: string;
+  resetToken?: string;
 }
 
 export interface RegisterRequest extends LoginRequest {
@@ -125,6 +131,81 @@ export class ApiClient {
     } finally {
       this.callbacks.clearSession();
     }
+  }
+
+  async forgotPassword(email: string): Promise<ForgotPasswordResult> {
+    return this.request<ForgotPasswordResult>(
+      "/auth/forgot-password",
+      {
+        method: "POST",
+        body: JSON.stringify({ email }),
+        headers: { "content-type": "application/json" }
+      },
+      { authorize: false, retryOnUnauthorized: false }
+    );
+  }
+
+  async resetPassword(command: { email: string; token: string; newPassword: string }): Promise<void> {
+    await this.request<{ success: true }>(
+      "/auth/reset-password",
+      {
+        method: "POST",
+        body: JSON.stringify(command),
+        headers: { "content-type": "application/json" }
+      },
+      { authorize: false, retryOnUnauthorized: false }
+    );
+  }
+
+  /** Lists every organization in the platform (platform-owner only). */
+  async listPlatformOrganizations(): Promise<Array<{ id: string; name: string; slug: string; status: string }>> {
+    return this.request<Array<{ id: string; name: string; slug: string; status: string }>>(
+      "/platform/organizations",
+      { method: "GET" }
+    );
+  }
+
+  /** Creates a brand-new organization and, optionally, its first Owner account in the same call
+   *  (platform-owner only). */
+  async createPlatformOrganization(input: {
+    name: string;
+    ownerEmail?: string;
+    ownerFirstName?: string;
+    ownerLastName?: string;
+    ownerPassword?: string;
+  }): Promise<{
+    organization: { id: string; name: string; slug: string; status: string };
+    owner?: { id: string; email: string; firstName: string; role: string; status: string };
+  }> {
+    return this.request(
+      "/platform/organizations",
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        headers: { "content-type": "application/json" }
+      },
+      { authorize: true }
+    );
+  }
+
+  /** Switches the platform-owner session into another organization and returns a fresh token pair. */
+  async switchOrganization(organizationId: string): Promise<AuthenticationResult> {
+    const result = authenticationResult(
+      await this.request<unknown>(
+        `/platform/organizations/${organizationId}/switch`,
+        {
+          method: "POST",
+          body: JSON.stringify({})
+        },
+        { authorize: true }
+      )
+    );
+    this.callbacks.setSession({
+      user: result.user,
+      organization: result.organization,
+      accessToken: result.tokens.accessToken
+    });
+    return result;
   }
 
   async request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {

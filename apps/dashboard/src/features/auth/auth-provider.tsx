@@ -36,6 +36,7 @@ type AuthContextValue = Readonly<{
   register(command: RegisterRequest): Promise<AuthenticationResult>;
   logout(): Promise<void>;
   refresh(): Promise<AuthenticationResult>;
+  switchOrganization(organizationId: string): Promise<AuthenticationResult>;
   initialize(): Promise<void>;
   client: ApiClient;
 }>;
@@ -175,6 +176,13 @@ export function AuthProvider({ children }: Readonly<{ children: ReactNode }>) {
           throw new Error("API client is unavailable");
         }
         return client.refresh();
+      },
+      switchOrganization: (organizationId) => {
+        const client = clientRef.current;
+        if (!client) {
+          throw new Error("API client is unavailable");
+        }
+        return client.switchOrganization(organizationId);
       },
       initialize,
       client:

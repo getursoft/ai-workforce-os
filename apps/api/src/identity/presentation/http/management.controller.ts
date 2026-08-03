@@ -25,6 +25,7 @@ import {
   CreateRoleDto,
   CreateUserDto,
   PageDto,
+  ResetUserPasswordDto,
   UpdateRoleDto,
   UpdateUserDto
 } from "./management.dto";
@@ -84,6 +85,16 @@ export class ManagementController {
   ) {
     const result = await this.service.updateUser(ids(p).org, id, ids(p).user, dto);
     this.audited("USER_UPDATED", req, p, id);
+    return result;
+  }
+  @Post("users/:id/reset-password") @RequirePermission("users.write") async resetPassword(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id") id: string,
+    @Body() dto: ResetUserPasswordDto,
+    @Req() req: IdentityRequest
+  ) {
+    const result = await this.service.resetUserPassword(ids(p).org, id, ids(p).user, dto.password);
+    this.audited("USER_PASSWORD_RESET", req, p, id);
     return result;
   }
   @Delete("users/:id") @RequirePermission("users.delete") @HttpCode(204) async deleteUser(

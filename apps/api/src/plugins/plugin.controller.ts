@@ -94,6 +94,14 @@ export class PluginController {
   ) {
     if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
       throw new ForbiddenException("PLUGIN_GRANT_MANAGEMENT_FORBIDDEN");
+    // The LLM grant controls language-model access/spend and is platform-owner-only — an organization's
+    // own Owner may still enable/disable the plugin and toggle every other capability grant.
+    const current = await this.plugins.get(p.organizationId.toString(), id);
+    const currentGrants = new Set(current.grantedPermissions as string[]);
+    const nextGrants = new Set(dto.grantedPermissions);
+    if (currentGrants.has("LLM") !== nextGrants.has("LLM") && p.isPlatformOwner !== true) {
+      throw new ForbiddenException("LLM_GRANT_PLATFORM_OWNER_ONLY");
+    }
     const result = await this.plugins.updateGrants(p.organizationId.toString(), id, dto);
     this.record("PLUGIN_GRANTS_UPDATED", req, p, id);
     return result;
@@ -177,14 +185,15 @@ export class PluginController {
   ) {
     return this.pluginAi.get(p.organizationId.toString(), id);
   }
-  @Patch(":id/ai-configuration") @RequirePermission("plugin.update") async updateAiConfiguration(
+  @Patch(":id/ai-configuration") @RequirePermission("plugin.ai.manage") async updateAiConfiguration(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: UpdatePluginAiConfigurationDto,
     @Req() req: IdentityRequest
   ) {
-    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
-      throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
+    // The AI/LLM provider configuration controls model access, credentials, and spend — platform-owner-only,
+    // even for an organization's own Owner (mirrors the LLM capability grant restriction above).
+    if (p.isPlatformOwner !== true) throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
     const result = await this.pluginAi.update(
       p.organizationId.toString(),
       p.userId.toString(),
@@ -194,30 +203,32 @@ export class PluginController {
     this.record("PLUGIN_AI_CONFIGURATION_UPDATED", req, p, id);
     return result;
   }
-  @Post(":id/ai-configuration/test") @RequirePermission("plugin.update") async testAiConfiguration(
+  @Post(":id/ai-configuration/test") @RequirePermission("plugin.ai.manage") async testAiConfiguration(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string,
     @Req() req: IdentityRequest
   ) {
-    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
-      throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
+    if (p.isPlatformOwner !== true) throw new ForbiddenException("PLUGIN_AI_CONFIGURATION_FORBIDDEN");
     const result = await this.pluginAi.test(p.organizationId.toString(), id);
     this.record("PLUGIN_AI_PROVIDER_TESTED", req, p, id);
     return result;
   }
-  @Get(":id/email-configuration") @RequirePermission("plugin.read") emailConfiguration(
+  @Get(":id/email-configuration") @RequirePermission("plugin.email.manage") emailConfiguration(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string
   ) {
     return this.emailConfig.get(p.organizationId.toString(), id);
   }
-  @Patch(":id/email-configuration") @RequirePermission("plugin.update") async updateEmailConfiguration(
+  @Patch(":id/email-configuration") @RequirePermission("plugin.email.manage") async updateEmailConfiguration(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body() dto: UpdateEmailConfigurationDto,
     @Req() req: IdentityRequest
   ) {
-    if (!(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString())))
+    if (
+      p.isPlatformOwner !== true &&
+      !(await this.plugins.canManageGrants(p.organizationId.toString(), p.userId.toString()))
+    )
       throw new ForbiddenException("EMAIL_CONFIGURATION_FORBIDDEN");
     const result = await this.emailConfig.update(
       p.organizationId.toString(),

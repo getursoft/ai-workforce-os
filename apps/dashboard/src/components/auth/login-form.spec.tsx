@@ -38,16 +38,19 @@ describe("LoginForm", () => {
     expect(html).toContain("Sign in to your workspace");
     expect(html).toContain("Email");
     expect(html).toContain("Password");
+    expect(html).toContain("Organization ID");
     expect(html).toContain("Sign in");
     expect(html).toContain("Show");
-    expect(html).toContain("Create account");
-    expect(html).toContain("/signup");
+    // Self-service signup was removed — the login page no longer offers account creation.
+    expect(html).not.toContain("Create account");
+    expect(html).not.toContain("/signup");
   });
 
-  it("rejects invalid email and missing password", () => {
-    expect(validateLoginForm("not-an-email", "")).toEqual({
+  it("rejects invalid email, missing password, and missing organization ID", () => {
+    expect(validateLoginForm("not-an-email", "", "")).toEqual({
       email: "Enter a valid email address.",
-      password: "Password is required."
+      password: "Password is required.",
+      organizationName: "Organization ID is required."
     });
   });
 
@@ -56,6 +59,12 @@ describe("LoginForm", () => {
     expect(getLoginFailureMessage("network")).toContain("Network unavailable");
     expect(getLoginFailureMessage("server")).toContain("Unexpected server error");
     expect(getLoginFailureMessage("authentication")).toBe("Invalid email or password.");
+    expect(getLoginFailureMessage("authentication", "ORGANIZATION_NOT_FOUND")).toContain(
+      "organization ID"
+    );
+    expect(getLoginFailureMessage("authentication", "ORGANIZATION_SWITCH_DENIED")).toContain(
+      "does not have access"
+    );
   });
 
   it("uses only internal return targets", () => {

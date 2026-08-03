@@ -34,6 +34,7 @@ export class JoseAccessTokenService implements AccessTokenService {
         org: principal.organizationId.toString(),
         role: principal.role,
         sid: principal.sessionId.toString(),
+        ...(principal.isPlatformOwner ? { po: true } : {}),
         type: "access"
       })
         .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -89,7 +90,8 @@ export class JoseAccessTokenService implements AccessTokenService {
       userId: UserId.from(payload.sub),
       organizationId: OrganizationId.from(payload.org),
       role: this.toRole(payload.role),
-      sessionId: AuthenticationSessionId.from(payload.sid)
+      sessionId: AuthenticationSessionId.from(payload.sid),
+      ...(payload.po === true ? { isPlatformOwner: true } : {})
     };
   }
 

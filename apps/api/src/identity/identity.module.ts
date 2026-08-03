@@ -68,11 +68,20 @@ import {
 import type { OrganizationSettingRepository } from "./application/ports/organization-setting-repository";
 import { AuthorizationService } from "./application/services/authorization.service";
 import { ManagementService } from "./application/services/management.service";
+import { PlatformService } from "./application/services/platform.service";
+import { PasswordResetService } from "./application/services/password-reset.service";
 import {
   InvitationAcceptanceController,
   ManagementController
 } from "./presentation/http/management.controller";
+import { PlatformController } from "./presentation/http/platform.controller";
 import { PermissionGuard } from "./presentation/http/permission.guard";
+import { PlatformOwnerService } from "./infrastructure/security/platform-owner.service";
+import { PlatformOwnerGuard } from "./infrastructure/security/platform-owner.guard";
+import {
+  SWITCH_ORGANIZATION,
+  SwitchOrganizationHandler
+} from "./application/handlers/switch-organization";
 
 @Module({
   imports: [PrismaModule],
@@ -80,7 +89,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     AuthController,
     OrganizationsController,
     ManagementController,
-    InvitationAcceptanceController
+    InvitationAcceptanceController,
+    PlatformController
   ],
   providers: [
     {
@@ -153,7 +163,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         REFRESH_TOKEN_SERVICE,
         CLOCK,
         IDENTIFIER_GENERATOR,
-        AUTHENTICATION_LIFETIMES
+        AUTHENTICATION_LIFETIMES,
+        PlatformOwnerService
       ],
       useFactory: (
         unitOfWork: IdentityUnitOfWork,
@@ -162,7 +173,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         refreshTokens: RefreshTokenService,
         clock: Clock,
         identifiers: IdentifierGenerator,
-        lifetimes: AuthenticationLifetimes
+        lifetimes: AuthenticationLifetimes,
+        platformOwner: PlatformOwnerService
       ) =>
         new RegisterOrganizationHandler(
           unitOfWork,
@@ -171,7 +183,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
           refreshTokens,
           clock,
           identifiers,
-          lifetimes
+          lifetimes,
+          platformOwner
         )
     },
     {
@@ -185,7 +198,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         REFRESH_TOKEN_SERVICE,
         CLOCK,
         IDENTIFIER_GENERATOR,
-        AUTHENTICATION_LIFETIMES
+        AUTHENTICATION_LIFETIMES,
+        PlatformOwnerService
       ],
       useFactory: (
         users: UserRepository,
@@ -196,7 +210,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         refreshTokens: RefreshTokenService,
         clock: Clock,
         identifiers: IdentifierGenerator,
-        lifetimes: AuthenticationLifetimes
+        lifetimes: AuthenticationLifetimes,
+        platformOwner: PlatformOwnerService
       ) =>
         new LoginHandler(
           users,
@@ -207,7 +222,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
           refreshTokens,
           clock,
           identifiers,
-          lifetimes
+          lifetimes,
+          platformOwner
         )
     },
     {
@@ -221,7 +237,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         REFRESH_TOKEN_SERVICE,
         CLOCK,
         IDENTIFIER_GENERATOR,
-        AUTHENTICATION_LIFETIMES
+        AUTHENTICATION_LIFETIMES,
+        PlatformOwnerService
       ],
       useFactory: (
         sessions: AuthenticationSessionRepository,
@@ -232,7 +249,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         refreshTokens: RefreshTokenService,
         clock: Clock,
         identifiers: IdentifierGenerator,
-        lifetimes: AuthenticationLifetimes
+        lifetimes: AuthenticationLifetimes,
+        platformOwner: PlatformOwnerService
       ) =>
         new RefreshSessionHandler(
           sessions,
@@ -243,7 +261,8 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
           refreshTokens,
           clock,
           identifiers,
-          lifetimes
+          lifetimes,
+          platformOwner
         )
     },
     {
@@ -263,24 +282,67 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     },
     {
       provide: GET_CURRENT_USER,
-      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY],
-      useFactory: (users: UserRepository, organizations: OrganizationRepository) =>
-        new GetCurrentUserHandler(users, organizations)
-    },
-    {
-      provide: GET_ORGANIZATION,
-      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY],
-      useFactory: (users: UserRepository, organizations: OrganizationRepository) =>
-        new GetOrganizationHandler(users, organizations)
-    },
-    {
-      provide: UPDATE_ORGANIZATION,
-      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY, IDENTITY_UNIT_OF_WORK],
+      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY, PlatformOwnerService],
       useFactory: (
         users: UserRepository,
         organizations: OrganizationRepository,
-        unitOfWork: IdentityUnitOfWork
-      ) => new UpdateOrganizationHandler(users, organizations, unitOfWork)
+        platformOwner: PlatformOwnerService
+      ) => new GetCurrentUserHandler(users, organizations, platformOwner)
+    },
+    {
+      provide: SWITCH_ORGANIZATION,
+      inject: [
+        USER_REPOSITORY,
+        ORGANIZATION_REPOSITORY,
+        IDENTITY_UNIT_OF_WORK,
+        ACCESS_TOKEN_SERVICE,
+        REFRESH_TOKEN_SERVICE,
+        CLOCK,
+        IDENTIFIER_GENERATOR,
+        AUTHENTICATION_LIFETIMES,
+        PlatformOwnerService
+      ],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        unitOfWork: IdentityUnitOfWork,
+        accessTokens: AccessTokenService,
+        refreshTokens: RefreshTokenService,
+        clock: Clock,
+        identifiers: IdentifierGenerator,
+        lifetimes: AuthenticationLifetimes,
+        platformOwner: PlatformOwnerService
+      ) =>
+        new SwitchOrganizationHandler(
+          users,
+          organizations,
+          unitOfWork,
+          accessTokens,
+          refreshTokens,
+          clock,
+          identifiers,
+          lifetimes,
+          platformOwner
+        )
+    },
+    {
+      provide: GET_ORGANIZATION,
+      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY, PlatformOwnerService],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        platformOwner: PlatformOwnerService
+      ) => new GetOrganizationHandler(users, organizations, platformOwner)
+    },
+    {
+      provide: UPDATE_ORGANIZATION,
+      inject: [USER_REPOSITORY, ORGANIZATION_REPOSITORY, IDENTITY_UNIT_OF_WORK, PlatformOwnerService],
+      useFactory: (
+        users: UserRepository,
+        organizations: OrganizationRepository,
+        unitOfWork: IdentityUnitOfWork,
+        platformOwner: PlatformOwnerService
+      ) => new UpdateOrganizationHandler(users, organizations, unitOfWork, platformOwner)
     },
     {
       provide: GET_ORGANIZATION_SETTINGS,
@@ -289,21 +351,24 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         ORGANIZATION_REPOSITORY,
         ORGANIZATION_SETTING_REPOSITORY,
         IDENTITY_UNIT_OF_WORK,
-        IDENTIFIER_GENERATOR
+        IDENTIFIER_GENERATOR,
+        PlatformOwnerService
       ],
       useFactory: (
         users: UserRepository,
         organizations: OrganizationRepository,
         organizationSettings: OrganizationSettingRepository,
         unitOfWork: IdentityUnitOfWork,
-        identifiers: IdentifierGenerator
+        identifiers: IdentifierGenerator,
+        platformOwner: PlatformOwnerService
       ) =>
         new GetOrganizationSettingsHandler(
           users,
           organizations,
           organizationSettings,
           unitOfWork,
-          identifiers
+          identifiers,
+          platformOwner
         )
     },
     {
@@ -313,21 +378,24 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
         ORGANIZATION_REPOSITORY,
         ORGANIZATION_SETTING_REPOSITORY,
         IDENTITY_UNIT_OF_WORK,
-        IDENTIFIER_GENERATOR
+        IDENTIFIER_GENERATOR,
+        PlatformOwnerService
       ],
       useFactory: (
         users: UserRepository,
         organizations: OrganizationRepository,
         organizationSettings: OrganizationSettingRepository,
         unitOfWork: IdentityUnitOfWork,
-        identifiers: IdentifierGenerator
+        identifiers: IdentifierGenerator,
+        platformOwner: PlatformOwnerService
       ) =>
         new UpdateOrganizationSettingsHandler(
           users,
           organizations,
           organizationSettings,
           unitOfWork,
-          identifiers
+          identifiers,
+          platformOwner
         )
     },
     JwtAccessGuard,
@@ -336,7 +404,11 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     AuditEventLogger,
     AuthorizationService,
     ManagementService,
-    PermissionGuard
+    PermissionGuard,
+    PlatformOwnerService,
+    PlatformOwnerGuard,
+    PlatformService,
+    PasswordResetService
   ],
   exports: [
     ORGANIZATION_REPOSITORY,
@@ -354,7 +426,9 @@ import { PermissionGuard } from "./presentation/http/permission.guard";
     PermissionGuard,
     AuditEventLogger,
     SecurityEventLogger,
-    SECURITY_CONFIG
+    SECURITY_CONFIG,
+    PlatformOwnerService,
+    PlatformOwnerGuard
   ]
 })
 export class IdentityModule implements NestModule {

@@ -6,6 +6,7 @@ import type { UserRepository } from "../ports/user-repository";
 import { Organization } from "../../domain/organization/organization";
 import { OrganizationName } from "../../domain/organization/organization-name";
 import { OrganizationAccessService } from "../services/organization-access";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 import { normalizeOrganizationNameForUpdate } from "../services/organization-update-policy";
 
 export interface UpdateOrganizationCommand {
@@ -20,9 +21,10 @@ export class UpdateOrganizationHandler {
   constructor(
     users: UserRepository,
     organizations: OrganizationRepository,
-    private readonly unitOfWork: IdentityUnitOfWork
+    private readonly unitOfWork: IdentityUnitOfWork,
+    platformOwner: PlatformOwnerService
   ) {
-    this.organizationAccess = new OrganizationAccessService(users, organizations);
+    this.organizationAccess = new OrganizationAccessService(users, organizations, platformOwner);
   }
 
   async execute(

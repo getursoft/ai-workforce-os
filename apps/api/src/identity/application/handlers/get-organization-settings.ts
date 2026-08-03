@@ -11,6 +11,7 @@ import type { UserRepository } from "../ports/user-repository";
 import { OrganizationSetting } from "../../domain/organization/organization-setting";
 import { OrganizationSettingId } from "../../domain/organization/organization-setting-id";
 import { OrganizationAccessService } from "../services/organization-access";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 
 export const GET_ORGANIZATION_SETTINGS = Symbol("GetOrganizationSettings");
 
@@ -22,9 +23,10 @@ export class GetOrganizationSettingsHandler {
     organizations: OrganizationRepository,
     private readonly organizationSettings: OrganizationSettingRepository,
     private readonly unitOfWork: IdentityUnitOfWork,
-    private readonly identifiers: IdentifierGenerator
+    private readonly identifiers: IdentifierGenerator,
+    platformOwner: PlatformOwnerService
   ) {
-    this.organizationAccess = new OrganizationAccessService(users, organizations);
+    this.organizationAccess = new OrganizationAccessService(users, organizations, platformOwner);
   }
 
   async execute(principal: AuthenticatedPrincipal): Promise<OrganizationSettingsResult> {

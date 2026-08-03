@@ -10,7 +10,7 @@
     "test": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism",
     "test:unit": "vitest run --exclude '**/*.integration.spec.ts' --exclude '**/*.e2e.spec.ts'",
     "test:integration": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run src/identity/infrastructure/persistence/prisma/prisma-repositories.integration.spec.ts",
-    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/teams/team.e2e.spec.ts src/service-accounts/service-account.e2e.spec.ts src/plugins/plugin.e2e.spec.ts src/agents/agent.e2e.spec.ts src/connectors/connector.e2e.spec.ts src/knowledge/knowledge.e2e.spec.ts",
+    "test:e2e": "node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism src/identity/presentation/http/auth.e2e.spec.ts src/identity/presentation/http/management.e2e.spec.ts src/identity/presentation/http/platform-owner.e2e.spec.ts src/teams/team.e2e.spec.ts src/service-accounts/service-account.e2e.spec.ts src/plugins/plugin.e2e.spec.ts src/agents/agent.e2e.spec.ts src/connectors/connector.e2e.spec.ts src/knowledge/knowledge.e2e.spec.ts src/memory/memory.e2e.spec.ts",
     "smoke:travel": "vitest run src/travel/travel.smoke.spec.ts",
     "uat:travel-plan-trip": "vitest run src/skills/travel/plan-trip-uat.spec.ts --no-file-parallelism --reporter=verbose",
     "typecheck": "tsc --noEmit -p tsconfig.json"

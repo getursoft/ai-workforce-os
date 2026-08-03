@@ -8,7 +8,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { ensurePlatformOwner } from "../test/cleanup";
 import { NO_KNOWLEDGE_MESSAGE } from "./knowledge.prompt";
+
+const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
 
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
@@ -70,6 +74,17 @@ suite("Knowledge grounding UAT", () => {
       })
       .expect(201);
     token = registered.body.data.tokens.accessToken;
+    const organizationId = registered.body.data.organization.id;
+    await ensurePlatformOwner(prisma);
+    const platformLogin = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "AI Workforce OS Platform" })
+      .expect(200);
+    const switched = await request(app.getHttpServer())
+      .post(`/api/v1/platform/organizations/${organizationId}/switch`)
+      .set("Authorization", `Bearer ${platformLogin.body.data.tokens.accessToken}`)
+      .expect(201);
+    const platformOwnerAuth = `Bearer ${switched.body.data.tokens.accessToken}`;
 
     // Travel Employee — real plugin type, deterministic engine (no AI provider configured).
     const travel = await request(app.getHttpServer())
@@ -111,7 +126,7 @@ suite("Knowledge grounding UAT", () => {
     hrEmployeeId = hr.body.id;
     await request(app.getHttpServer())
       .patch(`/api/v1/plugins/${hrEmployeeId}/ai-configuration`)
-      .set("Authorization", `Bearer ${token}`)
+      .set("Authorization", platformOwnerAuth)
       .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
       .expect(200);
     const hrCollection = await request(app.getHttpServer())

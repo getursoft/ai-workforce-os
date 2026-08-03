@@ -14,6 +14,7 @@ describe("AuthenticationSessionPrismaMapper", () => {
     const session = AuthenticationSession.reconstruct({
       id: AuthenticationSessionId.from("00000000-0000-4000-8000-000000000003"),
       userId: UserId.from("00000000-0000-4000-8000-000000000002"),
+      activeOrganizationId: null,
       tokenHash: "token-hash",
       tokenFamilyId: TokenFamilyId.from("00000000-0000-4000-8000-000000000005"),
       expiresAt,
@@ -41,6 +42,7 @@ describe("AuthenticationSessionPrismaMapper", () => {
     const session = AuthenticationSessionPrismaMapper.toDomain({
       id: "00000000-0000-4000-8000-000000000003",
       userId: "00000000-0000-4000-8000-000000000002",
+      activeOrganizationId: null,
       tokenHash: "token-hash",
       familyId: "00000000-0000-4000-8000-000000000005",
       expiresAt,

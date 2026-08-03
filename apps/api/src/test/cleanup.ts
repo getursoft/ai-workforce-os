@@ -1,4 +1,35 @@
+import argon2 from "argon2";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+
+const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
+
+/**
+ * Idempotently bootstraps the platform owner account + home organization. Any spec that logs in as the
+ * platform owner must call this first — `deleteAllOrganizationScopedRows` (used by other specs' cleanup)
+ * wipes the whole shared test database, including this account, so its presence can never be assumed.
+ */
+export async function ensurePlatformOwner(prisma: PrismaService): Promise<void> {
+  const organization = await prisma.organization.upsert({
+    where: { slug: "ai-workforce-os-platform" },
+    update: {},
+    create: { name: "AI Workforce OS Platform", slug: "ai-workforce-os-platform", status: "ACTIVE" }
+  });
+  const existing = await prisma.user.findUnique({ where: { normalizedEmail: PLATFORM_OWNER_EMAIL } });
+  if (existing) return;
+  await prisma.user.create({
+    data: {
+      organizationId: organization.id,
+      firstName: "Krishna",
+      lastName: "Pandey",
+      email: PLATFORM_OWNER_EMAIL,
+      normalizedEmail: PLATFORM_OWNER_EMAIL,
+      passwordHash: await argon2.hash(PLATFORM_OWNER_PASSWORD),
+      role: "OWNER",
+      status: "ACTIVE"
+    }
+  });
+}
 
 /**
  * Deletes every row that references an Organization so `organization.deleteMany()` can run without hitting
@@ -46,6 +77,14 @@ export async function deleteAllOrganizationScopedRows(prisma: PrismaService): Pr
   await prisma.agentToolExecution.deleteMany();
   await prisma.agentExecution.deleteMany();
   await prisma.agentMemory.deleteMany();
+  // Memory (Sprint 4.5) — audit events reference memory records; both reference organizations.
+  await prisma.memoryAuditEvent.deleteMany();
+  await prisma.memoryRecord.deleteMany();
+  await prisma.conversationSummary.deleteMany();
+  // Billing — credit purchase orders and payment gateway configs reference users with RESTRICT,
+  // delete before users.
+  await prisma.creditPurchaseOrder.deleteMany();
+  await prisma.paymentGatewayConfiguration.deleteMany();
   // Conversation content + conversations.
   await prisma.channelMessage.deleteMany();
   await prisma.conversationMessage.deleteMany();
@@ -75,6 +114,7 @@ export async function deleteAllOrganizationScopedRows(prisma: PrismaService): Pr
   await prisma.team.deleteMany();
   await prisma.invitation.deleteMany();
   await prisma.authenticationSession.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
   await prisma.userRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.role.deleteMany();

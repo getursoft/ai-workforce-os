@@ -21,7 +21,11 @@ import type {
  * for "one active workflow per conversation+type".
  */
 
-export type WorkflowType = "CONTACT_CAPTURE" | "BOOKING_HANDOFF" | "TRIP_SUBMISSION";
+// EMPLOYEE_DELEGATION (Sprint 4.6) is deliberately never handled by WorkflowCoordinator.resume()'s
+// turn-based dispatch above — a delegated task is not a chat turn. It uses WorkflowExecutionService's
+// generic (type-agnostic) persistence directly, via WorkforceOrchestratorService, for durable/resumable
+// async tracking only.
+export type WorkflowType = "CONTACT_CAPTURE" | "BOOKING_HANDOFF" | "TRIP_SUBMISSION" | "EMPLOYEE_DELEGATION";
 
 export type WorkflowStatus = "ACTIVE" | "WAITING_FOR_INPUT" | "WAITING_FOR_APPROVAL" | "COMPLETED" | "FAILED" | "CANCELLED";
 

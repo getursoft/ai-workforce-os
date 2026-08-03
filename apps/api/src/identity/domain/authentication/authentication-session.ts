@@ -1,5 +1,6 @@
 import { InvalidEntityStateError, InvalidStateTransitionError } from "../shared/domain.error";
 import { requireValidDate } from "../shared/validation";
+import type { OrganizationId } from "../organization/organization-id";
 import type { UserId } from "../user/user-id";
 import type { AuthenticationSessionId } from "./authentication-session-id";
 import type { TokenFamilyId } from "./token-family-id";
@@ -7,6 +8,8 @@ import type { TokenFamilyId } from "./token-family-id";
 export interface CreateAuthenticationSession {
   id: AuthenticationSessionId;
   userId: UserId;
+  /** The organization this session operates as when set; null = the user's home organization. */
+  activeOrganizationId?: OrganizationId;
   tokenHash: string;
   tokenFamilyId: TokenFamilyId;
   expiresAt: Date;
@@ -19,6 +22,7 @@ export interface CreateAuthenticationSession {
 export interface ReconstructedAuthenticationSession {
   id: AuthenticationSessionId;
   userId: UserId;
+  activeOrganizationId: OrganizationId | null;
   tokenHash: string;
   tokenFamilyId: TokenFamilyId;
   expiresAt: Date;
@@ -38,6 +42,7 @@ export class AuthenticationSession {
   private constructor(
     readonly id: AuthenticationSessionId,
     readonly userId: UserId,
+    readonly activeOrganizationId: OrganizationId | null,
     tokenHash: string,
     readonly tokenFamilyId: TokenFamilyId,
     readonly expiresAt: Date,
@@ -68,6 +73,7 @@ export class AuthenticationSession {
     return new AuthenticationSession(
       properties.id,
       properties.userId,
+      properties.activeOrganizationId ?? null,
       tokenHash,
       properties.tokenFamilyId,
       expiresAt,
@@ -113,6 +119,7 @@ export class AuthenticationSession {
     return new AuthenticationSession(
       properties.id,
       properties.userId,
+      properties.activeOrganizationId,
       tokenHash,
       properties.tokenFamilyId,
       expiresAt,

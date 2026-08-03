@@ -24,6 +24,7 @@ export class PrismaAuthenticationSessionRepository implements AuthenticationSess
         create: data,
         update: {
           userId: data.userId,
+          activeOrganizationId: data.activeOrganizationId,
           tokenHash: data.tokenHash,
           familyId: data.familyId,
           expiresAt: data.expiresAt,

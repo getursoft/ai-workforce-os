@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "../auth/auth-provider";
 import { createBillingApi } from "./billing-api";
-import { AccessGate } from "../admin/authorization";
+import { PlatformOwnerGate } from "../admin/authorization";
 import { Skeleton } from "../../components/ui";
 import { PaymentSettingsForm } from "./payment-settings-form";
 
@@ -22,15 +22,15 @@ export function PaymentSettingsPage() {
   });
 
   return (
-    <AccessGate permission="billing.payment_settings.manage">
+    <PlatformOwnerGate>
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
             <p className="admin-eyebrow">Administration</p>
             <h1>Payment Settings</h1>
             <p>
-              Connect the payment gateway your organisation uses to sell AI-credit top-ups. Only the
-              organisation Owner can view or change this.
+              Connect the payment gateway this organisation uses to sell AI-credit top-ups. Only the
+              platform owner can view or change this, for any organisation.
             </p>
           </div>
         </header>
@@ -46,6 +46,6 @@ export function PaymentSettingsPage() {
           />
         )}
       </section>
-    </AccessGate>
+    </PlatformOwnerGate>
   );
 }

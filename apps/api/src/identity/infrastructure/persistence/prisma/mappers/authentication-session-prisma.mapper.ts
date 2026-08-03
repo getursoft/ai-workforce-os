@@ -2,6 +2,7 @@ import type { AuthenticationSession as PrismaAuthenticationSession } from "@pris
 import { AuthenticationSession } from "../../../../domain/authentication/authentication-session";
 import { AuthenticationSessionId } from "../../../../domain/authentication/authentication-session-id";
 import { TokenFamilyId } from "../../../../domain/authentication/token-family-id";
+import { OrganizationId } from "../../../../domain/organization/organization-id";
 import { UserId } from "../../../../domain/user/user-id";
 
 export class AuthenticationSessionPrismaMapper {
@@ -9,6 +10,9 @@ export class AuthenticationSessionPrismaMapper {
     return AuthenticationSession.reconstruct({
       id: AuthenticationSessionId.from(record.id),
       userId: UserId.from(record.userId),
+      activeOrganizationId: record.activeOrganizationId
+        ? OrganizationId.from(record.activeOrganizationId)
+        : null,
       tokenHash: record.tokenHash,
       tokenFamilyId: TokenFamilyId.from(record.familyId),
       expiresAt: new Date(record.expiresAt),
@@ -27,6 +31,7 @@ export class AuthenticationSessionPrismaMapper {
     return {
       id: session.id.toString(),
       userId: session.userId.toString(),
+      activeOrganizationId: session.activeOrganizationId?.toString() ?? null,
       tokenHash: session.tokenHashForPersistence(),
       familyId: session.tokenFamilyId.toString(),
       expiresAt: new Date(session.expiresAt),
@@ -43,6 +48,7 @@ export class AuthenticationSessionPrismaMapper {
 export interface AuthenticationSessionPersistence {
   id: string;
   userId: string;
+  activeOrganizationId: string | null;
   tokenHash: string;
   familyId: string;
   expiresAt: Date;

@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Bot,
   Wrench,
-  ListChecks,
   MessageSquare,
   History,
   BookOpen,
@@ -35,6 +34,8 @@ import {
   BarChart3,
   Brain,
   CreditCard,
+  Globe,
+  Network,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -43,7 +44,6 @@ import { Avatar, Badge, Button, Card, DropdownMenu, PageHeader, Skeleton } from 
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
 import { useEffectivePermissions } from "../../features/admin/authorization";
 import { LogoMark } from "@/components/shared/logo-mark";
-
 type NavIcon = ComponentType<LucideProps>;
 
 // Quick links back to the public marketing site — deliberately just these three (not the full
@@ -59,7 +59,6 @@ const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permissi
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/ai-employees", label: "AI Employees", icon: Bot, permission: "agents.run" },
   { href: "/tools", label: "Tools", icon: Wrench, permission: "agents.run" },
-  { href: "/dashboard/tasks", label: "Tasks", icon: ListChecks },
   { href: "/conversations", label: "Conversations", icon: MessageSquare, permission: "agents.conversations.read" },
   { href: "/execution-history", label: "Execution History", icon: History, permission: "agents.executions.read" },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen, permission: "knowledge.read" },
@@ -97,18 +96,89 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
   { href: "/dashboard/settings/roles", label: "Roles", icon: ShieldCheck, permission: "roles.read" },
   { href: "/dashboard/settings/permissions", label: "Permissions", icon: Lock, permission: "roles.read" },
   { href: "/dashboard/settings/invitations", label: "Invitations", icon: Mail, permission: "invitations.read" },
-  { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approvals.read" },
-  { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" },
-  {
-    href: "/dashboard/settings/payments",
-    label: "Payment Settings",
-    icon: CreditCard,
-    permission: "billing.payment_settings.manage"
-  }
+  { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approval.read" },
+  { href: "/workforce", label: "AI Workforce", icon: Network, permission: "workforce.read" },
+  { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" }
 ] as const;
 
 export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {
   return ADMIN_ITEMS.filter((item) => permissions.has(item.permission));
+}
+
+/** Organization switcher shown to the universal platform owner in the top bar — they operate across
+ *  every organization, not just their home one. Selecting an organization switches the session (fresh
+ *  tokens bound to that org) and reloads the workspace. */
+function OrganizationSwitcher() {
+  const router = useRouter();
+  const { state, client, switchOrganization } = useAuth();
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [error, setError] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const isPlatformOwner = state.user?.isPlatformOwner === true;
+
+  const load = async () => {
+    if (organizations) return;
+    try {
+      const rows = await client.listPlatformOrganizations();
+      setOrganizations(rows.map((row) => ({ id: row.id, name: row.name })));
+      setError(false);
+    } catch {
+      setError(true);
+    }
+  };
+
+  const select = async (organizationId: string) => {
+    if (switching || organizationId === state.organization?.id) return;
+    setSwitching(true);
+    try {
+      await switchOrganization(organizationId);
+      router.refresh();
+    } catch {
+      setError(true);
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isPlatformOwner) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlatformOwner]);
+
+  if (!isPlatformOwner) {
+    return <Badge tone="neutral">{state.organization?.name}</Badge>;
+  }
+
+  return (
+    <DropdownMenu
+      triggerProps={{ "aria-label": "Switch organization" }}
+      trigger={
+        <span className="dashboard-org-chip">
+          <Badge tone="neutral">
+            {state.organization?.name} {switching ? "…" : ""}
+          </Badge>
+        </span>
+      }
+    >
+      <div className="dashboard-org-menu">
+        <p className="dashboard-org-menu__title">Organizations</p>
+        {organizations?.map((organization) => (
+          <button
+            key={organization.id}
+            type="button"
+            className={`dashboard-org-menu__item ${
+              organization.id === state.organization?.id ? "dashboard-org-menu__item--active" : ""
+            }`}
+            onClick={() => void select(organization.id)}
+          >
+            {organization.name}
+          </button>
+        ))}
+        {error ? <p className="dashboard-org-menu__error">Could not load organizations.</p> : null}
+        {!organizations && !error ? <p className="dashboard-org-menu__loading">Loading…</p> : null}
+      </div>
+    </DropdownMenu>
+  );
 }
 
 export function DashboardShell({
@@ -208,6 +278,26 @@ export function DashboardShell({
               <span>{item.label}</span>
             </Link>
           ))}
+          {state.user?.isPlatformOwner ? (
+            <>
+              <Link
+                className={`dashboard-nav__item ${pathname.startsWith("/dashboard/settings/payments") ? "dashboard-nav__item--active" : ""}`}
+                href="/dashboard/settings/payments"
+                onClick={() => setMobileOpen(false)}
+              >
+                <CreditCard className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span>Payment Settings</span>
+              </Link>
+              <Link
+                className={`dashboard-nav__item ${pathname.startsWith("/dashboard/organizations") ? "dashboard-nav__item--active" : ""}`}
+                href="/dashboard/organizations"
+                onClick={() => setMobileOpen(false)}
+              >
+                <Globe className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <span>Organizations</span>
+              </Link>
+            </>
+          ) : null}
         </nav>
         <Card className="dashboard-sidebar__status">
           <p className="dashboard-sidebar__label">Status</p>
@@ -257,7 +347,7 @@ export function DashboardShell({
             <PageHeader {...(description ? { title, description } : { title })} />
           </div>
           <div className="dashboard-topbar__actions">
-            <Badge tone="neutral">{state.organization?.name}</Badge>
+            <OrganizationSwitcher />
             <DropdownMenu
               triggerProps={{ "aria-label": "User menu" }}
               trigger={

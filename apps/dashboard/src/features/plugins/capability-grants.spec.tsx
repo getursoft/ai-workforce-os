@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { CapabilityGrants, runtimeReady } from "./capability-grants";
+import { CapabilityGrants, canManageCapability, runtimeReady } from "./capability-grants";
 
 describe("Capability Grants", () => {
   it("renders every declared capability with grant status and actions", () => {
@@ -8,7 +8,8 @@ describe("Capability Grants", () => {
       <CapabilityGrants
         declared={["MEMORY", "EVENTS"]}
         granted={["EVENTS"]}
-        canManage
+        isOwner
+        isPlatformOwner={false}
         onChange={vi.fn()}
       />
     );
@@ -22,10 +23,49 @@ describe("Capability Grants", () => {
   });
   it("keeps mutation controls unavailable to unauthorized users", () => {
     const html = renderToStaticMarkup(
-      <CapabilityGrants declared={["MEMORY"]} granted={[]} canManage={false} onChange={vi.fn()} />
+      <CapabilityGrants
+        declared={["MEMORY"]}
+        granted={[]}
+        isOwner={false}
+        isPlatformOwner={false}
+        onChange={vi.fn()}
+      />
     );
-    expect(html).toContain("Only Owners and Admins can change grants.");
+    expect(html).toContain("Only the organization Owner can change grants.");
     expect(html).not.toContain("Grant MEMORY");
+  });
+  it("locks the LLM grant to the platform owner even for the organization Owner", () => {
+    const ownerHtml = renderToStaticMarkup(
+      <CapabilityGrants
+        declared={["LLM", "MEMORY"]}
+        granted={[]}
+        isOwner
+        isPlatformOwner={false}
+        onChange={vi.fn()}
+      />
+    );
+    expect(ownerHtml).toContain("Grant MEMORY");
+    expect(ownerHtml).not.toContain("Grant LLM");
+    expect(ownerHtml).toContain("Only the platform owner can change this.");
+
+    const platformOwnerHtml = renderToStaticMarkup(
+      <CapabilityGrants
+        declared={["LLM", "MEMORY"]}
+        granted={[]}
+        isOwner
+        isPlatformOwner
+        onChange={vi.fn()}
+      />
+    );
+    expect(platformOwnerHtml).toContain("Grant LLM");
+    expect(platformOwnerHtml).toContain("Grant MEMORY");
+  });
+  it("canManageCapability restricts LLM to the platform owner only", () => {
+    expect(canManageCapability("LLM", true, false)).toBe(false);
+    expect(canManageCapability("LLM", true, true)).toBe(true);
+    expect(canManageCapability("LLM", false, false)).toBe(false);
+    expect(canManageCapability("MEMORY", true, false)).toBe(true);
+    expect(canManageCapability("MEMORY", false, false)).toBe(false);
   });
   it("marks only active MEMORY-enabled installations runtime ready", () => {
     expect(runtimeReady("ACTIVE", ["MEMORY"])).toBe(true);
@@ -37,7 +77,8 @@ describe("Capability Grants", () => {
       <CapabilityGrants
         declared={["CRM", "MEMORY", "CRM", "travel.search"]}
         granted={["CRM"]}
-        canManage
+        isOwner
+        isPlatformOwner={false}
         onChange={vi.fn()}
       />
     );

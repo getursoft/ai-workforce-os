@@ -64,6 +64,16 @@ export class BillingController {
     return this.billing.trend(p.organizationId.toString(), period.start, period.end);
   }
 
+  @Get("usage/trend-by-employee")
+  @RequirePermission("usage.read")
+  async trendByEmployee(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Query("start") start?: string, @Query("end") end?: string
+  ) {
+    const period = this.resolvePeriod(p, start, end);
+    return this.billing.trendByEmployee(p.organizationId.toString(), period.start, period.end);
+  }
+
   @Get("usage/by-user")
   @RequirePermission("usage.read")
   async byUser(

@@ -8,4 +8,7 @@ export interface AuthenticatedPrincipal {
   organizationId: OrganizationId;
   role: UserRole;
   sessionId: AuthenticationSessionId;
+  /** True for the universal platform owner (see SecurityConfig.platformOwnerEmail). Set in the JWT
+   *  so guards/services can grant superadmin access without a database lookup per request. */
+  isPlatformOwner?: boolean;
 }

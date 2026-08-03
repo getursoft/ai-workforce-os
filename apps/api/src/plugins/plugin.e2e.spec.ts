@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
+import { ensurePlatformOwner } from "../test/cleanup";
 import { dummyEchoManifest } from "@ai-workforce-os/plugin-dummy";
 for (const c of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(c)) {
@@ -16,8 +17,15 @@ for (const c of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "..
   }
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
 suite("Plugin runtime HTTP", () => {
-  let app: INestApplication, prisma: PrismaService, token: string, pluginId: string, email: string;
+  let app: INestApplication,
+    prisma: PrismaService,
+    token: string,
+    pluginId: string,
+    email: string,
+    platformOwnerAuth: { Authorization: string };
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: false, abortOnError: false });
     app.setGlobalPrefix("api/v1");
@@ -40,6 +48,22 @@ suite("Plugin runtime HTTP", () => {
       })
       .expect(201);
     token = r.body.data.tokens.accessToken;
+    const organizationId = r.body.data.organization.id;
+    // Guarantee the universal owner exists — another spec's full-DB cleanup may have removed it.
+    await ensurePlatformOwner(prisma);
+    const platformLogin = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .send({
+        email: PLATFORM_OWNER_EMAIL,
+        password: PLATFORM_OWNER_PASSWORD,
+        organizationName: "AI Workforce OS Platform"
+      })
+      .expect(200);
+    const switched = await request(app.getHttpServer())
+      .post(`/api/v1/platform/organizations/${organizationId}/switch`)
+      .set("Authorization", `Bearer ${platformLogin.body.data.tokens.accessToken}`)
+      .expect(201);
+    platformOwnerAuth = { Authorization: `Bearer ${switched.body.data.tokens.accessToken}` };
   });
   afterAll(async () => {
     if (prisma) {
@@ -76,9 +100,14 @@ suite("Plugin runtime HTTP", () => {
       .set(auth)
       .expect(200);
     expect(health.body.status).toBe("READY");
-    const aiConfigured = await request(app.getHttpServer())
+    await request(app.getHttpServer())
       .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
       .set(auth)
+      .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
+      .expect(403);
+    const aiConfigured = await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .set(platformOwnerAuth)
       .send({
         providerType: "OPENAI_COMPATIBLE",
         model: "gpt-4.1-mini",
@@ -106,13 +135,17 @@ suite("Plugin runtime HTTP", () => {
     expect(sanitized.body.secrets.apiKey.configured).toBe(true);
     expect(JSON.stringify(sanitized.body)).not.toContain("never-return-this");
     await request(app.getHttpServer())
-      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .post(`/api/v1/plugins/${pluginId}/ai-configuration/test`)
       .set(auth)
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
+      .set(platformOwnerAuth)
       .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
       .expect(200);
     await request(app.getHttpServer())
       .post(`/api/v1/plugins/${pluginId}/ai-configuration/test`)
-      .set(auth)
+      .set(platformOwnerAuth)
       .expect(201);
     const chat = await request(app.getHttpServer())
       .post(`/api/v1/plugins/${pluginId}/chat`)
@@ -205,7 +238,7 @@ suite("Plugin runtime HTTP", () => {
     await prisma.user.update({ where: { id: owner.id }, data: { role: "MEMBER" } });
     const memberLogin = await request(app.getHttpServer())
       .post("/api/v1/auth/login")
-      .send({ email, password: "StrongPassword@123" })
+      .send({ email, password: "StrongPassword@123", organizationName: "Plugin Org" })
       .expect(200);
     await request(app.getHttpServer())
       .patch(`/api/v1/plugins/${installed.body.id}/grants`)

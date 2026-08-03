@@ -138,6 +138,8 @@ enum WorkflowType {
   CONTACT_CAPTURE
   BOOKING_HANDOFF
   TRIP_SUBMISSION
+  /// Sprint 4.6: wraps a delegated task that itself requires human approval (see EmployeeDelegatedTask).
+  EMPLOYEE_DELEGATION
 
   @@map("workflow_type")
 }
@@ -639,6 +641,10 @@ model Organization {
   memoryRecords                         MemoryRecord[]
   memoryAuditEvents                     MemoryAuditEvent[]
   conversationSummaries                 ConversationSummary[]
+  sessionsActingIn                      AuthenticationSession[]                @relation("SessionActiveOrganization")
+  employeeDelegatedTasks                EmployeeDelegatedTask[]
+  employeeDelegationJoins               EmployeeDelegationJoin[]
+  workforceCollaborationPolicy          WorkforceCollaborationPolicy?
 
   @@map("organizations")
 }
@@ -804,7 +810,7 @@ model User {
   pluginAiConfigurationsUpdated                PluginAiConfiguration[]                @relation("PluginAiConfigurationUpdater")
   emailDeliveryConfigurationsUpdated           EmailDeliveryConfiguration[]           @relation("EmailDeliveryConfigurationUpdater")
   creditPurchaseOrdersCreated                  CreditPurchaseOrder[]
-  paymentGatewayConfigurationsUpdated          PaymentGatewayConfiguration[]           @relation("PaymentGatewayConfigurationUpdater")
+  paymentGatewayConfigurationsUpdated          PaymentGatewayConfiguration[]          @relation("PaymentGatewayConfigurationUpdater")
   connectorInstallationsCreated                ConnectorInstallation[]                @relation("ConnectorInstallationCreator")
   connectorAuditEvents                         ConnectorAuditEvent[]
   knowledgeDocumentsUploaded                   KnowledgeDocument[]                    @relation("KnowledgeDocumentUploader")
@@ -820,6 +826,7 @@ model User {
   conversationAttachmentsCreated               ConversationAttachment[]               @relation("ConversationAttachmentCreator")
   legalDocumentsCreated                        LegalDocument[]                        @relation("LegalDocumentCreator")
   memoryRecords                                MemoryRecord[]
+  passwordResetTokens                          PasswordResetToken[]
   deletedAt                                    DateTime?                              @map("deleted_at")
 
   @@index([organizationId])
@@ -1737,26 +1744,47 @@ model Invitation {
 }
 
 model AuthenticationSession {
-  id                  String                 @id @default(uuid()) @db.Uuid
-  userId              String                 @map("user_id") @db.Uuid
-  tokenHash           String                 @map("token_hash") @db.VarChar(128)
-  familyId            String                 @map("family_id") @db.Uuid
-  expiresAt           DateTime               @map("expires_at")
-  revokedAt           DateTime?              @map("revoked_at")
-  replacedBySessionId String?                @unique @map("replaced_by_session_id") @db.Uuid
-  lastUsedAt          DateTime?              @map("last_used_at")
-  ipAddress           String?                @map("ip_address") @db.VarChar(64)
-  userAgent           String?                @map("user_agent") @db.VarChar(512)
-  createdAt           DateTime               @default(now()) @map("created_at")
-  user                User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  replacedBy          AuthenticationSession? @relation("SessionReplacement", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
-  replaces            AuthenticationSession? @relation("SessionReplacement")
+  id                   String                 @id @default(uuid()) @db.Uuid
+  userId               String                 @map("user_id") @db.Uuid
+  /// The organization this session is currently operating as. Null means the user's home organization
+  /// (the organization their User row belongs to). Set only for platform-owner org-switch sessions so a
+  /// token refresh keeps operating in the switched organization instead of reverting to the home org.
+  activeOrganizationId String?                @map("active_organization_id") @db.Uuid
+  tokenHash            String                 @map("token_hash") @db.VarChar(128)
+  familyId             String                 @map("family_id") @db.Uuid
+  expiresAt            DateTime               @map("expires_at")
+  revokedAt            DateTime?              @map("revoked_at")
+  replacedBySessionId  String?                @unique @map("replaced_by_session_id") @db.Uuid
+  lastUsedAt           DateTime?              @map("last_used_at")
+  ipAddress            String?                @map("ip_address") @db.VarChar(64)
+  userAgent            String?                @map("user_agent") @db.VarChar(512)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  user                 User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganization   Organization?          @relation("SessionActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
+  replacedBy           AuthenticationSession? @relation("SessionReplacement", fields: [replacedBySessionId], references: [id], onDelete: SetNull)
+  replaces             AuthenticationSession? @relation("SessionReplacement")
 
   @@index([userId])
   @@index([familyId])
   @@index([expiresAt])
   @@index([userId, revokedAt])
   @@map("authentication_sessions")
+}
+
+/// One-time, short-lived password-reset tokens for the "forgot password" flow. The raw token is never
+/// stored — only its SHA-256 hash, matching the invitation-token convention.
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model ConnectorDefinition {
@@ -2020,26 +2048,159 @@ model ChannelMessage {
 }
 
 model EmployeeRoutingProfile {
-  id                       String       @id @default(uuid()) @db.Uuid
-  organizationId           String       @map("organization_id") @db.Uuid
-  pluginInstallationId     String       @unique @map("plugin_installation_id") @db.Uuid
-  displayName              String       @map("display_name") @db.VarChar(160)
-  employeeType             String?      @map("employee_type") @db.VarChar(80)
-  summary                  String?      @db.VarChar(500)
-  supportedDomains         Json         @default("[]") @map("supported_domains")
-  supportedIntents         Json         @default("[]") @map("supported_intents")
-  exampleQueries           Json         @default("[]") @map("example_queries")
-  excludedIntents          Json         @default("[]") @map("excluded_intents")
-  routingKeywords          Json         @default("[]") @map("routing_keywords")
-  enabledForChannelRouting Boolean      @default(true) @map("enabled_for_channel_routing")
-  routingPriority          Int          @default(0) @map("routing_priority")
-  createdAt                DateTime     @default(now()) @map("created_at")
-  updatedAt                DateTime     @updatedAt @map("updated_at")
-  organization             Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pluginInstallation       Plugin       @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  id                             String       @id @default(uuid()) @db.Uuid
+  organizationId                 String       @map("organization_id") @db.Uuid
+  pluginInstallationId           String       @unique @map("plugin_installation_id") @db.Uuid
+  displayName                    String       @map("display_name") @db.VarChar(160)
+  employeeType                   String?      @map("employee_type") @db.VarChar(80)
+  summary                        String?      @db.VarChar(500)
+  supportedDomains               Json         @default("[]") @map("supported_domains")
+  supportedIntents               Json         @default("[]") @map("supported_intents")
+  exampleQueries                 Json         @default("[]") @map("example_queries")
+  excludedIntents                Json         @default("[]") @map("excluded_intents")
+  routingKeywords                Json         @default("[]") @map("routing_keywords")
+  enabledForChannelRouting       Boolean      @default(true) @map("enabled_for_channel_routing")
+  routingPriority                Int          @default(0) @map("routing_priority")
+  // --- Sprint 4.6: collaboration/delegation profile (additive) ---
+  supportedTaskTypes             Json         @default("[]") @map("supported_task_types")
+  requiredCapabilities           Json         @default("[]") @map("required_capabilities")
+  requiredPermissions            Json         @default("[]") @map("required_permissions")
+  acceptedInputSchemaJson        Json?        @map("accepted_input_schema_json")
+  outputSchemaJson               Json?        @map("output_schema_json")
+  supportsSynchronousDelegation  Boolean      @default(true) @map("supports_synchronous_delegation")
+  supportsAsynchronousDelegation Boolean      @default(false) @map("supports_asynchronous_delegation")
+  maximumExecutionTimeMs         Int          @default(30000) @map("maximum_execution_time_ms")
+  enabledForDelegation           Boolean      @default(true) @map("enabled_for_delegation")
+  delegationPriority             Int          @default(0) @map("delegation_priority")
+  sensitiveActions               Json         @default("[]") @map("sensitive_actions")
+  defaultFailureBehaviour        String       @default("FAIL_PARENT") @map("default_failure_behaviour") @db.VarChar(40)
+  createdAt                      DateTime     @default(now()) @map("created_at")
+  updatedAt                      DateTime     @updatedAt @map("updated_at")
+  organization                   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation             Plugin       @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, enabledForChannelRouting])
+  @@index([organizationId, enabledForDelegation])
   @@map("employee_routing_profiles")
+}
+
+/// Sprint 4.6 — Multi-Employee Collaboration & Delegation Engine.
+enum EmployeeDelegatedTaskStatus {
+  CREATED
+  VALIDATING
+  QUEUED
+  RUNNING
+  WAITING_FOR_INPUT
+  WAITING_FOR_APPROVAL
+  COMPLETED
+  FAILED
+  TIMED_OUT
+  CANCELLED
+  REJECTED
+
+  @@map("employee_delegated_task_status")
+}
+
+/// A structured task one installed AI Employee delegates to another installed AI Employee in the same
+/// organization, created and tracked exclusively through WorkforceOrchestratorService. Employee plugin
+/// installation references (source/target) are intentionally plain UUID columns, not Prisma relations —
+/// the Plugin model is central to the whole system and this table deliberately avoids adding another
+/// inbound relation to it; tenancy/status/capability checks are enforced in the orchestrator at every
+/// read, not by a database foreign key.
+model EmployeeDelegatedTask {
+  id                           String                      @id @default(uuid()) @db.Uuid
+  organizationId               String                      @map("organization_id") @db.Uuid
+  parentExecutionId            String?                     @map("parent_execution_id") @db.Uuid
+  parentWorkflowExecutionId    String?                     @map("parent_workflow_execution_id") @db.Uuid
+  sourceEmployeeInstallationId String                      @map("source_employee_installation_id") @db.Uuid
+  targetEmployeeInstallationId String                      @map("target_employee_installation_id") @db.Uuid
+  childConversationId          String?                     @map("child_conversation_id") @db.Uuid
+  approvalRequestId            String?                     @map("approval_request_id") @db.Uuid
+  requestedByActorType         String                      @default("EMPLOYEE") @map("requested_by_actor_type") @db.VarChar(40)
+  requestedByActorId           String?                     @map("requested_by_actor_id") @db.VarChar(200)
+  taskType                     String                      @map("task_type") @db.VarChar(80)
+  title                        String                      @db.VarChar(300)
+  instructions                 String                      @db.Text
+  inputPayloadJson             Json                        @default("{}") @map("input_payload_json")
+  expectedOutputSchemaJson     Json?                       @map("expected_output_schema_json")
+  resultPayloadJson            Json?                       @map("result_payload_json")
+  status                       EmployeeDelegatedTaskStatus @default(CREATED)
+  priority                     Int                         @default(0)
+  idempotencyKey               String?                     @unique @map("idempotency_key") @db.VarChar(500)
+  correlationId                String                      @map("correlation_id") @db.VarChar(120)
+  causationId                  String?                     @map("causation_id") @db.VarChar(120)
+  delegationDepth              Int                         @default(0) @map("delegation_depth")
+  delegationChain              Json                        @default("[]") @map("delegation_chain")
+  joinPolicy                   String?                     @map("join_policy") @db.VarChar(20)
+  mode                         String                      @default("SYNCHRONOUS") @map("mode") @db.VarChar(20)
+  attemptCount                 Int                         @default(0) @map("attempt_count")
+  maxAttempts                  Int                         @default(1) @map("max_attempts")
+  timeoutAt                    DateTime?                   @map("timeout_at")
+  startedAt                    DateTime?                   @map("started_at")
+  completedAt                  DateTime?                   @map("completed_at")
+  failedAt                     DateTime?                   @map("failed_at")
+  cancelledAt                  DateTime?                   @map("cancelled_at")
+  errorCode                    String?                     @map("error_code") @db.VarChar(100)
+  errorMessageSafe             String?                     @map("error_message_safe") @db.VarChar(500)
+  createdAt                    DateTime                    @default(now()) @map("created_at")
+  updatedAt                    DateTime                    @updatedAt @map("updated_at")
+  organization                 Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([sourceEmployeeInstallationId, createdAt])
+  @@index([targetEmployeeInstallationId, status])
+  @@index([parentWorkflowExecutionId])
+  @@index([correlationId])
+  @@map("employee_delegated_tasks")
+}
+
+/// Sprint 4.6 (continued) — tracks the aggregate join state of a parallel delegation group: N sibling
+/// EmployeeDelegatedTask rows share one correlationId; this row is the single, atomically-claimed place
+/// that decides "has this group resolved yet" so the parent is resumed exactly once regardless of how many
+/// siblings finish concurrently (optimistic `status: PENDING -> RESOLVED` updateMany, same pattern as
+/// WorkflowExecutionService's revision-guarded updates).
+model EmployeeDelegationJoin {
+  id                           String       @id @default(uuid()) @db.Uuid
+  organizationId               String       @map("organization_id") @db.Uuid
+  correlationId                String       @unique @map("correlation_id") @db.VarChar(120)
+  sourceEmployeeInstallationId String       @map("source_employee_installation_id") @db.Uuid
+  parentWorkflowExecutionId    String?      @map("parent_workflow_execution_id") @db.Uuid
+  joinPolicy                   String       @map("join_policy") @db.VarChar(20)
+  minimumRequired              Int?         @map("minimum_required")
+  totalChildren                Int          @map("total_children")
+  status                       String       @default("PENDING") @map("status") @db.VarChar(20)
+  resolvedReason               String?      @map("resolved_reason") @db.VarChar(40)
+  resolvedAt                   DateTime?    @map("resolved_at")
+  createdAt                    DateTime     @default(now()) @map("created_at")
+  updatedAt                    DateTime     @updatedAt @map("updated_at")
+  organization                 Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("employee_delegation_joins")
+}
+
+/// Sprint 4.6 — one row per organization, created lazily with safe defaults on first read (same lifecycle
+/// pattern as OrganizationSetting). Governs whether/how installed employees may delegate to each other.
+model WorkforceCollaborationPolicy {
+  id                                    String       @id @default(uuid()) @db.Uuid
+  organizationId                        String       @unique @map("organization_id") @db.Uuid
+  collaborationEnabled                  Boolean      @default(true) @map("collaboration_enabled")
+  maximumDelegationDepth                Int          @default(2) @map("maximum_delegation_depth")
+  maximumTasksPerParentExecution        Int          @default(10) @map("maximum_tasks_per_parent_execution")
+  allowedSourceEmployeeIds              Json         @default("[]") @map("allowed_source_employee_ids")
+  allowedTargetEmployeeIds              Json         @default("[]") @map("allowed_target_employee_ids")
+  allowedTaskTypes                      Json         @default("[]") @map("allowed_task_types")
+  crossEmployeeMemorySharingMode        String       @default("SELECTED_FACTS_ONLY") @map("cross_employee_memory_sharing_mode") @db.VarChar(40)
+  requireApprovalForSensitiveDelegation Boolean      @default(true) @map("require_approval_for_sensitive_delegation")
+  delegationTimeoutMs                   Int          @default(15000) @map("delegation_timeout_ms")
+  retryLimit                            Int          @default(1) @map("retry_limit")
+  allowParallelDelegation               Boolean      @default(true) @map("allow_parallel_delegation")
+  exposeDelegationToUser                Boolean      @default(true) @map("expose_delegation_to_user")
+  createdAt                             DateTime     @default(now()) @map("created_at")
+  updatedAt                             DateTime     @updatedAt @map("updated_at")
+  organization                          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("workforce_collaboration_policies")
 }
 
 model TravelEmployeeConfiguration {

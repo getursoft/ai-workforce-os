@@ -64,7 +64,7 @@ export function ApprovalsPage() {
   };
 
   return (
-    <AccessGate permission="approvals.read">
+    <AccessGate permission="approval.read">
       <section className="admin-page">
         <PageHeader title="Approvals" description="Review and manage workflow approval requests." />
         <Card className="admin-toolbar">

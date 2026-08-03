@@ -81,6 +81,6 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
     WorkflowCoordinator,
     AgentService
   ],
-  exports: [AgentService, MemoryService, TravelLeadService, SkillRuntimeService]
+  exports: [AgentService, MemoryService, TravelLeadService, SkillRuntimeService, WorkflowExecutionService]
 })
 export class AgentModule {}

@@ -3,14 +3,15 @@ import type { AuthenticatedPrincipal } from "../ports/authenticated-principal";
 import type { OrganizationRepository } from "../ports/organization-repository";
 import type { UserRepository } from "../ports/user-repository";
 import { OrganizationAccessService } from "../services/organization-access";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 
 export const GET_ORGANIZATION = Symbol("GetOrganization");
 
 export class GetOrganizationHandler {
   private readonly organizationAccess: OrganizationAccessService;
 
-  constructor(users: UserRepository, organizations: OrganizationRepository) {
-    this.organizationAccess = new OrganizationAccessService(users, organizations);
+  constructor(users: UserRepository, organizations: OrganizationRepository, platformOwner: PlatformOwnerService) {
+    this.organizationAccess = new OrganizationAccessService(users, organizations, platformOwner);
   }
 
   async execute(principal: AuthenticatedPrincipal): Promise<OrganizationResult> {

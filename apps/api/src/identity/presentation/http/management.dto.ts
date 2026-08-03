@@ -35,6 +35,9 @@ export class UpdateUserDto {
   @IsOptional() @IsString() @MaxLength(80) lastName?: string;
   @IsOptional() @IsEnum(UserStatus) status?: UserStatus;
 }
+export class ResetUserPasswordDto {
+  @IsString() @MinLength(12) @MaxLength(128) password!: string;
+}
 export class AssignRolesDto {
   @IsArray() @ArrayNotEmpty() @ArrayMaxSize(10) @IsUUID("4", { each: true }) roleIds!: string[];
 }

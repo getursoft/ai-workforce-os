@@ -7,7 +7,12 @@ export class AuditEventLogger {
   record(
     event: string,
     requestId: string,
-    identity: { organizationId?: string; userId?: string; targetId?: string } = {}
+    identity: {
+      organizationId?: string;
+      userId?: string;
+      targetId?: string;
+      [key: string]: string | number | boolean | undefined;
+    } = {}
   ): void {
     this.logger.log(
       JSON.stringify({ event, requestId, ...identity, timestamp: new Date().toISOString() })

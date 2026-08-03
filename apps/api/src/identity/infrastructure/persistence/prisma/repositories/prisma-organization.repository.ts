@@ -19,6 +19,19 @@ export class PrismaOrganizationRepository implements OrganizationRepository {
     return record ? OrganizationPrismaMapper.toDomain(record) : null;
   }
 
+  async findByName(name: string): Promise<Organization | null> {
+    const trimmed = name.trim();
+    const record = await this.client.organization.findFirst({
+      where: {
+        OR: [
+          { name: { equals: trimmed, mode: "insensitive" } },
+          { slug: { equals: trimmed.toLowerCase(), mode: "insensitive" } }
+        ]
+      }
+    });
+    return record ? OrganizationPrismaMapper.toDomain(record) : null;
+  }
+
   async existsBySlug(slug: OrganizationSlug): Promise<boolean> {
     const count = await this.client.organization.count({ where: { slug: slug.toString() } });
     return count > 0;

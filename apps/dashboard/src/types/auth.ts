@@ -13,6 +13,8 @@ export interface PublicUser {
   email: string;
   role: string;
   status: string;
+  /** True for the universal platform owner — sees every organization and all admin surfaces. */
+  isPlatformOwner: boolean;
 }
 
 export interface AuthenticationTokens {

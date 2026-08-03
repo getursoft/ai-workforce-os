@@ -24,6 +24,8 @@ import { ApprovalModule } from "./approval/approval.module";
 import { BillingModule } from "./billing/billing.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { MemoryModule } from "./memory/memory.module";
+import { WorkforceModule } from "./workforce/workforce.module";
+import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
 
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { MemoryModule } from "./memory/memory.module";
     BillingModule,
     ProductionModule,
     MemoryModule,
+    WorkforceEventsModule,
+    WorkforceModule,
   ],
 })
 export class AppModule {}

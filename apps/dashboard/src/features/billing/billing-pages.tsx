@@ -55,9 +55,12 @@ function todayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function monthStart(): string {
+/** Rolling window, not calendar-month start — a calendar-month default collapses to a single day
+ *  whenever today is the 1st of the month, showing an empty page right when the month rolls over. */
+function daysAgo(days: number): string {
   const d = new Date();
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), 1).toISOString().slice(0, 10);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
 }
 
 function downloadTrendCsv(trend: readonly TrendPoint[]): void {
@@ -433,7 +436,7 @@ function SidebarListsCard({
 export function BillingPage() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const [start, setStart] = useState(monthStart);
+  const [start, setStart] = useState(() => daysAgo(30));
   const [end, setEnd] = useState(todayString);
 
   const onDateChange = useCallback((s: string, e: string) => {

@@ -8,6 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { ensurePlatformOwner } from "../test/cleanup";
+
+const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
     loadEnvFile(path);
@@ -20,6 +24,7 @@ suite("Connector framework HTTP", () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let token: string;
+  let platformOwnerAuth: string;
   let installationId: string;
   let pluginId: string;
   beforeAll(async () => {
@@ -42,6 +47,17 @@ suite("Connector framework HTTP", () => {
       })
       .expect(201);
     token = registration.body.data.tokens.accessToken;
+    const organizationId = registration.body.data.organization.id;
+    await ensurePlatformOwner(prisma);
+    const platformLogin = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "AI Workforce OS Platform" })
+      .expect(200);
+    const switched = await request(app.getHttpServer())
+      .post(`/api/v1/platform/organizations/${organizationId}/switch`)
+      .set("Authorization", `Bearer ${platformLogin.body.data.tokens.accessToken}`)
+      .expect(201);
+    platformOwnerAuth = `Bearer ${switched.body.data.tokens.accessToken}`;
   });
   afterAll(async () => {
     if (prisma) await cleanup(prisma);
@@ -97,7 +113,7 @@ suite("Connector framework HTTP", () => {
     pluginId = installed.body.id;
     await request(app.getHttpServer())
       .patch(`/api/v1/plugins/${pluginId}/ai-configuration`)
-      .set(auth)
+      .set("Authorization", platformOwnerAuth)
       .send({ providerType: "DETERMINISTIC", timeoutMs: 5000 })
       .expect(200);
     const run = await request(app.getHttpServer())

@@ -43,6 +43,11 @@ function safeOrigin(value: string): string {
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  async redirects() {
+    // Self-service signup was removed (the platform has one universal owner). Stale bookmarks/links
+    // to /signup redirect to the login page instead of 404ing.
+    return [{ source: "/signup", destination: "/login", permanent: true }];
+  },
   async headers() {
     return [
       {

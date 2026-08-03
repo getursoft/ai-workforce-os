@@ -24,6 +24,15 @@ export interface TrendPoint {
   requests: number;
 }
 
+export interface EmployeeTrend {
+  employees: string[];
+  requestPoints: Array<Record<string, string | number>>;
+  points: Array<Record<string, string | number>>;
+  tokenPoints: Array<Record<string, string | number>>;
+  timeSavedPoints: Array<Record<string, string | number>>;
+  assumedMinutesSavedPerExecution: number;
+}
+
 export interface UserUsage {
   userId: string;
   name: string;
@@ -63,6 +72,10 @@ export interface ModelUsage {
   creditsConsumed: number;
   internalCostAmountMinor: number | null;
 }
+
+/** Illustrative estimate of manual handling time a completed AI execution replaces — there is no
+ *  measured baseline, so this is a deliberately conservative, disclosed assumption, not a fact. */
+const ASSUMED_MINUTES_SAVED_PER_EXECUTION = 8;
 
 const CAPABILITY_LABELS: Record<string, string> = {
   CHAT_GENERATION: "Chat Generation",
@@ -222,6 +235,74 @@ export class BillingService {
       cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
     return points;
+  }
+
+  /** Same daily buckets as `trend`, split per AI Employee — one series per employee for a multi-line chart. */
+  async trendByEmployee(organizationId: string, start: Date, end: Date): Promise<EmployeeTrend> {
+    const rows = await this.prisma.agentExecution.findMany({
+      where: { organizationId, status: "COMPLETED", createdAt: { gte: start, lte: end } },
+      select: { createdAt: true, totalTokens: true, pluginInstallationId: true },
+      orderBy: { createdAt: "asc" }
+    });
+    const pluginIds = [...new Set(rows.map((r) => r.pluginInstallationId))];
+    const plugins = pluginIds.length
+      ? await this.prisma.plugin.findMany({
+          where: { id: { in: pluginIds } },
+          select: { id: true, displayName: true }
+        })
+      : [];
+    const nameById = new Map(plugins.map((p) => [p.id, p.displayName]));
+    const employees = [...new Set(plugins.map((p) => p.displayName))].sort();
+
+    const dailyCredits = new Map<string, Map<string, number>>();
+    const dailyTokens = new Map<string, Map<string, number>>();
+    const dailyExecutionCounts = new Map<string, Map<string, number>>();
+    for (const r of rows) {
+      const day = r.createdAt.toISOString().slice(0, 10);
+      const name = nameById.get(r.pluginInstallationId) ?? "Removed Employee";
+      const tokens = r.totalTokens ?? 0;
+      const credits = Math.ceil((tokens * 4) / 1000);
+      const creditTotals = dailyCredits.get(day) ?? new Map<string, number>();
+      creditTotals.set(name, (creditTotals.get(name) ?? 0) + credits);
+      dailyCredits.set(day, creditTotals);
+      const tokenTotals = dailyTokens.get(day) ?? new Map<string, number>();
+      tokenTotals.set(name, (tokenTotals.get(name) ?? 0) + tokens);
+      dailyTokens.set(day, tokenTotals);
+      const executionTotals = dailyExecutionCounts.get(day) ?? new Map<string, number>();
+      executionTotals.set(name, (executionTotals.get(name) ?? 0) + 1);
+      dailyExecutionCounts.set(day, executionTotals);
+    }
+    const dailyHoursSaved = new Map<string, Map<string, number>>();
+    for (const [day, executionTotals] of dailyExecutionCounts) {
+      const hoursByEmployee = new Map<string, number>();
+      for (const [name, count] of executionTotals) {
+        hoursByEmployee.set(name, Math.round(((count * ASSUMED_MINUTES_SAVED_PER_EXECUTION) / 60) * 100) / 100);
+      }
+      dailyHoursSaved.set(day, hoursByEmployee);
+    }
+
+    const buildSeries = (daily: Map<string, Map<string, number>>): Array<Record<string, string | number>> => {
+      const points: Array<Record<string, string | number>> = [];
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        const key = cursor.toISOString().slice(0, 10);
+        const dayTotals = daily.get(key);
+        const point: Record<string, string | number> = { date: key };
+        for (const name of employees) point[name] = dayTotals?.get(name) ?? 0;
+        points.push(point);
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      return points;
+    };
+
+    return {
+      employees,
+      requestPoints: buildSeries(dailyExecutionCounts),
+      points: buildSeries(dailyCredits),
+      tokenPoints: buildSeries(dailyTokens),
+      timeSavedPoints: buildSeries(dailyHoursSaved),
+      assumedMinutesSavedPerExecution: ASSUMED_MINUTES_SAVED_PER_EXECUTION
+    };
   }
 
   async byUser(organizationId: string, start: Date, end: Date): Promise<UserUsage[]> {

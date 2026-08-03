@@ -13,6 +13,7 @@ import { OrganizationSetting } from "../../domain/organization/organization-sett
 import { OrganizationSettingId } from "../../domain/organization/organization-setting-id";
 import { InvalidDomainValueError } from "../../domain/shared/domain.error";
 import { OrganizationAccessService } from "../services/organization-access";
+import type { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 import { assertOrganizationSettingsUpdate } from "../services/organization-update-policy";
 
 export interface UpdateOrganizationSettingsCommand {
@@ -31,9 +32,10 @@ export class UpdateOrganizationSettingsHandler {
     organizations: OrganizationRepository,
     private readonly organizationSettings: OrganizationSettingRepository,
     private readonly unitOfWork: IdentityUnitOfWork,
-    private readonly identifiers: IdentifierGenerator
+    private readonly identifiers: IdentifierGenerator,
+    platformOwner: PlatformOwnerService
   ) {
-    this.organizationAccess = new OrganizationAccessService(users, organizations);
+    this.organizationAccess = new OrganizationAccessService(users, organizations, platformOwner);
   }
 
   async execute(

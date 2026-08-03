@@ -42,7 +42,7 @@ export function providerConfigurationErrorMessage(error: unknown): string {
     AI_PROVIDER_QUOTA_EXCEEDED: "The provider quota has been exceeded.",
     AI_PROVIDER_UNAVAILABLE: "The provider is unavailable or the request timed out.",
     AI_PROVIDER_TEST_FAILED: "The provider connection test failed.",
-    AUTHORIZATION_FAILED: "Only organization Owners and Admins can change this configuration.",
+    AUTHORIZATION_FAILED: "Only the platform owner can change AI provider settings.",
     PLUGIN_NOT_FOUND: "This plugin installation is no longer available.",
     USER_NOT_FOUND: "This plugin installation is no longer available.",
     INTERNAL_ERROR: "The server could not save this configuration."
@@ -302,7 +302,7 @@ export function AiProviderForm({
           </>
         ) : null}
         {!canManage ? (
-          <p>Only organization Owners and Admins may change provider settings.</p>
+          <p>Only the platform owner can change AI provider settings.</p>
         ) : null}
         {saveError ? (
           <Alert tone="danger" title="Provider configuration was not saved">

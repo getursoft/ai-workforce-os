@@ -20,16 +20,25 @@ export function runtimeReady(status: string, granted: readonly string[]): boolea
   return status === "ACTIVE" && granted.includes("MEMORY");
 }
 
+/** LLM controls language-model access/spend, so it stays platform-owner-only even for an
+ *  organization's own Owner — every other capability is manageable by whoever `canManage` allows. */
+export function canManageCapability(capability: string, isOwner: boolean, isPlatformOwner: boolean): boolean {
+  if (capability === "LLM") return isPlatformOwner;
+  return isOwner;
+}
+
 export function CapabilityGrants({
   declared,
   granted,
-  canManage,
+  isOwner,
+  isPlatformOwner,
   pending,
   onChange
 }: {
   declared: readonly string[];
   granted: readonly string[];
-  canManage: boolean;
+  isOwner: boolean;
+  isPlatformOwner: boolean;
   pending?: string;
   onChange(capability: string, grant: boolean): void;
 }) {
@@ -40,7 +49,8 @@ export function CapabilityGrants({
       {declared.length ? (
         Array.from(new Set(declared)).map((capability) => {
           const isGranted = granted.includes(capability),
-            isPending = pending === capability;
+            isPending = pending === capability,
+            manageable = canManageCapability(capability, isOwner, isPlatformOwner);
           return (
             <div className="admin-toolbar" key={capability} data-capability={capability}>
               <span>
@@ -50,7 +60,7 @@ export function CapabilityGrants({
               <Badge tone={isGranted ? "success" : "neutral"}>
                 {isGranted ? "Granted" : "Not granted"}
               </Badge>
-              {canManage ? (
+              {manageable ? (
                 <Button
                   type="button"
                   variant={isGranted ? "secondary" : "primary"}
@@ -61,8 +71,10 @@ export function CapabilityGrants({
                 >
                   {isGranted ? "Revoke" : "Grant"}
                 </Button>
+              ) : capability === "LLM" ? (
+                <small>Only the platform owner can change this.</small>
               ) : (
-                <small>Only Owners and Admins can change grants.</small>
+                <small>Only the organization Owner can change grants.</small>
               )}
             </div>
           );

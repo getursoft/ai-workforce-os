@@ -20,7 +20,7 @@ export function paymentSettingsErrorMessage(error: unknown): string {
       "The server database is not ready for payment gateway configuration. Apply the latest migrations.",
     VALIDATION_ERROR: "Check the Key ID and Key Secret and try again.",
     PAYMENT_SETTINGS_INVALID: "The Key ID cannot be empty.",
-    AUTHORIZATION_FAILED: "Only the organization Owner can change payment settings.",
+    AUTHORIZATION_FAILED: "Only the platform owner can change payment settings.",
     INTERNAL_ERROR: "The server could not save this configuration."
   };
   return messages[code] ?? "Your saved values remain unchanged. Check the fields and try again.";

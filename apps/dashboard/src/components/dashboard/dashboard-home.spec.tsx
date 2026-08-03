@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import { firstNameOrEmail, relativeTime, toneForExecutionStatus } from "./dashboard-home.logic";
+import { firstNameOrEmail } from "./dashboard-home.logic";
 import { DashboardHome } from "./dashboard-home";
 
 const NEVER_RESOLVES = new Promise(() => {});
@@ -44,25 +44,18 @@ describe("DashboardHome", () => {
     // The old Sprint-1 placeholder stats must be gone.
     expect(html).not.toContain("Active Tasks");
     expect(html).not.toContain("Pending Actions");
+    // Replaced by insight cards — no more static checklist or a plain recent-activity list.
+    expect(html).not.toContain("Getting started");
+    expect(html).not.toContain("Recent Activity");
+    expect(html).toContain("AI Employees in Use");
+    expect(html).toContain("Time Saved by AI Employee");
+    expect(html).toContain("Credits by AI Employee");
+    expect(html).toContain("Tokens by AI Employee");
   });
 
   it("prefers the real first name and falls back to the email prefix", () => {
     expect(firstNameOrEmail("Krishna", "admin@getursoft.com")).toBe("Krishna");
     expect(firstNameOrEmail(null, "admin@getursoft.com")).toBe("admin");
     expect(firstNameOrEmail(null, undefined)).toBe("there");
-  });
-
-  it("formats relative time coarsely, never a fabricated precision", () => {
-    const now = new Date("2026-07-31T12:00:00.000Z");
-    expect(relativeTime("2026-07-31T11:58:00.000Z", now)).toBe("2m ago");
-    expect(relativeTime("2026-07-31T09:00:00.000Z", now)).toBe("3h ago");
-    expect(relativeTime("2026-07-28T12:00:00.000Z", now)).toBe("3d ago");
-  });
-
-  it("maps execution status to a sensible badge tone", () => {
-    expect(toneForExecutionStatus("COMPLETED")).toBe("success");
-    expect(toneForExecutionStatus("FAILED")).toBe("danger");
-    expect(toneForExecutionStatus("RUNNING")).toBe("warning");
-    expect(toneForExecutionStatus("QUEUED")).toBe("warning");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AccessGate, Can } from "../admin/authorization";
+import { AccessGate, Can, useEffectivePermissions } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
 import {
   Alert,
@@ -376,6 +376,7 @@ function ConfigurationDialog({
   refresh: () => Promise<unknown>;
 }) {
   const { state } = useAuth();
+  const permissions = useEffectivePermissions();
   const [currentGrants, setCurrentGrants] = useState(plugin.grantedPermissions);
   const q = useQuery({
     queryKey: [...key, plugin.id, "configuration"],
@@ -443,7 +444,8 @@ function ConfigurationDialog({
         <CapabilityGrants
           declared={Array.from(new Set([...plugin.manifest.permissions, ...plugin.manifest.capabilities]))}
           granted={currentGrants}
-          canManage={state.user?.role === "OWNER" || state.user?.role === "ADMIN"}
+          isOwner={permissions.has("plugin.update")}
+          isPlatformOwner={state.user?.isPlatformOwner === true}
           {...(grants.isPending && grants.variables?.capability
             ? { pending: grants.variables.capability }
             : {})}
@@ -457,7 +459,7 @@ function ConfigurationDialog({
         ) : null}
         <AiProviderForm
           configuration={ai.data}
-          canManage={state.user?.role === "OWNER" || state.user?.role === "ADMIN"}
+          canManage={state.user?.isPlatformOwner === true}
           saving={aiSave.isPending}
           testing={aiTest.isPending}
           save={(body) => {

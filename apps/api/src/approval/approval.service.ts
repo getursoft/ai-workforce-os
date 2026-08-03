@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from "@nestjs/common";
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ApprovalPolicyEngine, type PolicyResolutionInput } from "./engine/approval-policy-engine";
 import { ApprovalAuditService } from "./approval-audit.service";
+import { WorkforceEventBus } from "../workforce/workforce-event-bus";
 import type { ApprovalRequest, ApprovalAssignment, ApproverType as PrismaApproverType } from "@prisma/client";
 
 export type ApprovalRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" | "EXPIRED" | "CANCELLED" | "SUPERSEDED";
@@ -77,6 +78,7 @@ export class ApprovalService {
     private readonly prisma: PrismaService,
     private readonly policyEngine: ApprovalPolicyEngine,
     private readonly auditService: ApprovalAuditService,
+    @Optional() private readonly events?: WorkforceEventBus,
   ) {}
 
   async create(input: CreateApprovalRequestInput): Promise<ApprovalRequestData> {
@@ -197,7 +199,7 @@ export class ApprovalService {
       channel?: string;
     }
   ): Promise<ApprovalRequestData> {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const record = await tx.approvalRequest.findFirst({
         where: { id: approvalRequestId, organizationId },
       });
@@ -263,8 +265,19 @@ export class ApprovalService {
         },
       });
 
-      return this.toData(updated, []);
+      return { data: this.toData(updated, []), targetStatus, workflowExecutionId: record.workflowExecutionId };
     });
+    // Emitted after the transaction commits (never inside it) so a listener reading the DB always sees the
+    // decision already persisted. This is the "approval decision emits a workflow signal/event" push
+    // mechanism — WorkforceOrchestratorService subscribes to resume a delegated task immediately, without
+    // waiting for the next getTask() poll.
+    this.events?.emitApprovalDecided({
+      approvalRequestId,
+      organizationId,
+      workflowExecutionId: result.workflowExecutionId,
+      decision: result.targetStatus as ApprovalRequestStatus,
+    });
+    return result.data;
   }
 
   async expire(organizationId: string, id: string): Promise<ApprovalRequestData> {
