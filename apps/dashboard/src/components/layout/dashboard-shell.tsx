@@ -37,6 +37,7 @@ import {
   Globe,
   Network,
   Activity,
+  Clock,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -99,6 +100,7 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
   { href: "/dashboard/settings/invitations", label: "Invitations", icon: Mail, permission: "invitations.read" },
   { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approval.read" },
   { href: "/workforce", label: "AI Workforce", icon: Network, permission: "workforce.read" },
+  { href: "/scheduler", label: "Scheduler", icon: Clock, permission: "scheduler.read" },
   { href: "/observability", label: "Observability", icon: Activity, permission: "observability.read" },
   { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" }
 ] as const;

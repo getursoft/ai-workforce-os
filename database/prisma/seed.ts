@@ -149,7 +149,13 @@ export const DEFAULT_PERMISSIONS = {
     "observability.alert.read",
     "observability.alert.manage",
     "observability.operation.execute",
-    "observability.platform.read"
+    "observability.platform.read",
+    "scheduler.read",
+    "scheduler.write",
+    "scheduler.retry",
+    "scheduler.template.read",
+    "scheduler.template.write",
+    "scheduler.worker.read"
   ],
   Admin: [
     "organization.manage",
@@ -251,7 +257,13 @@ export const DEFAULT_PERMISSIONS = {
     "observability.metrics.read",
     "observability.alert.read",
     "observability.alert.manage",
-    "observability.operation.execute"
+    "observability.operation.execute",
+    "scheduler.read",
+    "scheduler.write",
+    "scheduler.retry",
+    "scheduler.template.read",
+    "scheduler.template.write",
+    "scheduler.worker.read"
   ],
   Manager: [
     "TEAM_READ",
@@ -313,7 +325,10 @@ export const DEFAULT_PERMISSIONS = {
     "observability.read",
     "observability.trace.read",
     "observability.metrics.read",
-    "observability.alert.read"
+    "observability.alert.read",
+    "scheduler.read",
+    "scheduler.template.read",
+    "scheduler.worker.read"
   ],
   Member: [
     "TEAM_READ",
@@ -342,7 +357,8 @@ export const DEFAULT_PERMISSIONS = {
     "sales.config.read",
     "marketing.config.read",
     "legal.config.read",
-    "support.config.read"
+    "support.config.read",
+    "scheduler.read"
   ]
 } as const;
 
@@ -476,7 +492,13 @@ const descriptions: Record<string, string> = {
   "observability.alert.read": "View operational alerts",
   "observability.alert.manage": "Acknowledge and resolve operational alerts",
   "observability.operation.execute": "Perform safe operational actions (retry task, resume workflow) from observability",
-  "observability.platform.read": "View cross-organization platform health (platform operators only)"
+  "observability.platform.read": "View cross-organization platform health (platform operators only)",
+  "scheduler.read": "View scheduled jobs, executions, and the scheduler dashboard",
+  "scheduler.write": "Create, update, pause, resume, and cancel scheduled jobs",
+  "scheduler.retry": "Manually retry failed or dead-lettered scheduled executions",
+  "scheduler.template.read": "View reusable job templates",
+  "scheduler.template.write": "Instantiate and manage reusable job templates",
+  "scheduler.worker.read": "View scheduler worker health and queue statistics"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {

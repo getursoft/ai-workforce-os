@@ -140,8 +140,72 @@ enum WorkflowType {
   TRIP_SUBMISSION
   /// Sprint 4.6: wraps a delegated task that itself requires human approval (see EmployeeDelegatedTask).
   EMPLOYEE_DELEGATION
+  /// Sprint 4.8: durable tracking of an autonomous reminder/follow-up executed by the Scheduler. Only the
+  /// generic persistence (WorkflowExecutionService) is used — never WorkflowCoordinator turn dispatch, so
+  /// this is purely additive to the Workflow Engine.
+  AUTONOMOUS_REMINDER
 
   @@map("workflow_type")
+}
+
+/// Sprint 4.8 — Autonomous Scheduler & Background Execution Engine. Lifecycle of a ScheduledJob row.
+enum ScheduledJobStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+
+  @@map("scheduled_job_status")
+}
+
+/// Sprint 4.8 — how a ScheduledJob is triggered. ONE_TIME/DATE fire at an exact point in time;
+/// CRON/INTERVAL/DAILY/WEEKLY/MONTHLY recur; EVENT and AFTER_* are fired by the scheduler event bus (with
+/// a reconciliation scan as a crash-recovery fallback) whenever a matching domain event occurs.
+enum ScheduledJobTriggerType {
+  ONE_TIME
+  CRON
+  INTERVAL
+  DAILY
+  WEEKLY
+  MONTHLY
+  EVENT
+  DATE
+  AFTER_APPROVAL
+  AFTER_BOOKING
+  AFTER_WORKFLOW
+  AFTER_PAYMENT
+  AFTER_UPLOAD
+
+  @@map("scheduled_job_trigger_type")
+}
+
+/// Sprint 4.8 — scheduling/runtime priority. Dispatcher claims QUEUED executions in priority order so
+/// URGENT/CRITICAL follow-ups are never starved behind routine reminders.
+enum ScheduledJobPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+  CRITICAL
+
+  @@map("scheduled_job_priority")
+}
+
+/// Sprint 4.8 — lifecycle of one ScheduledExecution (one run of a ScheduledJob). Mirrors the statuses the
+/// sprint mandates: RUNNING, QUEUED, FAILED, RETRYING, COMPLETED, CANCELLED, TIMEOUT (plus DEAD_LETTERED
+/// for executions that exhausted their retry budget and were parked on the dead letter queue).
+enum ScheduledExecutionStatus {
+  QUEUED
+  RUNNING
+  FAILED
+  RETRYING
+  COMPLETED
+  CANCELLED
+  TIMEOUT
+  DEAD_LETTERED
+
+  @@map("scheduled_execution_status")
 }
 
 enum WorkflowStatus {
@@ -649,6 +713,10 @@ model Organization {
   executionSpans                        ExecutionSpan[]
   observabilityAlerts                   ObservabilityAlert[]
   observabilitySettings                 ObservabilitySettings?
+  scheduledJobs                         ScheduledJob[]
+  scheduledExecutions                   ScheduledExecution[]
+  jobLocks                              JobLock[]
+  jobTemplates                          JobTemplate[]
 
   @@map("organizations")
 }
@@ -985,6 +1053,7 @@ model Plugin {
   conversationAttachments              ConversationAttachment[]
   legalDocuments                       LegalDocument[]
   memoryRecords                        MemoryRecord[]
+  scheduledJobs                        ScheduledJob[]
 
   @@index([organizationId, slug])
   @@index([organizationId])
@@ -2967,4 +3036,163 @@ model ObservabilitySettings {
   organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("observability_settings")
+}
+
+// ============================================================================
+// Sprint 4.8 — Autonomous Scheduler & Background Execution Engine
+// ============================================================================
+
+/// Sprint 4.8: the code-level catalog of executable background jobs. One row per `key`, shared across
+/// every organization (an org never owns a definition — it installs *schedules* for a definition). The
+/// built-in catalog is seeded lazily by SchedulerService.onModuleInit; plugin authors extend the platform
+/// by registering handlers in the JobRegistry, not by writing engine code.
+model JobDefinition {
+  id           String   @id @default(uuid()) @db.Uuid
+  key          String   @unique @db.VarChar(120)
+  name         String   @db.VarChar(200)
+  description  String   @default("") @db.VarChar(500)
+  /// Domain grouping — TRAVEL, HR, FINANCE, LEGAL, SALES, PLATFORM, WORKFLOW, CHANNEL, ...
+  category     String   @default("PLATFORM") @db.VarChar(60)
+  /// What the handler does when the job runs. SEND_REMINDER, START_WORKFLOW, REQUEST_APPROVAL,
+  /// PUBLISH_EVENT, RUN_AGENT, ESCALATE_APPROVAL, PENDING_APPROVAL_SCAN are the built-ins.
+  handlerType  String   @map("handler_type") @db.VarChar(60)
+  /// The default retry policy: IMMEDIATE, 30_SEC, 2_MIN, 5_MIN, 30_MIN, 2_HOUR, 24_HOUR, NONE.
+  retryPolicy  String   @default("5_MIN") @map("retry_policy") @db.VarChar(20)
+  maxRetry     Int      @default(5) @map("max_retry")
+  timeoutMs    Int      @default(30000) @map("timeout_ms")
+  /// The event name that triggers this definition when triggerType is EVENT/AFTER_* (e.g. booking.approved).
+  eventName    String?  @map("event_name") @db.VarChar(120)
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([category, enabled])
+  @@map("job_definitions")
+}
+
+/// Sprint 4.8: reusable schedule blueprints. Global templates (organizationId null) ship with the
+/// platform; an organization can copy a template into its own org-scoped row and customize it. Instantiating
+/// a template creates an ACTIVE ScheduledJob.
+model JobTemplate {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String?                  @map("organization_id") @db.Uuid
+  name           String                   @db.VarChar(200)
+  description    String                   @default("") @db.VarChar(500)
+  definitionKey  String                   @map("definition_key") @db.VarChar(120)
+  triggerType    ScheduledJobTriggerType  @map("trigger_type")
+  cronExpression String?                  @map("cron_expression") @db.VarChar(120)
+  intervalMs     Int?                     @map("interval_ms")
+  timezone       String                   @default("UTC") @db.VarChar(64)
+  priority       ScheduledJobPriority     @default(NORMAL)
+  maxRetry       Int                      @default(5) @map("max_retry")
+  timeoutMs      Int                      @default(30000) @map("timeout_ms")
+  payload        Json                     @default("{}")
+  createdBy      String?                  @map("created_by") @db.Uuid
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  organization   Organization?            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, definitionKey])
+  @@map("job_templates")
+}
+
+/// Sprint 4.8: one durable schedule. `dedupeKey` (nullable, unique) makes ONE_TIME / AFTER_* schedules
+/// idempotent — scheduling the same logical reminder twice collapses onto the same row, so a job never
+/// runs twice because of a duplicated event. `nextRun` decides dispatch eligibility; one-time jobs are
+/// marked COMPLETED after their single run, recurring jobs keep advancing `nextRun`.
+model ScheduledJob {
+  id              String                  @id @default(uuid()) @db.Uuid
+  organizationId  String                  @map("organization_id") @db.Uuid
+  /// The AI Employee (Plugin installation) the job belongs to — null for platform/organization jobs.
+  employeeId      String?                 @map("employee_id") @db.Uuid
+  workflowId      String?                 @map("workflow_id") @db.Uuid
+  definitionKey   String                  @map("definition_key") @db.VarChar(120)
+  triggerType     ScheduledJobTriggerType @map("trigger_type")
+  cronExpression  String?                 @map("cron_expression") @db.VarChar(120)
+  intervalMs      Int?                    @map("interval_ms")
+  timezone        String                  @default("UTC") @db.VarChar(64)
+  status          ScheduledJobStatus      @default(ACTIVE)
+  priority        ScheduledJobPriority    @default(NORMAL)
+  nextRun         DateTime?               @map("next_run")
+  lastRun         DateTime?               @map("last_run")
+  retryCount      Int                     @default(0) @map("retry_count")
+  maxRetry        Int                     @default(5) @map("max_retry")
+  timeoutMs       Int                     @default(30000) @map("timeout_ms")
+  payload         Json                    @default("{}")
+  context         Json                    @default("{}")
+  dedupeKey       String?                 @unique @map("dedupe_key") @db.VarChar(500)
+  pausedAt        DateTime?               @map("paused_at")
+  pausedBy        String?                 @map("paused_by") @db.Uuid
+  cancelledAt     DateTime?               @map("cancelled_at")
+  cancelledBy     String?                 @map("cancelled_by") @db.Uuid
+  createdBy       String?                 @map("created_by") @db.Uuid
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee        Plugin?                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  executions      ScheduledExecution[]
+
+  @@index([organizationId, status, nextRun])
+  @@index([organizationId, triggerType, status])
+  @@index([organizationId, employeeId])
+  @@map("scheduled_jobs")
+}
+
+/// Sprint 4.8: one run of a ScheduledJob — the audit trail of every execution, exactly-once per run.
+/// `dedupeKey` (nullable, unique) is set from `jobId:attempt:scheduledFor` so a concurrent worker can never
+/// create two executions for the same attempt. `traceId` is the Sprint 4.7 ExecutionTrace this run spans.
+model ScheduledExecution {
+  id              String                   @id @default(uuid()) @db.Uuid
+  organizationId  String                   @map("organization_id") @db.Uuid
+  jobId           String                   @map("job_id") @db.Uuid
+  employeeId      String?                  @map("employee_id") @db.Uuid
+  definitionKey   String                   @map("definition_key") @db.VarChar(120)
+  triggerType     ScheduledJobTriggerType  @map("trigger_type")
+  priority        ScheduledJobPriority     @default(NORMAL)
+  status          ScheduledExecutionStatus @default(QUEUED)
+  scheduledFor    DateTime                 @map("scheduled_for")
+  attemptCount    Int                      @default(1) @map("attempt_count")
+  startedAt       DateTime?                @map("started_at")
+  completedAt     DateTime?                @map("completed_at")
+  durationMs      Int?                     @map("duration_ms")
+  nextAttemptAt   DateTime?                @map("next_attempt_at")
+  traceId         String?                  @map("trace_id") @db.VarChar(64)
+  workerId        String?                  @map("worker_id") @db.VarChar(100)
+  result          Json?                    @default("{}")
+  errorCode       String?                  @map("error_code") @db.VarChar(100)
+  errorMessage    String?                  @map("error_message") @db.VarChar(1000)
+  tokens          Int                      @default(0)
+  credits         Int                      @default(0)
+  createdBy       String?                  @map("created_by") @db.Uuid
+  dedupeKey       String?                  @unique @map("dedupe_key") @db.VarChar(600)
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job             ScheduledJob             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, scheduledFor])
+  @@index([organizationId, jobId, createdAt])
+  @@index([organizationId, status, priority])
+  @@index([organizationId, traceId])
+  @@index([status, nextAttemptAt])
+  @@map("scheduled_executions")
+}
+
+/// Sprint 4.8: per-job distributed lock. Exactly one row per ScheduledJob (unique jobId); a worker acquires
+/// it with an atomic `version` guard (optimistic locking) and a short `leaseExpiresAt`. A crashed worker's
+/// lock is stolen by any worker after the lease expires — that is the crash-recovery mechanism.
+model JobLock {
+  id             String   @id @default(uuid()) @db.Uuid
+  jobId          String   @unique @map("job_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  workerId       String   @map("worker_id") @db.VarChar(100)
+  version        Int      @default(0)
+  lockedAt       DateTime @default(now()) @map("locked_at")
+  leaseExpiresAt DateTime @map("lease_expires_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leaseExpiresAt])
+  @@map("job_locks")
 }

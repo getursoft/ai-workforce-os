@@ -28,6 +28,7 @@ import { WorkforceModule } from "./workforce/workforce.module";
 import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
 import { ObservabilityCoreModule } from "./observability/observability-core.module";
 import { ObservabilityModule } from "./observability/observability.module";
+import { SchedulerModule } from "./scheduler/scheduler.module";
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { ObservabilityModule } from "./observability/observability.module";
     WorkforceEventsModule,
     WorkforceModule,
     ObservabilityModule,
+    SchedulerModule,
   ],
 })
 export class AppModule {}
