@@ -124,6 +124,99 @@ export class PlatformService {
     return { id: row.id, name: row.name, slug: row.slug, status: row.status };
   }
 
+  /**
+   * Sprint 5.0 Phase 13: platform-admin console. Suspend/reactivate reuse the existing
+   * OrganizationStatus enum (ACTIVE/SUSPENDED/DISABLED) that LoginHandler already enforces
+   * (`organization.status !== ACTIVE` → generic authentication-failed, never distinguishing suspended
+   * from wrong-password — that's an existing, intentional anti-enumeration choice, unchanged here). This
+   * is the first thing that actually WRITES that status outside org creation.
+   */
+  async suspendOrganization(id: string, actorId: string, reason?: string): Promise<PlatformOrganizationSummary> {
+    await this.findOrganization(id);
+    const row = await this.prisma.organization.update({
+      where: { id },
+      data: { status: OrganizationStatus.SUSPENDED },
+      select: { id: true, name: true, slug: true, status: true }
+    });
+    if (reason?.trim()) await this.addSupportNote(id, actorId, `Organization suspended: ${reason.trim()}`);
+    return row;
+  }
+
+  async reactivateOrganization(id: string, actorId: string): Promise<PlatformOrganizationSummary> {
+    await this.findOrganization(id);
+    const row = await this.prisma.organization.update({
+      where: { id },
+      data: { status: OrganizationStatus.ACTIVE },
+      select: { id: true, name: true, slug: true, status: true }
+    });
+    await this.addSupportNote(id, actorId, "Organization reactivated.");
+    return row;
+  }
+
+  async addSupportNote(organizationId: string, authorUserId: string, body: string): Promise<{ id: string; body: string; createdAt: Date }> {
+    const trimmed = body.trim();
+    if (!trimmed || trimmed.length > 4000) throw new BadRequestException("SUPPORT_NOTE_INVALID");
+    await this.findOrganization(organizationId);
+    return this.prisma.platformSupportNote.create({
+      data: { organizationId, authorUserId, body: trimmed },
+      select: { id: true, body: true, createdAt: true }
+    });
+  }
+
+  async listSupportNotes(organizationId: string): Promise<Array<{ id: string; body: string; authorUserId: string; createdAt: Date }>> {
+    await this.findOrganization(organizationId);
+    return this.prisma.platformSupportNote.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: { id: true, body: true, authorUserId: true, createdAt: true }
+    });
+  }
+
+  /**
+   * Tenant-safe operational summary: counts and status only — never raw prompts, document contents,
+   * memory values, or secrets (explicit platform-admin constraint). Uses direct Prisma queries rather
+   * than injecting BillingService/EntitlementService/ObservabilityAlertsService, since those modules all
+   * import IdentityModule already — injecting them here would be a circular module dependency.
+   */
+  async operationalSummary(organizationId: string) {
+    const organization = await this.findOrganization(organizationId);
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [subscription, activeEmployees, users, channels, failedExecutions24h, openAlerts, supportNotes] = await Promise.all([
+      this.prisma.organisationSubscription.findUnique({ where: { organizationId }, include: { plan: true } }),
+      this.prisma.plugin.count({ where: { organizationId, deletedAt: null, status: "ACTIVE" } }),
+      this.prisma.user.count({ where: { organizationId, status: "ACTIVE" } }),
+      this.prisma.channelConnection.count({ where: { organizationId, status: { not: "DISABLED" } } }),
+      this.prisma.agentExecution.count({ where: { organizationId, status: "FAILED", createdAt: { gte: since24h } } }),
+      this.prisma.observabilityAlert.count({ where: { organizationId, status: { in: ["OPEN", "ACKNOWLEDGED"] } } }),
+      this.prisma.platformSupportNote.count({ where: { organizationId } })
+    ]);
+    const usedCreditsAgg = subscription
+      ? await this.prisma.agentExecution.aggregate({
+          where: { organizationId, status: "COMPLETED", createdAt: { gte: subscription.billingCycleStart, lte: subscription.billingCycleEnd } },
+          _sum: { totalTokens: true }
+        })
+      : null;
+    return {
+      organization,
+      subscription: subscription
+        ? {
+            status: subscription.status,
+            planCode: subscription.plan.code,
+            planName: subscription.plan.name,
+            monthlyCreditAllowance: subscription.monthlyCreditAllowanceOverride ?? subscription.plan.monthlyCreditAllowance,
+            usedCredits: Math.ceil(((usedCreditsAgg?._sum.totalTokens ?? 0) * 4) / 1000)
+          }
+        : null,
+      activeEmployees,
+      users,
+      channels,
+      failedExecutionsLast24h: failedExecutions24h,
+      openAlerts,
+      supportNotes
+    };
+  }
+
   private async uniqueSlug(name: string): Promise<string> {
     const base =
       name

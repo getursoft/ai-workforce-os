@@ -39,7 +39,8 @@ import { UpdateOrganizationSettingsHandler } from "./update-organization-setting
 const now = new Date("2026-07-10T12:00:00.000Z");
 const lifetimes: AuthenticationLifetimes = {
   accessTokenExpiresInSeconds: 900,
-  refreshTokenExpiresInSeconds: 2_592_000
+  refreshTokenExpiresInSeconds: 2_592_000,
+  accountLockout: { maxFailedAttempts: 5, lockoutDurationSeconds: 900 }
 };
 
 class FixedClock implements Clock {
@@ -186,6 +187,15 @@ class MemoryUsers implements UserRepository {
   async updateLastLogin(id: UserId, lastLoginAt: Date): Promise<void> {
     const user = await this.findById(id);
     user?.recordLogin(lastLoginAt);
+  }
+  async recordFailedLogin(
+    id: UserId,
+    maxFailedAttempts: number,
+    lockoutDurationSeconds: number,
+    at: Date
+  ): Promise<void> {
+    const user = await this.findById(id);
+    user?.recordFailedLogin(maxFailedAttempts, lockoutDurationSeconds, at);
   }
 }
 
@@ -440,6 +450,27 @@ describe("identity application handlers", () => {
         message: "Invalid email or password."
       });
     }
+  });
+
+  it("locks the account after repeated failed logins, then rejects even the correct password", async () => {
+    const context = harness();
+    await context.register.execute(registration);
+    for (let i = 0; i < lifetimes.accountLockout.maxFailedAttempts; i++) {
+      await expect(
+        context.login.execute({
+          email: registration.email,
+          password: "IncorrectPassword@123",
+          organizationName: registration.organizationName
+        })
+      ).rejects.toMatchObject({ code: "AUTHENTICATION_FAILED" });
+    }
+    await expect(
+      context.login.execute({
+        email: registration.email,
+        password: registration.password,
+        organizationName: registration.organizationName
+      })
+    ).rejects.toMatchObject({ code: "ACCOUNT_LOCKED" });
   });
 
   it("rotates once, links the replacement, and revokes the family on replay", async () => {

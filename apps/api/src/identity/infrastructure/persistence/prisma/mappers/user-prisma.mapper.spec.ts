@@ -54,7 +54,10 @@ describe("UserPrismaMapper", () => {
       status: PrismaUserStatus.ACTIVE,
       lastLoginAt: null,
       createdAt,
-      updatedAt
+      updatedAt,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      emailVerifiedAt: null
     });
 
     expect(user.email.toString()).toBe("ada@example.com");

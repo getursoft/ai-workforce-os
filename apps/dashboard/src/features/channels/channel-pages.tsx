@@ -21,25 +21,27 @@ function useAgents() {
   return useQuery({ queryKey: ["channels", "agents"], queryFn: api.employees });
 }
 
-function safeError(error: unknown): string {
-  const msg = typeof error === "object" && error !== null ? String((error as Record<string, unknown>).message ?? "") : "";
+export function statusMessage(error: unknown): string {
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code ?? "")
+      : "";
   const known: Record<string, string> = {
     CHANNEL_CONFIGURATION_INCOMPLETE: "Account SID, Auth Token, and sender number are all required.",
     META_CONFIGURATION_INCOMPLETE: "Access Token and Phone Number ID are required.",
     AGENT_NOT_FOUND: "Select an active AI employee to bind this channel to.",
     AGENT_NOT_ACTIVE: "The selected AI employee is not active.",
-    CHANNEL_CREDENTIALS_REQUIRED: "Configure credentials before testing or enabling.",
-    CHANNEL_PROVIDER_AUTHENTICATION_FAILED: "Provider rejected the configured credentials.",
+    CHANNEL_CREDENTIALS_REQUIRED: "Configure the Twilio credentials before testing or enabling.",
+    CHANNEL_PROVIDER_AUTHENTICATION_FAILED: "Provider rejected the configured Account SID or Auth Token.",
+    CHANNEL_PROVIDER_RATE_LIMITED: "The provider is rate-limited right now. Try again shortly.",
     CHANNEL_PROVIDER_UNAVAILABLE: "Provider is currently unavailable.",
+    CHANNEL_PROVIDER_TIMEOUT: "The request to the provider timed out. Try again.",
     CHANNEL_NOT_FOUND: "This channel is no longer available.",
     PHONE_NUMBER_ALREADY_IN_USE: "This WhatsApp number is already connected to another organisation.",
     META_CREDENTIAL_VERIFICATION_FAILED: "Meta rejected the access token or phone number ID.",
     META_SEND_FAILED: "Failed to send a test message through Meta."
   };
-  for (const [code, text] of Object.entries(known)) {
-    if (msg.includes(code)) return text;
-  }
-  return "Check the fields and try again.";
+  return known[code] ?? "Check the fields and try again.";
 }
 
 function ProviderBadge({ provider }: { provider: string }) {
@@ -104,7 +106,7 @@ export function NewChannelPage() {
       name: string; provider: "TWILIO" | "META_CLOUD_API"; channelType: "WHATSAPP";
       agentId: string; configuration: ChannelConfigurationInput | MetaChannelConfigurationInput;
     }) => api.create(body),
-    onSuccess: (channel) => router.push(`/channels/${(channel as Record<string, unknown>).id}`)
+    onSuccess: (channel) => router.push(`/channels/${channel.id}`)
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -112,15 +114,21 @@ export function NewChannelPage() {
     const name = String(data.get("name") ?? "").trim();
     const agentId = String(data.get("agentId") ?? "");
     if (provider === "META_CLOUD_API") {
+      const metaAppId = String(data.get("metaAppId") ?? "").trim();
+      const metaAppSecret = String(data.get("metaAppSecret") ?? "").trim();
+      const whatsappBusinessAccountId = String(data.get("wabaId") ?? "").trim();
+      const displayPhoneNumber = String(data.get("displayPhoneNumber") ?? "").trim();
+      const webhookVerifyToken = String(data.get("webhookVerifyToken") ?? "").trim();
+      const apiVersion = String(data.get("apiVersion") ?? "").trim();
       const config: MetaChannelConfigurationInput = {
-        metaAppId: String(data.get("metaAppId") ?? "").trim() || undefined,
-        metaAppSecret: String(data.get("metaAppSecret") ?? "").trim() || undefined,
-        whatsappBusinessAccountId: String(data.get("wabaId") ?? "").trim() || undefined,
+        ...(metaAppId ? { metaAppId } : {}),
+        ...(metaAppSecret ? { metaAppSecret } : {}),
+        ...(whatsappBusinessAccountId ? { whatsappBusinessAccountId } : {}),
         phoneNumberId: String(data.get("phoneNumberId") ?? "").trim(),
-        displayPhoneNumber: String(data.get("displayPhoneNumber") ?? "").trim() || undefined,
+        ...(displayPhoneNumber ? { displayPhoneNumber } : {}),
         accessToken: String(data.get("accessToken") ?? "").trim(),
-        webhookVerifyToken: String(data.get("webhookVerifyToken") ?? "").trim() || undefined,
-        apiVersion: String(data.get("apiVersion") ?? "").trim() || undefined
+        ...(webhookVerifyToken ? { webhookVerifyToken } : {}),
+        ...(apiVersion ? { apiVersion } : {})
       };
       create.mutate({ name, provider: "META_CLOUD_API", channelType: "WHATSAPP", agentId, configuration: config });
     } else {
@@ -186,7 +194,7 @@ export function NewChannelPage() {
                 <Input id="fromNumber" name="fromNumber" required placeholder="+14155238886" />
               </>
             )}
-            {create.isError ? <Alert tone="danger" title="Channel was not created">{safeError(create.error)}</Alert> : null}
+            {create.isError ? <Alert tone="danger" title="Channel was not created">{statusMessage(create.error)}</Alert> : null}
             <Button type="submit" loading={create.isPending} disabled={create.isPending}>Create channel</Button>
           </form>
         </Card>
@@ -244,10 +252,13 @@ export function ChannelDetailPage() {
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
     const agentId = String(data.get("agentId") ?? "");
+    const accountSid = String(data.get("accountSid") ?? "").trim();
+    const authToken = String(data.get("authToken") ?? "").trim();
+    const fromNumber = String(data.get("fromNumber") ?? "").trim();
     const config: ChannelConfigurationInput = {
-      accountSid: String(data.get("accountSid") ?? "").trim() || undefined,
-      authToken: String(data.get("authToken") ?? "").trim() || undefined,
-      fromNumber: String(data.get("fromNumber") ?? "").trim() || undefined
+      ...(accountSid ? { accountSid } : {}),
+      ...(authToken ? { authToken } : {}),
+      ...(fromNumber ? { fromNumber } : {})
     };
     update.mutate({ ...(name ? { name } : {}), ...(agentId ? { agentId } : {}), ...(Object.values(config).some(Boolean) ? { configuration: config } : {}) });
   };
@@ -274,8 +285,8 @@ export function ChannelDetailPage() {
           </Can>
           <span>Last tested: {item.lastTestedAt ? new Date(item.lastTestedAt).toLocaleString() : "Never"} {item.lastTestStatus ? <Badge>{item.lastTestStatus}</Badge> : null}</span>
         </Card>
-        {toggle.isError ? <Alert tone="danger" title="Action failed">{safeError(toggle.error)}</Alert> : null}
-        {test.isError ? <Alert tone="danger" title="Test failed">{safeError(test.error)}</Alert> : null}
+        {toggle.isError ? <Alert tone="danger" title="Action failed">{statusMessage(toggle.error)}</Alert> : null}
+        {test.isError ? <Alert tone="danger" title="Test failed">{statusMessage(test.error)}</Alert> : null}
         {test.isSuccess ? <Alert tone="success" title="Connection successful">{test.data?.status ?? "Connected"}</Alert> : null}
 
         {isMeta ? (

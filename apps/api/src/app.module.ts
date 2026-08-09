@@ -1,6 +1,13 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
+import { ConfigModule as AppConfigModule } from "./config/app-config";
+import { QueueModule } from "./queue/queue.module";
+import { SecurityModule } from "./security/security.module";
+import { ObjectStorageModule } from "./storage/object-storage.module";
+import { FeatureFlagModule } from "./feature-flags/feature-flag.module";
+import { OnboardingModule } from "./onboarding/onboarding.module";
+import { SkillPlatformModule } from "./skills-platform/skill-platform.module";
 import { IdentityModule } from "./identity/identity.module";
 import { TeamModule } from "./teams/team.module";
 import { ServiceAccountModule } from "./service-accounts/service-account.module";
@@ -36,6 +43,11 @@ import { SchedulerModule } from "./scheduler/scheduler.module";
       isGlobal: true,
     }),
 
+    AppConfigModule,
+    SecurityModule,
+    ObjectStorageModule,
+    FeatureFlagModule,
+    QueueModule,
     NotificationsModule,
     ObservabilityCoreModule,
     IdentityModule,
@@ -64,6 +76,8 @@ import { SchedulerModule } from "./scheduler/scheduler.module";
     WorkforceModule,
     ObservabilityModule,
     SchedulerModule,
+    OnboardingModule,
+    SkillPlatformModule,
   ],
 })
 export class AppModule {}

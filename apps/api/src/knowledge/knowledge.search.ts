@@ -485,12 +485,26 @@ export function normalizeQueryText(query: string): string {
     .join(" ");
 }
 
+/** "booking" immediately after a preposition ("benefits **of booking** through your portal", "**when
+ * booking**...", "**before booking**...") names the ACT of booking — a gerund/verbal-noun — not the
+ * booking/reservation-requirements topic `TERM_GROUPS[BOOKING_GROUP]` actually curates ("booking
+ * requirements", "group booking policy"). Left in, a generic sentence that merely mentions the word
+ * "booking" in passing wrongly demands the candidate heading also cover that topic
+ * (`headingPathMatchesQueryIntent`'s "every wanted group" rule) — e.g. "Portal Benefits" is an exact
+ * topical match for "what are the benefits of booking through your portal" but doesn't itself mention
+ * booking/reservation, so it was being rejected. "bookings" (plural) is never used this way in practice
+ * and is unaffected, as are "reservation(s)"/"requirement(s)". */
+const BOOKING_GERUND_PATTERN = /\b(?:of|when|while|before|after|by|via)\s+booking\b/g;
+
 /** The TERM_GROUPS a (normalized) query touches — e.g. "how kids fare is calculated" -> the
  * infant/child group and the fare/pricing group. Exported for knowledge.prompt.ts's confidence gating,
  * which needs to know whether the top result's own heading path actually shares a topic with the
  * query ("intent alignment") — see `headingPathMatchesQueryIntent`. */
 export function queryTermGroups(query: string): Set<number> {
-  return groupsOf(tokenize(normalizeQueryText(query)));
+  const normalized = normalizeQueryText(query).replace(BOOKING_GERUND_PATTERN, (match) =>
+    match.replace(/booking$/, "")
+  );
+  return groupsOf(tokenize(normalized));
 }
 
 /** True when the query has no strong topical group of its own (nothing to misalign with) or when the

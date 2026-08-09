@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "skills": {
+    "frontend-design": {
+      "source": "smithery.ai",
+      "sourceUrl": "https://smithery.ai/skills/anthropics/frontend-design",
+      "sourceType": "well-known",
+      "computedHash": "3e0be122a3db8206b6d0d6b07cca898b5c75fb9b7b2101abe143fb2851734d2e",
+      "wellKnownDigest": "sha256:bb4b5dd42d615dc6cef71bf709a483612e6b683e62b8121b398285e220cae004"
+    },
+    "listener-creator": {
+      "source": "smithery.ai",
+      "sourceUrl": "https://smithery.ai/skills/anthropics/listener-creator",
+      "sourceType": "well-known",
+      "computedHash": "46c53332fbfbf0a5c265105fd721d978c27559fc2f2d87e92e5c4f9d4827926a",
+      "wellKnownDigest": "sha256:322857e01c5eb3212ba4ad1c5526b36bb85fd70a449c847259521bc1d4ecbb59"
+    },
+    "nano-pdf": {
+      "source": "smithery.ai",
+      "sourceUrl": "https://smithery.ai/skills/openclaw/nano-pdf",
+      "sourceType": "well-known",
+      "computedHash": "5779641e7a0ed61bd0531859dd6a0e195b5d0204606f6d9ea78a428e73326fea",
+      "wellKnownDigest": "sha256:f87aa33ab0bac33487296d269b713df6f731c4e4a09e70b08f2cb7f175bdec65"
+    },
+    "smithery-ai-cli": {
+      "source": "smithery.ai",
+      "sourceUrl": "https://smithery.ai/skills/anthropics/response-drafting",
+      "sourceType": "well-known",
+      "computedHash": "dc17f090c975afe1d96a25dbe843fc9c978e96d5699eed1bb7c12b411e10b830",
+      "wellKnownDigest": "sha256:8991a5cc42c323f513a29aa16ecdb53f03b10cb5f3f33ce02496832c5218bcd5"
+    },
+    "speech": {
+      "source": "smithery.ai",
+      "sourceUrl": "https://smithery.ai/skills/openai/speech",
+      "sourceType": "well-known",
+      "computedHash": "156e4f5eb3a78cf074763464b7819479239f3f4de7ed1e526225ecbd44c0d31c",
+      "wellKnownDigest": "sha256:0cbd6c96ab1c44b063b52f19c870e045547b8952bfaaf7740d6ff6d799447624"
+    }
+  }
+}

@@ -16,7 +16,6 @@ export function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
-  const [devResetToken, setDevResetToken] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,7 +30,6 @@ export function ForgotPasswordForm() {
     try {
       const result = await client.forgotPassword(email);
       setSubmittedEmail(result.email);
-      setDevResetToken(result.resetToken ? result.resetToken : null);
     } catch (caught: unknown) {
       const apiError = caught instanceof ApiError ? caught : null;
       setError(getForgotPasswordFailureMessage(apiError?.kind ?? null));
@@ -44,20 +42,13 @@ export function ForgotPasswordForm() {
     return (
       <Card className="auth-card">
         <div className="auth-card__branding">
-          <p className="auth-card__eyebrow">AI Workforce OS</p>
+          <p className="auth-card__eyebrow">Krevia.ai</p>
           <h1>Check your email</h1>
           <p>
-            If an account exists for <strong>{submittedEmail}</strong>, a password reset code has been
-            sent. It expires in 30 minutes.
+            If an account exists for <strong>{submittedEmail}</strong>, an 8-digit password reset code
+            has been sent. It expires in 30 minutes.
           </p>
         </div>
-        {devResetToken ? (
-          <Alert tone="neutral" title="Development mode">
-            Email delivery is not configured. Use this reset code:
-            <br />
-            <code>{devResetToken}</code>
-          </Alert>
-        ) : null}
         <Button
           type="button"
           className="auth-form__submit"
@@ -77,7 +68,7 @@ export function ForgotPasswordForm() {
   return (
     <Card className="auth-card">
       <div className="auth-card__branding">
-        <p className="auth-card__eyebrow">AI Workforce OS</p>
+        <p className="auth-card__eyebrow">Krevia.ai</p>
         <h1>Forgot your password?</h1>
         <p>Enter your account email and we will send you a code to reset your password.</p>
       </div>

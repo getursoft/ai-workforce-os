@@ -155,7 +155,16 @@ export const DEFAULT_PERMISSIONS = {
     "scheduler.retry",
     "scheduler.template.read",
     "scheduler.template.write",
-    "scheduler.worker.read"
+    "scheduler.worker.read",
+    "skill.execute",
+    "skill.install",
+    "skill.update",
+    "skill.uninstall",
+    "skill.configure",
+    "skill.marketplace.read",
+    "skill.execution.read",
+    "skill.health.read",
+    "skill.grant.manage"
   ],
   Admin: [
     "organization.manage",
@@ -263,7 +272,16 @@ export const DEFAULT_PERMISSIONS = {
     "scheduler.retry",
     "scheduler.template.read",
     "scheduler.template.write",
-    "scheduler.worker.read"
+    "scheduler.worker.read",
+    "skill.execute",
+    "skill.install",
+    "skill.update",
+    "skill.uninstall",
+    "skill.configure",
+    "skill.marketplace.read",
+    "skill.execution.read",
+    "skill.health.read",
+    "skill.grant.manage"
   ],
   Manager: [
     "TEAM_READ",
@@ -328,7 +346,12 @@ export const DEFAULT_PERMISSIONS = {
     "observability.alert.read",
     "scheduler.read",
     "scheduler.template.read",
-    "scheduler.worker.read"
+    "scheduler.worker.read",
+    "skill.execute",
+    "skill.marketplace.read",
+    "skill.execution.read",
+    "skill.health.read",
+    "skill.grant.manage"
   ],
   Member: [
     "TEAM_READ",
@@ -341,7 +364,10 @@ export const DEFAULT_PERMISSIONS = {
     "agents.memory.write",
     "agents.tools.execute",
     "knowledge.read",
-    "knowledge.search"
+    "knowledge.search",
+    "skill.execute",
+    "skill.marketplace.read",
+    "skill.execution.read"
   ],
   Viewer: [
     "TEAM_READ",
@@ -358,7 +384,8 @@ export const DEFAULT_PERMISSIONS = {
     "marketing.config.read",
     "legal.config.read",
     "support.config.read",
-    "scheduler.read"
+    "scheduler.read",
+    "skill.marketplace.read"
   ]
 } as const;
 
@@ -498,7 +525,16 @@ const descriptions: Record<string, string> = {
   "scheduler.retry": "Manually retry failed or dead-lettered scheduled executions",
   "scheduler.template.read": "View reusable job templates",
   "scheduler.template.write": "Instantiate and manage reusable job templates",
-  "scheduler.worker.read": "View scheduler worker health and queue statistics"
+  "scheduler.worker.read": "View scheduler worker health and queue statistics",
+  "skill.execute": "Execute installed skills on behalf of AI employees",
+  "skill.install": "Install skills from the skill marketplace",
+  "skill.update": "Update, enable, disable, or roll back skill installations",
+  "skill.uninstall": "Uninstall skills from the organization",
+  "skill.configure": "Configure skill settings for the organization",
+  "skill.marketplace.read": "Browse the skill marketplace and installation state",
+  "skill.execution.read": "View skill execution history and usage",
+  "skill.health.read": "Check installed skill health",
+  "skill.grant.manage": "Grant or revoke skills to installed AI employees"
 };
 
 export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
@@ -586,17 +622,19 @@ export async function seedRbac(client: PrismaClient = prisma): Promise<void> {
 
 /**
  * Bootstraps the single universal platform-owner account (SecurityConfig.platformOwnerEmail).
- * The account lives in a dedicated "AI Workforce OS Platform" home organization with legacy OWNER
+ * The account lives in a dedicated "Krevia.ai" home organization with legacy OWNER
  * role; seedRbac's role loop (which runs after this) assigns the Owner system role + permissions.
  * Idempotent: on re-seed it never duplicates the owner or resets an existing password.
  */
 export async function seedPlatformOwner(client: PrismaClient = prisma): Promise<void> {
-  const slug = "ai-workforce-os-platform";
+  // OrganizationSlug only allows lowercase letters, numbers, and single hyphens (no dots) — see
+  // apps/api/src/identity/domain/organization/organization-slug.ts. The display name can be "Krevia.ai".
+  const slug = "krevia-ai";
   const organization = await client.organization.upsert({
     where: { slug },
     update: {},
     create: {
-      name: "AI Workforce OS Platform",
+      name: "Krevia.ai",
       slug,
       status: "ACTIVE"
     }

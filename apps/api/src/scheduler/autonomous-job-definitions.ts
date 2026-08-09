@@ -200,6 +200,15 @@ export const JOB_DEFINITION_SEEDS: JobDefinitionSeed[] = [
     maxRetry: 3
   },
   {
+    key: "platform.skill_execution",
+    name: "Scheduled skill execution",
+    category: "PLATFORM",
+    handlerType: "RUN_SKILL",
+    description: "Run an installed skill on a schedule (e.g. parse a daily report, translate weekly content, generate a recurring extract).",
+    retryPolicy: "30_MIN",
+    maxRetry: 3
+  },
+  {
     key: "scheduler.pending_approval_scan",
     name: "Pending approval scanner",
     category: "PLATFORM",

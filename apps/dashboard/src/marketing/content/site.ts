@@ -1,9 +1,9 @@
 export const siteConfig = {
-  name: "AI Workforce OS",
+  name: "Krevia.ai",
   tagline: "The Operating System for AI Employees",
-  domain: "aiworkforceos.com",
+  domain: "krevia.ai",
   description:
-    "AI Workforce OS lets organisations hire, manage and scale specialised AI employees that work across departments — grounded in company knowledge, connected to real tools, and supervised by human teams.",
+    "Krevia.ai lets organisations hire, manage and scale specialised AI employees that work across departments — grounded in company knowledge, connected to real tools, and supervised by human teams.",
   headline: {
     line1: "AI Employees.",
     line2: "Real Impact.",
@@ -34,16 +34,16 @@ export const siteConfig = {
     },
   ],
   contact: {
-    salesEmail: "sales@aiworkforceos.com",
-    supportEmail: "support@aiworkforceos.com",
-    generalEmail: "hello@aiworkforceos.com",
+    salesEmail: "sales@krevia.ai",
+    supportEmail: "support@krevia.ai",
+    generalEmail: "hello@krevia.ai",
     phone: "+91 22 4000 1200",
-    address: "AI Workforce OS, WeWork Enam Sambhav, BKC, Mumbai 400051, India",
+    address: "Krevia.ai, WeWork Enam Sambhav, BKC, Mumbai 400051, India",
   },
   social: {
-    linkedin: "https://www.linkedin.com/company/aiworkforceos",
-    twitter: "https://twitter.com/aiworkforceos",
-    youtube: "https://www.youtube.com/@aiworkforceos",
+    linkedin: "https://www.linkedin.com/company/krevia-ai",
+    twitter: "https://twitter.com/krevia_ai",
+    youtube: "https://www.youtube.com/@krevia-ai",
   },
-  legalEntity: "AI Workforce OS Technologies Pvt. Ltd.",
+  legalEntity: "Krevia.ai Technologies Pvt. Ltd.",
 } as const;

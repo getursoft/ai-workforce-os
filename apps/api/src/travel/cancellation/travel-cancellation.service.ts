@@ -140,8 +140,9 @@ export class TravelCancellationService {
     if (cancellation.status !== "WAITING_FOR_MANAGER_APPROVAL") {
       throw new BadRequestException(`Cancellation is not awaiting manager approval (status: ${cancellation.status})`);
     }
+    if (!cancellation.approvalRequestId) throw new BadRequestException("Cancellation has no associated approval request");
 
-    await this.approvalService.recordDecision(cancellation.approvalRequestId!, organizationId, decision as never, {
+    await this.approvalService.recordDecision(cancellation.approvalRequestId, organizationId, decision as never, {
       actorType: "MANAGER",
       actorUserId: actorInfo.actorUserId,
       comment: actorInfo.comment,

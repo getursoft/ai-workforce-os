@@ -17,7 +17,7 @@ export const blogPosts: BlogPost[] = [
     readTime: "5 min read",
     publishedAt: "2026-05-12",
     content: [
-      "The term \"AI employee\" gets used loosely across the industry, so it's worth being precise about what it means on AI Workforce OS.",
+      "The term \"AI employee\" gets used loosely across the industry, so it's worth being precise about what it means on Krevia.ai.",
       "An AI employee is a role-based AI worker configured for a specific department — Travel, HR, Finance, IT Support, Sales or Marketing, or a custom role you define. It is grounded in your organisation's real knowledge, connected to the tools relevant to its role, and built to hand off sensitive decisions to a human colleague.",
       "That's a meaningfully different shape from a general chatbot. A chatbot answers a question and forgets it. An AI employee remembers relevant context, executes multi-step work through connected systems, and operates inside approval rules your organisation sets.",
       "The result isn't a novelty — it's closer to onboarding a new team member with a narrow, well-defined job description than deploying a generic assistant.",
@@ -46,7 +46,7 @@ export const blogPosts: BlogPost[] = [
     publishedAt: "2026-04-10",
     content: [
       "The instinct to lock everything behind manual approval is understandable, but it defeats the purpose of deploying an AI employee in the first place.",
-      "AI Workforce OS instead lets you set approval thresholds by task type. Routine, low-risk actions run automatically. Anything financially sensitive, externally visible, or irreversible routes to a human reviewer with full context attached.",
+      "Krevia.ai instead lets you set approval thresholds by task type. Routine, low-risk actions run automatically. Anything financially sensitive, externally visible, or irreversible routes to a human reviewer with full context attached.",
       "This is configured once, reviewed periodically, and adjusted as trust in a given AI employee grows — not a binary switch between 'fully autonomous' and 'fully manual'.",
     ],
   },

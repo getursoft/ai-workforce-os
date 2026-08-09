@@ -62,7 +62,7 @@ export function BuyCreditsPage() {
           order_id: order.gatewayOrderId ?? "",
           amount: order.amountMinor,
           currency: order.currency,
-          name: "AI Workforce OS",
+          name: "Krevia.ai",
           description: `${order.credits.toLocaleString()} AI credits`,
           prefill: {
             name: [user?.firstName, user?.lastName].filter(Boolean).join(" "),

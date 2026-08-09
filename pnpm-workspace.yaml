@@ -2,3 +2,15 @@ packages:
   - apps/*
   - packages/*
   - plugins/*
+
+# Sprint 5.0 Phase 24: pnpm 9's workspace mode does not read package.json#pnpm.overrides (confirmed via
+# the "no longer read" warning pnpm prints on every install/run) — these five pins were silently inert
+# wherever they lived in package.json. This is the location pnpm 9 actually reads for a workspace.
+overrides:
+  glob@>=10.2.0 <10.5.0: "10.5.0"
+  lodash@>=4.0.0 <=4.17.23: "4.18.0"
+  multer@<2.2.0: "2.2.0"
+  picomatch@>=4.0.0 <4.0.4: "4.0.4"
+  tmp@<0.2.7: "0.2.7"
+  brace-expansion@>=2.0.0 <2.1.4: "2.1.4"
+  brace-expansion@<1.1.18: "1.1.18"

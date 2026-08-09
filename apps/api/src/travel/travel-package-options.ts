@@ -400,7 +400,7 @@ export function buildBookingConfirmationSummary(
         ]
       : []),
     "",
-    "This is a simulated booking in the AI Workforce OS demo environment — no real reservation is made until you confirm.",
+    "This is a simulated booking in the Krevia.ai demo environment — no real reservation is made until you confirm.",
     "",
     "Reply 'Confirm booking' to proceed, or 'Change option' to choose another package."
   ].filter((line): line is string => line !== null);

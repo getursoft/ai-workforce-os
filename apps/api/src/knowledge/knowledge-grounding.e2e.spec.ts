@@ -78,7 +78,7 @@ suite("Knowledge grounding UAT", () => {
     await ensurePlatformOwner(prisma);
     const platformLogin = await request(app.getHttpServer())
       .post("/api/v1/auth/login")
-      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "AI Workforce OS Platform" })
+      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "Krevia.ai Platform" })
       .expect(200);
     const switched = await request(app.getHttpServer())
       .post(`/api/v1/platform/organizations/${organizationId}/switch`)

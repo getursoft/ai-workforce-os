@@ -12,8 +12,8 @@ export function validateResetPasswordForm(values: {
   confirmPassword: string;
 }): { token?: string; newPassword?: string; confirmPassword?: string } {
   const errors: { token?: string; newPassword?: string; confirmPassword?: string } = {};
-  if (values.token.trim().length === 0) {
-    errors.token = "Enter the reset code from your email.";
+  if (!/^\d{8}$/.test(values.token.trim())) {
+    errors.token = "Enter the 8-digit code from your email.";
   }
   if (values.newPassword.length < 12) {
     errors.newPassword = "Password must be at least 12 characters.";

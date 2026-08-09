@@ -369,7 +369,7 @@ export const aiEmployees: AiEmployee[] = [
     iconColor: "blue",
     badge: "AI Employee",
     summary:
-      "Beyond the standard roles, AI Workforce OS lets you configure a custom AI employee shaped around your specific processes, terminology and tools.",
+      "Beyond the standard roles, Krevia.ai lets you configure a custom AI employee shaped around your specific processes, terminology and tools.",
     responsibilities: [
       "Defined around your specific department or process",
       "Configured with your organisation's terminology and tone",

@@ -109,4 +109,36 @@ describe("User", () => {
   it("rejects invalid persisted identifiers", () => {
     expect(() => UserId.from("user-1")).toThrow(InvalidDomainValueError);
   });
+
+  it("locks the account once failed attempts reach the threshold", () => {
+    const user = reconstructWithStatus(UserStatus.ACTIVE);
+    const at = new Date("2026-07-10T11:00:00.000Z");
+    for (let i = 0; i < 4; i++) {
+      user.recordFailedLogin(5, 900, at);
+      expect(user.isLockedOut(at)).toBe(false);
+    }
+    user.recordFailedLogin(5, 900, at);
+    expect(user.failedLoginAttempts).toBe(5);
+    expect(user.isLockedOut(at)).toBe(true);
+    expect(user.lockedUntil).toEqual(new Date(at.getTime() + 900_000));
+  });
+
+  it("is no longer locked out once the lockout window elapses", () => {
+    const user = reconstructWithStatus(UserStatus.ACTIVE);
+    const at = new Date("2026-07-10T11:00:00.000Z");
+    for (let i = 0; i < 5; i++) user.recordFailedLogin(5, 900, at);
+    expect(user.isLockedOut(new Date(at.getTime() + 900_000 - 1))).toBe(true);
+    expect(user.isLockedOut(new Date(at.getTime() + 900_001))).toBe(false);
+  });
+
+  it("clears lockout state on a successful login", () => {
+    const user = reconstructWithStatus(UserStatus.ACTIVE);
+    const at = new Date("2026-07-10T11:00:00.000Z");
+    for (let i = 0; i < 5; i++) user.recordFailedLogin(5, 900, at);
+    expect(user.isLockedOut(at)).toBe(true);
+    user.recordLogin(new Date(at.getTime() + 1_000_000));
+    expect(user.failedLoginAttempts).toBe(0);
+    expect(user.lockedUntil).toBeNull();
+    expect(user.isLockedOut(new Date(at.getTime() + 1_000_000))).toBe(false);
+  });
 });

@@ -6,7 +6,7 @@ import { CookiePreferences } from "@/components/shared/cookie-preferences";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Cookie Policy",
-  description: "How AI Workforce OS uses cookies, and how to manage your preferences.",
+  description: "How Krevia.ai uses cookies, and how to manage your preferences.",
   path: "/cookies",
 });
 
@@ -21,7 +21,7 @@ const sections = [
 export default function CookiesPage() {
   return (
     <>
-      <PageHero eyebrow="Legal" title="Cookie Policy" description="How we use cookies on the AI Workforce OS website." />
+      <PageHero eyebrow="Legal" title="Cookie Policy" description="How we use cookies on the Krevia.ai website." />
       <section className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <LegalNotice />
         <div className="space-y-8">

@@ -68,7 +68,7 @@ export function LoginForm() {
   return (
     <Card className="auth-card">
       <div className="auth-card__branding">
-        <p className="auth-card__eyebrow">AI Workforce OS</p>
+        <p className="auth-card__eyebrow">Krevia.ai</p>
         <h1>Sign in to your workspace</h1>
         <p>Secure access for your organization, dashboard, and sessions.</p>
       </div>

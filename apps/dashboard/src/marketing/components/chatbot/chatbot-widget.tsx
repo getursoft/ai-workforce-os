@@ -14,7 +14,7 @@ export function ChatbotWidget() {
       <button
         type="button"
         onClick={() => (isOpen ? close() : open())}
-        aria-label={isOpen ? "Close AI Workforce OS assistant" : "Open AI Workforce OS assistant"}
+        aria-label={isOpen ? "Close Krevia.ai assistant" : "Open Krevia.ai assistant"}
         aria-expanded={isOpen && !isMinimized}
         className="focus-ring fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-royal text-white shadow-gold ring-4 ring-saffron/20 transition-transform duration-200 hover:scale-105"
       >

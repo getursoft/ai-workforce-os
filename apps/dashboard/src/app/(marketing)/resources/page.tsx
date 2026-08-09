@@ -6,7 +6,7 @@ import { PageHero } from "@/components/shared/page-hero";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Resources",
-  description: "Documentation, help centre, blog, case studies and FAQs for AI Workforce OS.",
+  description: "Documentation, help centre, blog, case studies and FAQs for Krevia.ai.",
   path: "/resources",
 });
 
@@ -24,7 +24,7 @@ export default function ResourcesPage() {
     <>
       <PageHero
         eyebrow="Resources"
-        title="Everything You Need to Get the Most from AI Workforce OS"
+        title="Everything You Need to Get the Most from Krevia.ai"
         description="Documentation, guidance and real-world scenarios to help you plan, deploy and scale AI employees."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

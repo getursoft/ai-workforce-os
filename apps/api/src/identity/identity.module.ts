@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, type NestModule } from "@nestjs/common";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { NotificationsModule } from "../notifications/notifications.module";
+import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 import { ACCESS_TOKEN_SERVICE } from "./application/ports/access-token-service";
 import {
   AUTHENTICATION_LIFETIMES,
@@ -24,11 +26,7 @@ import { Argon2PasswordHasher } from "./infrastructure/security/argon2-password-
 import { CryptoIdentifierGenerator } from "./infrastructure/security/crypto-identifier-generator";
 import { HmacRefreshTokenService } from "./infrastructure/security/hmac-refresh-token-service";
 import { JoseAccessTokenService } from "./infrastructure/security/jose-access-token-service";
-import {
-  loadSecurityConfig,
-  SECURITY_CONFIG,
-  type SecurityConfig
-} from "./infrastructure/security/security-config";
+import { SECURITY_CONFIG, type SecurityConfig } from "./infrastructure/security/security-config";
 import { SystemClock } from "./infrastructure/security/system-clock";
 import {
   REGISTER_ORGANIZATION,
@@ -70,6 +68,7 @@ import { AuthorizationService } from "./application/services/authorization.servi
 import { ManagementService } from "./application/services/management.service";
 import { PlatformService } from "./application/services/platform.service";
 import { PasswordResetService } from "./application/services/password-reset.service";
+import { EmailVerificationService } from "./application/services/email-verification.service";
 import {
   InvitationAcceptanceController,
   ManagementController
@@ -84,7 +83,7 @@ import {
 } from "./application/handlers/switch-organization";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationsModule],
   controllers: [
     AuthController,
     OrganizationsController,
@@ -94,8 +93,12 @@ import {
   ],
   providers: [
     {
+      // Sprint 5.0B: derive from the single AppConfig instance (which already builds this internally)
+      // instead of independently re-parsing process.env a second time — one canonical SecurityConfig
+      // per process, not two that could theoretically disagree.
       provide: SECURITY_CONFIG,
-      useFactory: (): SecurityConfig => loadSecurityConfig(process.env)
+      inject: [APP_CONFIG],
+      useFactory: (appConfig: AppConfig): SecurityConfig => appConfig.security
     },
     {
       provide: CLOCK,
@@ -127,7 +130,8 @@ import {
       inject: [SECURITY_CONFIG],
       useFactory: (config: SecurityConfig): AuthenticationLifetimes => ({
         accessTokenExpiresInSeconds: config.accessToken.expiresInSeconds,
-        refreshTokenExpiresInSeconds: config.refreshToken.expiresInSeconds
+        refreshTokenExpiresInSeconds: config.refreshToken.expiresInSeconds,
+        accountLockout: config.accountLockout
       })
     },
     {
@@ -408,7 +412,8 @@ import {
     PlatformOwnerService,
     PlatformOwnerGuard,
     PlatformService,
-    PasswordResetService
+    PasswordResetService,
+    EmailVerificationService
   ],
   exports: [
     ORGANIZATION_REPOSITORY,

@@ -4,6 +4,7 @@ import { EmailService } from "../notifications/email.service";
 import { ChannelMessageProcessor } from "../channels/channel-message.processor";
 import { ObservabilityMetricsService } from "./observability-metrics.service";
 import { ObservabilityRetentionService, RETENTION_INTERVAL_MS } from "./observability-retention.service";
+import { QueueHealthService } from "../queue/queue-worker";
 
 export type HealthStatus = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
 
@@ -31,7 +32,8 @@ export class ObservabilityHealthService {
     private readonly metrics: ObservabilityMetricsService,
     @Optional() private readonly email?: EmailService,
     @Optional() private readonly channelProcessor?: ChannelMessageProcessor,
-    @Optional() private readonly retention?: ObservabilityRetentionService
+    @Optional() private readonly retention?: ObservabilityRetentionService,
+    @Optional() private readonly queueHealth?: QueueHealthService
   ) {}
 
   async checkAll(organizationId: string): Promise<ComponentHealth[]> {
@@ -46,7 +48,8 @@ export class ObservabilityHealthService {
       this.checkChannel(organizationId, "WHATSAPP"),
       this.checkEmail(),
       this.checkScheduler(),
-      this.checkConnectorRuntime(organizationId)
+      this.checkConnectorRuntime(organizationId),
+      this.checkQueue()
     ]);
     return checks;
   }
@@ -204,6 +207,25 @@ export class ObservabilityHealthService {
       latencyMs: ageMs,
       checkedAt: this.now()
     };
+  }
+
+  /** Sprint 5.0 Phase 22: durable queue backlog/latency — degraded when messages are stuck past their
+   *  visibility lease (stale claims) or the oldest queued message has waited more than 5 minutes. */
+  private async checkQueue(): Promise<ComponentHealth> {
+    if (!this.queueHealth) return { component: "Background Queue", status: "UNKNOWN", detail: "Queue health service not available in this process.", latencyMs: null, checkedAt: this.now() };
+    const started = Date.now();
+    try {
+      const snapshot = await this.queueHealth.snapshot();
+      return {
+        component: "Background Queue",
+        status: snapshot.status === "DEGRADED" ? "DEGRADED" : "HEALTHY",
+        detail: snapshot.detail,
+        latencyMs: Date.now() - started,
+        checkedAt: this.now()
+      };
+    } catch (error) {
+      return { component: "Background Queue", status: "UNHEALTHY", detail: safeMessage(error), latencyMs: Date.now() - started, checkedAt: this.now() };
+    }
   }
 
   private async checkConnectorRuntime(organizationId: string): Promise<ComponentHealth> {

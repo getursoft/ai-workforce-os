@@ -14,7 +14,7 @@ export function AiEmployeeGrid() {
           title="AI Employees for Every Department"
           description="Specialised AI employees that handle real work across your organisation."
         />
-        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4 [@media(min-width:1440px)]:grid-cols-6">
+        <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4">
           {featured.map((employee) => (
             <EmployeeCard key={employee.slug} employee={employee} />
           ))}

@@ -22,6 +22,7 @@ import {
 } from "@prisma/client";
 import type { AiProvider } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { BillingEnforcementService } from "../billing/billing-enforcement.service";
 import { ObservabilityService } from "../observability/observability.service";
 import type { TraceContext } from "../observability/trace-context";
 import { TraceContextStore } from "../observability/trace-context.store";
@@ -101,6 +102,12 @@ import { EmployeeArtifactService } from "../employees/employee-artifact.service"
 import { ApiBackedEmployeeProvider } from "../employees/api-backed.provider";
 import { SkillRegistry } from "../skills/skill-registry";
 import { SkillRuntimeService } from "../skills/skill-runtime.service";
+// Sprint 6.1 — the Universal Skills Platform. Distinct from the pre-existing, unrelated Travel-only
+// conversational state machine imported just above (`SkillRegistry`/`SkillRuntimeService`, singular
+// "Skill"): `SkillsRuntimeService`/`SkillRegistryService` (plural "Skills") is the versioned,
+// billed, tenant-isolated marketplace runtime any employee can invoke. Do not conflate the two.
+import { SkillsRuntimeService } from "../skills-platform/skill-runtime.service";
+import { SkillRegistryService } from "../skills-platform/skill-registry.service";
 import {
   SkillExecutionRevisionConflictError,
   SkillExecutionService
@@ -323,7 +330,10 @@ export class AgentService {
     @Optional() private readonly platformMemory?: PlatformMemoryService,
     @Optional() private readonly observability?: ObservabilityService,
     @Optional() private readonly moduleRef?: ModuleRef,
-    @Optional() private readonly traceContextStore?: TraceContextStore
+    @Optional() private readonly traceContextStore?: TraceContextStore,
+    @Optional() private readonly billingEnforcement?: BillingEnforcementService,
+    @Optional() private readonly skillsRuntime?: SkillsRuntimeService,
+    @Optional() private readonly skillRegistry?: SkillRegistryService
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -336,6 +346,7 @@ export class AgentService {
     this.registerTools();
     this.registerTravelTools();
     this.registerEmployeeTools();
+    this.registerSkillTools();
     for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
   }
 
@@ -400,6 +411,9 @@ export class AgentService {
 
   private async executeTraced(input: AgentExecutionInput, span: TraceContext | undefined) {
     const { organizationId } = input;
+    // Sprint 5.0 Phase 10: the single gate for billable AI execution. Runs before any provider/tool work,
+    // never on login/billing/notification paths (they never call AgentService.execute).
+    if (this.billingEnforcement) await this.billingEnforcement.assertExecutionAllowed(organizationId);
     const actorUserId = input.actor.type === "USER" ? input.actor.userId : null;
     const plugin = await this.prisma.plugin.findFirst({
       where: { id: input.agentId, organizationId, deletedAt: null }
@@ -746,6 +760,17 @@ export class AgentService {
         })
       ]);
       for (const name of toolNames) available.add(name);
+      // Sprint 6.1 — Phase 12: expose only skills this specific employee installation is actually
+      // granted and enabled for (SkillsRuntimeService.skillsForEmployee already filters on
+      // installation/grant/enabled state). Discovery failures must never block a turn.
+      if (this.skillsRuntime) {
+        try {
+          const grantedSkills = await this.skillsRuntime.skillsForEmployee(organizationId, plugin.id);
+          for (const skill of grantedSkills) available.add(`skill.${skill.skillKey}`);
+        } catch {
+          // capability discovery is best-effort; the turn proceeds without skill tools this time
+        }
+      }
       const persistedTravelMemory = parsedMemory;
       const persistedTravelEntities = parsedEntities;
 
@@ -2003,7 +2028,11 @@ export class AgentService {
         status: "COMPLETED" as const,
         model: responseModel,
         usage: { inputTokens, outputTokens, totalTokens, estimatedCost: null },
-        sources: knowledgeSources.map(sourceMetadata),
+        // When the final answer explicitly says nothing was found (see NO_KNOWLEDGE_MESSAGE — e.g. the
+        // Travel Employee asked an HR question, or nothing retrieved cleared the confidence gate), the
+        // raw retrieval that was rejected must never still be exposed as "sources" — a UI rendering
+        // citation chips alongside "I could not find this" would contradict the answer it's citing.
+        sources: finalText === NO_KNOWLEDGE_MESSAGE ? [] : knowledgeSources.map(sourceMetadata),
         ...(legalPdfAttachments ? { attachments: legalPdfAttachments } : {})
       };
     } catch (error) {
@@ -2318,6 +2347,49 @@ export class AgentService {
       },
       execute: async (input) => ({ echo: input.message })
     });
+  }
+
+  /**
+   * Sprint 6.1 — Phase 12 Tool Registry integration. Registers one generic `skill.<key>` tool per
+   * built-in adapter known to the process-local SkillRegistryService — the same registry/executor
+   * every other tool goes through, not a second tool-call mechanism. Registration happens once for
+   * every built-in skill key (this registry is process-wide, shared across organizations, exactly
+   * like the connector-contributed tools registered just below); per-turn availability is what
+   * actually restricts which employee may call which skill (see the `available` set built from
+   * SkillsRuntimeService.skillsForEmployee in execute()). Even if a tool name were somehow reachable
+   * without being in `available`, SkillsRuntimeService.execute() independently re-verifies
+   * installation, employee grant and tenant scope — an LLM can never invoke an uninstalled skill
+   * merely by naming it.
+   */
+  private registerSkillTools() {
+    const skillsRuntime = this.skillsRuntime;
+    if (!skillsRuntime || !this.skillRegistry) return;
+    for (const adapter of this.skillRegistry.all()) {
+      const manifest = adapter.manifest;
+      const toolName = `skill.${manifest.key}`;
+      if (this.tools.has(toolName)) continue;
+      this.tools.register({
+        definition: {
+          name: toolName,
+          version: manifest.version,
+          description: manifest.description.slice(0, 500),
+          inputSchema: manifest.inputSchema,
+          requiredPermissions: ["skill.execute"],
+          timeoutMs: manifest.timeoutMs
+        },
+        execute: async (input, context: ToolExecutionContext) => {
+          const result = await skillsRuntime.execute({
+            skillKey: manifest.key,
+            organizationId: context.organizationId,
+            pluginInstallationId: context.pluginInstallationId,
+            conversationId: context.conversationId,
+            ...(context.userId ? { userId: context.userId } : {}),
+            input
+          });
+          return result.data;
+        }
+      });
+    }
   }
 
   /**

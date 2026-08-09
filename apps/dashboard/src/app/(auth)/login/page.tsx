@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { LoginForm } from "../../../components/auth/login-form";
 
 export const metadata: Metadata = {
-  title: "Login | AI Workforce OS",
-  description: "Sign in to AI Workforce OS"
+  title: "Login | Krevia.ai",
+  description: "Sign in to Krevia.ai"
 };
 
 export default function LoginPage() {

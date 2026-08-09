@@ -18,7 +18,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Security",
   description:
-    "How AI Workforce OS approaches access control, tenant isolation, encryption, audit logging, approvals and responsible AI safeguards.",
+    "How Krevia.ai approaches access control, tenant isolation, encryption, audit logging, approvals and responsible AI safeguards.",
   path: "/security",
 });
 
@@ -39,7 +39,7 @@ export default function SecurityPage() {
       <PageHero
         eyebrow="Security"
         title="Security and Governance, Built Into How the Platform Runs"
-        description="AI Workforce OS is designed to support enterprise security requirements with configurable governance controls, so oversight travels with every AI employee rather than sitting alongside it."
+        description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls, so oversight travels with every AI employee rather than sitting alongside it."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
@@ -56,7 +56,7 @@ export default function SecurityPage() {
           <SectionHeading eyebrow="Data processing" title="How Data Is Handled" />
           <div className="mt-8 space-y-4 text-sm leading-relaxed text-muted">
             <p>
-              Organisational data connected to AI Workforce OS — including documents, policies and conversation
+              Organisational data connected to Krevia.ai — including documents, policies and conversation
               history — is used only to power your organisation&apos;s own AI employees. It is not used to train
               shared models across customers.
             </p>
@@ -83,7 +83,7 @@ export default function SecurityPage() {
           <SectionHeading
             eyebrow="A note on compliance"
             title="Honest About Where We Stand"
-            description="AI Workforce OS is designed to support enterprise security requirements and uses an integration-ready architecture with configurable governance controls. We do not display SOC 2, ISO 27001 or GDPR certification badges unless those certifications have been formally confirmed — contact our team for the current status of any certification your organisation requires."
+            description="Krevia.ai is designed to support enterprise security requirements and uses an integration-ready architecture with configurable governance controls. We do not display SOC 2, ISO 27001 or GDPR certification badges unless those certifications have been formally confirmed — contact our team for the current status of any certification your organisation requires."
           />
         </div>
       </section>

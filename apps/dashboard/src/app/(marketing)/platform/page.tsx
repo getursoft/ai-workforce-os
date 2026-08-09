@@ -23,7 +23,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Platform Overview",
   description:
-    "AI Workforce OS is the operating layer for AI employees — managing knowledge, memory, tools, approvals, analytics, security and collaboration in one place.",
+    "Krevia.ai is the operating layer for AI employees — managing knowledge, memory, tools, approvals, analytics, security and collaboration in one place.",
   path: "/platform",
 });
 
@@ -85,7 +85,7 @@ export default function PlatformPage() {
       <PageHero
         eyebrow="Platform"
         title="One Operating Layer for Every AI Employee"
-        description="AI Workforce OS is the operating system that AI employees run on — connecting knowledge, memory, tools, approvals, analytics and security into a single governed layer."
+        description="Krevia.ai is the operating system that AI employees run on — connecting knowledge, memory, tools, approvals, analytics and security into a single governed layer."
       >
         <ButtonLink href="/book-demo" variant="primary" className="bg-saffron hover:bg-[#d97b00]">
           Book a Demo

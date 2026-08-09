@@ -6,7 +6,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Documentation",
-  description: "Guides for configuring AI employees, knowledge, integrations, governance and analytics on AI Workforce OS.",
+  description: "Guides for configuring AI employees, knowledge, integrations, governance and analytics on Krevia.ai.",
   path: "/resources/documentation",
 });
 
@@ -16,7 +16,7 @@ export default function DocumentationPage() {
       <PageHero
         eyebrow="Documentation"
         title="Guides for Configuring Your AI Workforce"
-        description="A landing view of the documentation available once you're set up on AI Workforce OS."
+        description="A landing view of the documentation available once you're set up on Krevia.ai."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

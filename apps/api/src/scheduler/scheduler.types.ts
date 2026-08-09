@@ -55,6 +55,7 @@ export type JobHandlerType =
   | "REQUEST_APPROVAL"
   | "PUBLISH_EVENT"
   | "RUN_AGENT"
+  | "RUN_SKILL"
   | "ESCALATE_APPROVAL"
   | "PENDING_APPROVAL_SCAN"
   | "DEAD_LETTER";

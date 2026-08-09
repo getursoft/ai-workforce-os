@@ -6,7 +6,7 @@ import { faqs } from "@/content/faqs";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Frequently Asked Questions",
-  description: "Answers to common questions about AI Workforce OS, AI employees, security, pricing and integrations.",
+  description: "Answers to common questions about Krevia.ai, AI employees, security, pricing and integrations.",
   path: "/resources/faq",
 });
 

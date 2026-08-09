@@ -6,7 +6,7 @@ import { DemoForm } from "@/components/forms/demo-form";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Book a Demo",
-  description: "Book a guided demo of AI Workforce OS, configured around a real use case from your organisation.",
+  description: "Book a guided demo of Krevia.ai, configured around a real use case from your organisation.",
   path: "/book-demo",
 });
 
@@ -22,7 +22,7 @@ export default function BookDemoPage() {
     <>
       <PageHero
         eyebrow="Book a demo"
-        title="See AI Workforce OS Configured Around Your Business"
+        title="See Krevia.ai Configured Around Your Business"
         description="A guided, no-pressure walkthrough tailored to the departments and workflows that matter most to you."
       />
 

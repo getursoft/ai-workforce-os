@@ -6,6 +6,7 @@
     "build": "node ./scripts/build.mjs",
     "clean": "rm -rf .next tsconfig*.tsbuildinfo",
     "dev": "next dev --port 3000",
+    "start": "node ./scripts/start.mjs",
     "lint": "eslint .",
     "test": "vitest run --config vitest.config.mjs",
     "typecheck": "tsc --noEmit"

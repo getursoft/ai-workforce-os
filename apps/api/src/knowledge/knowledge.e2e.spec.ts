@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
 import { ValidationPipe, type INestApplication } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import JSZip from "jszip";
 import request from "supertest";
+import * as XLSX from "xlsx";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
@@ -67,7 +69,7 @@ suite("Knowledge HTTP", () => {
     await ensurePlatformOwner(prisma);
     const platformLogin = await request(app.getHttpServer())
       .post("/api/v1/auth/login")
-      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "AI Workforce OS Platform" })
+      .send({ email: PLATFORM_OWNER_EMAIL, password: PLATFORM_OWNER_PASSWORD, organizationName: "Krevia.ai Platform" })
       .expect(200);
     const switched = await request(app.getHttpServer())
       .post(`/api/v1/platform/organizations/${owner.organizationId}/switch`)
@@ -195,6 +197,120 @@ suite("Knowledge HTTP", () => {
       .send({ query: "business class policy", topK: 5, scoreThreshold: 0 })
       .expect(201);
     expect(search.body).toEqual([]);
+  });
+  it("uploads, indexes, and makes searchable a real .xlsx workbook and a real .zip archive (Sprint 5.0B)", async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Route", "Refund"],
+        ["Domestic cancellation", "eighty percent refundable"]
+      ]),
+      "Refunds"
+    );
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const xlsxUpload = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${employeeId}/collections/${collectionId}/documents`)
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", xlsxBuffer, {
+        filename: "refund-table.xlsx",
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      })
+      .expect(201);
+    expect(xlsxUpload.body.status).toBe("INDEXED");
+    const xlsxSearch = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${employeeId}/search`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ query: "domestic cancellation refund percent", topK: 5, scoreThreshold: 0 })
+      .expect(201);
+    expect(xlsxSearch.body.some((source: { documentId: string }) => source.documentId === xlsxUpload.body.id)).toBe(
+      true
+    );
+
+    const zip = new JSZip();
+    zip.file("baggage-policy.txt", "Checked baggage allowance is thirty two kilograms per passenger.");
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+    const zipUpload = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${employeeId}/collections/${collectionId}/documents`)
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", zipBuffer, { filename: "bundle.zip", contentType: "application/zip" })
+      .expect(201);
+    expect(zipUpload.body.status).toBe("INDEXED");
+    const zipSearch = await request(app.getHttpServer())
+      .post(`/api/v1/knowledge/employees/${employeeId}/search`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ query: "checked baggage allowance kilograms", topK: 5, scoreThreshold: 0 })
+      .expect(201);
+    expect(zipSearch.body.some((source: { documentId: string }) => source.documentId === zipUpload.body.id)).toBe(
+      true
+    );
+
+    // Clean up: these two documents are separate from the shared `documentId` fixture the remaining
+    // tests in this file depend on.
+    await request(app.getHttpServer())
+      .delete(`/api/v1/knowledge/documents/${xlsxUpload.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
+    await request(app.getHttpServer())
+      .delete(`/api/v1/knowledge/documents/${zipUpload.body.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(204);
+  });
+  it("issues a real, working, tenant-scoped, expiring signed download URL for the original file (Sprint 5.0B)", async () => {
+    const issued = await request(app.getHttpServer())
+      .get(`/api/v1/knowledge/documents/${documentId}/download-url`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(issued.body.url).toEqual(expect.any(String));
+    expect(issued.body.filename).toBe("travel-policy.txt");
+    const parsed = new URL(issued.body.url);
+
+    // A second organization can't even ask for this document's download URL in the first place —
+    // tenant isolation at the issuing endpoint, not just at the storage layer.
+    await request(app.getHttpServer())
+      .get(`/api/v1/knowledge/documents/${documentId}/download-url`)
+      .set("Authorization", `Bearer ${otherToken}`)
+      .expect(404);
+
+    // The signed URL itself is real and directly fetchable (no Authorization header — the signature is
+    // the credential, exactly like a presigned S3 URL) and returns the original uploaded bytes.
+    const downloaded = await request(app.getHttpServer())
+      .get(`${parsed.pathname}${parsed.search}`)
+      .expect(200);
+    expect(downloaded.text).toBe(
+      "Company business class travel policy permits business class for international flights longer than eight hours."
+    );
+    expect(downloaded.headers["content-type"]).toContain("text/plain");
+
+    // Tampering with the signature (or the org/key it was signed over) is rejected, not silently ignored.
+    const tamperedSig = `${parsed.pathname}?${new URLSearchParams({
+      org: parsed.searchParams.get("org") ?? "",
+      key: parsed.searchParams.get("key") ?? "",
+      exp: parsed.searchParams.get("exp") ?? "",
+      sig: `0${(parsed.searchParams.get("sig") ?? "").slice(1)}`
+    })}`;
+    await request(app.getHttpServer()).get(tamperedSig).expect(403);
+    const otherOrgReplay = `${parsed.pathname}?${new URLSearchParams({
+      org: "00000000-0000-4000-8000-000000000000",
+      key: parsed.searchParams.get("key") ?? "",
+      exp: parsed.searchParams.get("exp") ?? "",
+      sig: parsed.searchParams.get("sig") ?? ""
+    })}`;
+    await request(app.getHttpServer()).get(otherOrgReplay).expect(403);
+
+    // An already-expired reference is rejected — expiry is enforced, not merely accepted as a parameter.
+    const expired = await request(app.getHttpServer())
+      .get(`/api/v1/knowledge/documents/${documentId}/download-url`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    const expiredUrl = new URL(expired.body.url);
+    const alreadyExpired = `${expiredUrl.pathname}?${new URLSearchParams({
+      org: expiredUrl.searchParams.get("org") ?? "",
+      key: expiredUrl.searchParams.get("key") ?? "",
+      exp: "1",
+      sig: expiredUrl.searchParams.get("sig") ?? ""
+    })}`;
+    await request(app.getHttpServer()).get(alreadyExpired).expect(403);
   });
   it("enforces tenant isolation, validation, authentication, re-index and soft deletion", async () => {
     await request(app.getHttpServer())

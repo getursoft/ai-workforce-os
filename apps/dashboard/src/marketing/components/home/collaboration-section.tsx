@@ -10,7 +10,7 @@ export function CollaborationSection() {
         <p className="mx-auto mt-4 max-w-[600px] text-base leading-relaxed text-muted">
           We work closely with every customer during onboarding to scope AI employees around real workflows,
           connect the right knowledge and systems, and configure approval boundaries that match how your
-          organisation operates. AI Workforce OS is built to extend your teams, not replace them.
+          organisation operates. Krevia.ai is built to extend your teams, not replace them.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-4">
           <ButtonLink href="/contact" variant="primary">

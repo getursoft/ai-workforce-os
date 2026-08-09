@@ -6,7 +6,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Help Centre",
-  description: "Answers to common account, AI employee, knowledge, billing and security questions on AI Workforce OS.",
+  description: "Answers to common account, AI employee, knowledge, billing and security questions on Krevia.ai.",
   path: "/resources/help-centre",
 });
 

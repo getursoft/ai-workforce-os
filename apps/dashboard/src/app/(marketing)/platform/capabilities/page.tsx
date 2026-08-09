@@ -40,7 +40,7 @@ export default function CapabilitiesPage() {
     <>
       <PageHero
         eyebrow="Platform capabilities"
-        title="What AI Workforce OS Can Do"
+        title="What Krevia.ai Can Do"
         description="Every AI employee is built from the same set of dependable capabilities — grounded, governed and ready to act."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

@@ -3,6 +3,7 @@ import { IdentityModule } from "../identity/identity.module";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PluginModule } from "../plugins/plugin.module";
 import { ConnectorModule } from "../connectors/connector.module";
+import { BillingModule } from "../billing/billing.module";
 import { AgentController } from "./agent.controller";
 import { AgentService, MemoryService } from "./agent.service";
 import { KnowledgeModule } from "../knowledge/knowledge.module";
@@ -11,6 +12,7 @@ import { CustomerIdentityModule } from "../customer-identity/customer-identity.m
 import { TravelModule } from "../travel/travel.module";
 import { TravelLeadService } from "../travel/travel-lead.service";
 import { EmployeesModule } from "../employees/employees.module";
+import { SkillPlatformModule } from "../skills-platform/skill-platform.module";
 import { SkillRegistry } from "../skills/skill-registry";
 import { SkillRuntimeService } from "../skills/skill-runtime.service";
 import { PlanTripSkillHandler } from "../skills/travel/plan-trip.skill";
@@ -24,6 +26,7 @@ import { SkillExecutionMirrorService } from "../skills/travel/skill-execution-mi
 import { InputCollectionService } from "../skills/travel/input-collection.service";
 import { CapabilityExecutionAdapter } from "../skills/travel/capability-execution.adapter";
 import { WorkflowExecutionService } from "../workflows/workflow-execution.service";
+import { WorkflowSkillStepService } from "../workflows/workflow-skill-step.service";
 import { ContactCaptureWorkflowService } from "../workflows/contact-capture/contact-capture.service";
 import { BookingHandoffWorkflowService } from "../workflows/booking-handoff/booking-handoff.service";
 import { TripSubmissionWorkflowService } from "../workflows/trip-submission/trip-submission.service";
@@ -36,9 +39,11 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
     IdentityModule,
     PluginModule,
     ConnectorModule,
+    BillingModule,
     KnowledgeModule,
     MemoryModule,
     CustomerIdentityModule,
+    SkillPlatformModule,
     forwardRef(() => TravelModule),
     forwardRef(() => EmployeesModule)
   ],
@@ -79,8 +84,16 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
       inject: [ContactCaptureWorkflowService, BookingHandoffWorkflowService, TripSubmissionWorkflowService]
     },
     WorkflowCoordinator,
+    WorkflowSkillStepService,
     AgentService
   ],
-  exports: [AgentService, MemoryService, TravelLeadService, SkillRuntimeService, WorkflowExecutionService]
+  exports: [
+    AgentService,
+    MemoryService,
+    TravelLeadService,
+    SkillRuntimeService,
+    WorkflowExecutionService,
+    WorkflowSkillStepService
+  ]
 })
 export class AgentModule {}

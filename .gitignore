@@ -15,5 +15,5 @@ dist
 node_modules
 tsconfig*.tsbuildinfo
 .aider*
-storage/
+apps/api/storage/
 *.traineddata

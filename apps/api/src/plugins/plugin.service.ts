@@ -5,8 +5,10 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  Optional,
   UnprocessableEntityException
 } from "@nestjs/common";
+import { EntitlementService } from "../entitlements/entitlement.service";
 import { PluginStatus, Prisma } from "@prisma/client";
 import { DummyEchoPlugin } from "@ai-workforce-os/plugin-dummy";
 import {
@@ -54,7 +56,8 @@ export class PluginService implements OnModuleInit {
     private readonly registry: PluginRegistry,
     private readonly discovery: PluginDiscovery,
     private readonly lifecycle: PluginLifecycleEngine,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() private readonly entitlements?: EntitlementService
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -105,6 +108,9 @@ export class PluginService implements OnModuleInit {
   }
 
   async install(organizationId: string, userId: string, dto: InstallPluginDto) {
+    // Sprint 5.0 Phase 11: the one place every AI Employee installation goes through, regardless of
+    // which employee/plugin — the natural checkpoint for the "maximum installed employees" entitlement.
+    if (this.entitlements) await this.entitlements.consumeCapacity(organizationId, "MAX_EMPLOYEES");
     if (dto.pluginId === "dummy-echo" && !this.security.allowDevelopmentImplementations)
       throw new IdentityApplicationError(
         "DEVELOPMENT_PLUGIN_NOT_ALLOWED",

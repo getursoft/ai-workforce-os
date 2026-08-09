@@ -10,7 +10,7 @@
  *  - PUBLISH_EVENT → the scheduler event bus (job chaining)
  */
 
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { WorkflowExecutionService } from "../workflows/workflow-execution.service";
 import { ApprovalService } from "../approval/approval.service";
@@ -21,6 +21,8 @@ import { SchedulerDeliveryService } from "./scheduler-delivery.service";
 import { SchedulerEventBus } from "./scheduler-event-bus";
 import type { JobHandler, JobRunContext, JobRunResult } from "./scheduler.types";
 import { randomUUID } from "node:crypto";
+import { SkillsRuntimeService } from "../skills-platform/skill-runtime.service";
+import { SkillError } from "../skills-platform/skill-error";
 
 @Injectable()
 export class SchedulerHandlers {
@@ -34,7 +36,8 @@ export class SchedulerHandlers {
     private readonly approvals: ApprovalService,
     private readonly approvalAudit: ApprovalAuditService,
     private readonly agents: AgentService,
-    private readonly events: SchedulerEventBus
+    private readonly events: SchedulerEventBus,
+    @Optional() private readonly skillsRuntime?: SkillsRuntimeService
   ) {}
 
   async execute(handlerType: string, context: JobRunContext): Promise<JobRunResult> {
@@ -51,6 +54,8 @@ export class SchedulerHandlers {
         return this.pendingApprovalScan(context);
       case "RUN_AGENT":
         return this.runAgent(context);
+      case "RUN_SKILL":
+        return this.runSkill(context);
       case "PUBLISH_EVENT":
         return this.publishEvent(context);
       default:
@@ -479,6 +484,52 @@ export class SchedulerHandlers {
         errorCode: "RUN_AGENT_FAILED",
         errorMessage: String(error).slice(0, 500)
       };
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // RUN_SKILL — Sprint 6.1 Phase 14 scheduler integration
+  // ---------------------------------------------------------------------
+
+  /**
+   * Runs an installed skill on a schedule (e.g. "parse a daily report", "translate weekly content").
+   * Reuses the exact same SkillsRuntimeService.execute() every other caller (employee chat, workflow
+   * steps) goes through — org scoping, installation/grant checks, entitlements, billing and audit are
+   * never bypassed for a scheduled run. `skillKey`/`input`/`pluginInstallationId` come from the job's
+   * payload; `context.executionId` is reused as the idempotency key so a retried execution replays
+   * rather than double-charging.
+   */
+  private async runSkill(context: JobRunContext): Promise<JobRunResult> {
+    if (!this.skillsRuntime) {
+      return { success: false, errorCode: "SKILL_PLATFORM_UNAVAILABLE", errorMessage: "Skill platform is not available" };
+    }
+    const payload = context.payload ?? {};
+    const skillKey = payload.skillKey as string | undefined;
+    if (!skillKey) {
+      return { success: false, errorCode: "SKILL_KEY_REQUIRED", errorMessage: "RUN_SKILL requires payload.skillKey" };
+    }
+    const pluginInstallationId = (context.employeeId ?? (payload.pluginInstallationId as string | null)) ?? undefined;
+    const workflowExecutionId = (context.context?.workflowId as string | null) ?? undefined;
+    try {
+      const result = await this.skillsRuntime.execute({
+        skillKey,
+        organizationId: context.organizationId,
+        input: payload.input ?? {},
+        idempotencyKey: `scheduler:${context.executionId}`,
+        ...(pluginInstallationId ? { pluginInstallationId } : {}),
+        ...(workflowExecutionId ? { workflowExecutionId } : {}),
+        ...(payload.versionConstraint ? { versionConstraint: payload.versionConstraint as string } : {})
+      });
+      return {
+        success: true,
+        result: { runId: result.runId, skillVersion: result.skillVersion, status: result.status },
+        tokens: result.usage.totalTokens,
+        credits: result.creditsConsumed
+      };
+    } catch (error) {
+      const errorCode = error instanceof SkillError ? error.code : "RUN_SKILL_FAILED";
+      this.logger.warn({ event: "SCHEDULER_RUN_SKILL_FAILED", executionId: context.executionId, skillKey, errorCode });
+      return { success: false, errorCode, errorMessage: String(error).slice(0, 500) };
     }
   }
 

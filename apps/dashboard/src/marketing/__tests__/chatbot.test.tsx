@@ -29,27 +29,27 @@ describe("Chatbot", () => {
 
   it("opens the panel when the floating button is clicked", () => {
     renderWidget();
-    fireEvent.click(screen.getByLabelText("Open AI Workforce OS assistant"));
-    expect(screen.getByRole("dialog", { name: /AI Workforce OS assistant/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
+    expect(screen.getByRole("dialog", { name: /Krevia.ai assistant/i })).toBeInTheDocument();
   });
 
   it("closes the panel when closed again", () => {
     renderWidget();
-    fireEvent.click(screen.getByLabelText("Open AI Workforce OS assistant"));
-    fireEvent.click(screen.getByLabelText("Close AI Workforce OS assistant"));
-    expect(screen.queryByRole("dialog", { name: /AI Workforce OS assistant/i })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
+    fireEvent.click(screen.getByLabelText("Close Krevia.ai assistant"));
+    expect(screen.queryByRole("dialog", { name: /Krevia.ai assistant/i })).not.toBeInTheDocument();
   });
 
   it("shows the page-aware greeting and suggested prompts", () => {
     renderWidget();
-    fireEvent.click(screen.getByLabelText("Open AI Workforce OS assistant"));
-    expect(screen.getByText(/here to help you explore AI Workforce OS/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
+    expect(screen.getByText(/here to help you explore Krevia.ai/i)).toBeInTheDocument();
     expect(screen.getByText("What is an AI employee?")).toBeInTheDocument();
   });
 
   it("sends a suggested prompt and displays the assistant's reply", async () => {
     renderWidget();
-    fireEvent.click(screen.getByLabelText("Open AI Workforce OS assistant"));
+    fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
     fireEvent.click(screen.getByText("What is an AI employee?"));
 
     await waitFor(() => {
@@ -61,7 +61,7 @@ describe("Chatbot", () => {
   it("shows a fallback message when the request fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
     renderWidget();
-    fireEvent.click(screen.getByLabelText("Open AI Workforce OS assistant"));
+    fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
     fireEvent.click(screen.getByText("What is an AI employee?"));
 
     await waitFor(() => {

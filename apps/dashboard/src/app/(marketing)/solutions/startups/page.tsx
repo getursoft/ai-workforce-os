@@ -34,7 +34,7 @@ export default function StartupsSolutionPage() {
       </PageHero>
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
-        <SectionHeading eyebrow="Why start-ups choose AI Workforce OS" title="Built for Lean Teams" />
+        <SectionHeading eyebrow="Why start-ups choose Krevia.ai" title="Built for Lean Teams" />
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {points.map((item) => (
             <FeatureCard key={item.title} icon={item.icon} title={item.title} description={item.description} />

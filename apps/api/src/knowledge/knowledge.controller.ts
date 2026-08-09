@@ -33,6 +33,7 @@ import {
 import { KnowledgeSearchService } from "./knowledge.search";
 import { KnowledgeService } from "./knowledge.service";
 import type { UploadedKnowledgeFile } from "./knowledge.types";
+import { RateLimit } from "../security/rate-limit.decorator";
 
 /**
  * Every knowledge write/read/search route is nested under an AI Employee (Plugin installation) id —
@@ -99,6 +100,7 @@ export class KnowledgeController {
 
   @Post("employees/:employeeId/collections/:collectionId/documents")
   @RequirePermission("knowledge.upload")
+  @RateLimit("FILE_UPLOAD")
   @UseInterceptors(FileInterceptor("file"))
   @ApiConsumes("multipart/form-data")
   @ApiBody({
@@ -147,6 +149,14 @@ export class KnowledgeController {
       bounded(page, 1, 10_000, 1),
       bounded(pageSize, 1, 100, 20)
     );
+  }
+  @Get("documents/:id/download-url")
+  @RequirePermission("knowledge.read")
+  getDownloadUrl(
+    @CurrentPrincipal() principal: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string
+  ) {
+    return this.knowledge.getDownloadUrl(org(principal), id);
   }
   @Post("documents/:id/reindex")
   @RequirePermission("knowledge.reindex")

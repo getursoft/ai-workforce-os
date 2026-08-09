@@ -6,13 +6,14 @@ describe("HealthController", () => {
   it("separates process liveness from dependency readiness", async () => {
     const prisma = {
       $queryRaw: vi.fn().mockResolvedValue([{ "?column?": 1 }]),
-      connectorDefinition: { count: vi.fn().mockResolvedValue(2) }
+      connectorDefinition: { count: vi.fn().mockResolvedValue(2) },
+      queueMessage: { count: vi.fn().mockResolvedValue(0) }
     } as unknown as PrismaService;
     const controller = new HealthController(prisma);
     expect(controller.live()).toMatchObject({ status: "live" });
     await expect(controller.ready()).resolves.toMatchObject({
       status: "ready",
-      checks: { database: "up", schema: "compatible" }
+      checks: { database: "up", schema: "compatible", queue: "up" }
     });
   });
 

@@ -53,6 +53,13 @@ export function isNegativeResponse(text: string): boolean {
 // national numbering plan (ITU-T E.164's own bound) without hard-coding any specific country's format.
 const PHONE_CANDIDATE_PATTERN = /\+?[\d][\d\s\-().]{5,18}\d/g;
 const PHONE_SHAPE_PATTERN = /^\+?[1-9]\d{6,14}$/;
+// An explicit "here is my number" phrase directly before a bare digit run is as strong a signal as a "+"
+// or a separator — "call me at 9876543210" unambiguously volunteers a phone number even with no
+// punctuation. Deliberately narrow (a handful of fixed phrases immediately preceding the digits, not any
+// preceding text) so it doesn't reopen the original bug this function's own doc comment describes (a bare
+// budget figure like "20000000" must still never be mistaken for a phone number).
+const PHONE_CONTACT_PHRASE_PATTERN =
+  /(?:\bcall\s+me\s+(?:at|on)|\b(?:contact|reach|text|whatsapp)\s+me\s+(?:at|on)|\bmy\s+(?:phone|number|mobile|contact)\s+(?:is|number\s+is)|\b(?:phone|number|mobile)\s*(?:number)?\s*:?\s*is)\s*$/i;
 
 /** Normalizes a single free-text phone candidate (strips spaces/dashes/parens/dots) and validates its
  * shape. Returns null — never a guess — when it doesn't look like a real phone number. Never fabricates a
@@ -76,8 +83,11 @@ export function normalizePhoneNumber(raw: string): string | null {
 export function extractPhoneNumber(text: string): string | null {
   const trimmed = text.trim();
   if (/^[\d\s().-]+$/.test(trimmed)) return normalizePhoneNumber(trimmed);
-  for (const candidate of text.match(PHONE_CANDIDATE_PATTERN) ?? []) {
-    if (!/[+\s\-().]/.test(candidate)) continue;
+  for (const match of text.matchAll(PHONE_CANDIDATE_PATTERN)) {
+    const candidate = match[0];
+    const hasPhoneLikeSignal = /[+\s\-().]/.test(candidate);
+    const hasContactPhrase = PHONE_CONTACT_PHRASE_PATTERN.test(text.slice(0, match.index));
+    if (!hasPhoneLikeSignal && !hasContactPhrase) continue;
     const normalized = normalizePhoneNumber(candidate);
     if (normalized) return normalized;
   }

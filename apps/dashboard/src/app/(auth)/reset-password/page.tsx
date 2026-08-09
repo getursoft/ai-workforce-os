@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import { ResetPasswordForm } from "../../../components/auth/reset-password-form";
 
 export const metadata: Metadata = {
-  title: "Reset password | AI Workforce OS",
-  description: "Reset your AI Workforce OS password"
+  title: "Reset password | Krevia.ai",
+  description: "Reset your Krevia.ai password"
 };
 
 export default function ResetPasswordPage() {

@@ -35,7 +35,15 @@ export interface SecurityConfig {
     pepper: string;
   };
   apiKey: { pepper: string };
-  pluginSecrets: { encryptionKey: Buffer };
+  pluginSecrets: {
+    encryptionKey: Buffer;
+    currentVersion: number;
+    /** Sprint 5.0 Phase 7: set only while a key rotation is in progress — lets old ciphertexts (encrypted
+     *  under the previous key/version) keep decrypting after PLUGIN_SECRETS_ENCRYPTION_KEY is rotated,
+     *  until they're re-encrypted under the new key. */
+    previousKey?: Buffer;
+    previousVersion?: number;
+  };
   knowledge: {
     storagePath: string;
     maxFileSizeBytes: number;
@@ -51,6 +59,10 @@ export interface SecurityConfig {
     cookieDomain?: string;
     cookieSecure: boolean;
     cookieSameSite: "lax" | "strict" | "none";
+  };
+  accountLockout: {
+    maxFailedAttempts: number;
+    lockoutDurationSeconds: number;
   };
 }
 
@@ -112,6 +124,34 @@ function base64Key(environment: Environment, variable: string): Buffer {
     throw new InvalidSecurityConfigurationError(variable);
   }
   return key;
+}
+
+/** Sprint 5.0 Phase 7: unlike base64Key, never required — used only for the previous encryption key
+ *  during a rotation window, where its absence just means "no rotation in progress." */
+function optionalBase64Key(environment: Environment, variable: string): Buffer | undefined {
+  const raw = environment[variable]?.trim();
+  if (!raw) return undefined;
+  const key = Buffer.from(raw, "base64");
+  if (key.length !== 32 || key.toString("base64") !== raw) {
+    throw new InvalidSecurityConfigurationError(variable);
+  }
+  return key;
+}
+
+function optionalPositiveInt(environment: Environment, variable: string, fallback: number): number {
+  const raw = environment[variable]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new InvalidSecurityConfigurationError(variable);
+  return parsed;
+}
+
+function pluginSecretsConfig(environment: Environment): SecurityConfig["pluginSecrets"] {
+  const encryptionKey = base64Key(environment, "PLUGIN_SECRETS_ENCRYPTION_KEY");
+  const currentVersion = optionalPositiveInt(environment, "SECRET_KEY_VERSION", 1);
+  const previousKey = optionalBase64Key(environment, "PLUGIN_SECRETS_ENCRYPTION_KEY_PREVIOUS");
+  if (!previousKey) return { encryptionKey, currentVersion };
+  return { encryptionKey, currentVersion, previousKey, previousVersion: optionalPositiveInt(environment, "SECRET_KEY_VERSION_PREVIOUS", 1) };
 }
 
 function url(environment: Environment, variable: string): string {
@@ -260,7 +300,7 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
       pepper: secret(environment, "REFRESH_TOKEN_PEPPER")
     },
     apiKey: { pepper: secret(environment, "API_KEY_PEPPER") },
-    pluginSecrets: { encryptionKey: base64Key(environment, "PLUGIN_SECRETS_ENCRYPTION_KEY") },
+    pluginSecrets: pluginSecretsConfig(environment),
     knowledge: {
       storagePath: optionalString(environment, "KNOWLEDGE_STORAGE_PATH") ?? "./storage/knowledge",
       maxFileSizeBytes:
@@ -332,6 +372,23 @@ export function loadSecurityConfig(environment: Environment): SecurityConfig {
       ),
       retrievalDebugLogging: boolean(environment, "KNOWLEDGE_RETRIEVAL_DEBUG_LOGGING", false)
     },
-    browserAuth
+    browserAuth,
+    accountLockout: {
+      maxFailedAttempts: integer(
+        { ...environment, ACCOUNT_LOCKOUT_MAX_ATTEMPTS: environment.ACCOUNT_LOCKOUT_MAX_ATTEMPTS ?? "5" },
+        "ACCOUNT_LOCKOUT_MAX_ATTEMPTS",
+        1,
+        20
+      ),
+      lockoutDurationSeconds: integer(
+        {
+          ...environment,
+          ACCOUNT_LOCKOUT_DURATION_SECONDS: environment.ACCOUNT_LOCKOUT_DURATION_SECONDS ?? "900"
+        },
+        "ACCOUNT_LOCKOUT_DURATION_SECONDS",
+        1,
+        86_400
+      )
+    }
   };
 }

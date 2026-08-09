@@ -44,7 +44,9 @@ export class PrismaUserRepository implements UserRepository {
           role: data.role,
           status: data.status,
           lastLoginAt: data.lastLoginAt,
-          updatedAt: data.updatedAt
+          updatedAt: data.updatedAt,
+          failedLoginAttempts: data.failedLoginAttempts,
+          lockedUntil: data.lockedUntil
         }
       });
     } catch (error: unknown) {
@@ -55,7 +57,31 @@ export class PrismaUserRepository implements UserRepository {
   async updateLastLogin(id: UserId, lastLoginAt: Date): Promise<void> {
     await this.client.user.update({
       where: { id: id.toString() },
-      data: { lastLoginAt: new Date(lastLoginAt), updatedAt: new Date(lastLoginAt) }
+      data: {
+        lastLoginAt: new Date(lastLoginAt),
+        updatedAt: new Date(lastLoginAt),
+        failedLoginAttempts: 0,
+        lockedUntil: null
+      }
     });
+  }
+
+  async recordFailedLogin(
+    id: UserId,
+    maxFailedAttempts: number,
+    lockoutDurationSeconds: number,
+    at: Date
+  ): Promise<void> {
+    const updated = await this.client.user.update({
+      where: { id: id.toString() },
+      data: { failedLoginAttempts: { increment: 1 }, updatedAt: new Date(at) },
+      select: { failedLoginAttempts: true }
+    });
+    if (updated.failedLoginAttempts >= maxFailedAttempts) {
+      await this.client.user.update({
+        where: { id: id.toString() },
+        data: { lockedUntil: new Date(at.getTime() + lockoutDurationSeconds * 1000) }
+      });
+    }
   }
 }

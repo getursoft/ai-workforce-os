@@ -16,7 +16,7 @@ export function SecuritySection() {
         <SectionHeading
           eyebrow="Enterprise security"
           title="Governed by Design"
-          description="AI Workforce OS is designed to support enterprise security requirements with configurable governance controls."
+          description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls."
         />
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {points.map((item) => (

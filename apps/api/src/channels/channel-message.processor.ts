@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
+import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 import {
   SECURITY_CONFIG,
   type SecurityConfig
@@ -55,7 +56,8 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     private readonly auditLogger: AuditEventLogger,
     @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
     @Optional() private readonly employeeRouter?: EmployeeRouterService,
-    @Optional() private readonly observability?: ObservabilityService
+    @Optional() private readonly observability?: ObservabilityService,
+    @Optional() @Inject(APP_CONFIG) private readonly appConfig?: AppConfig
   ) {}
 
   /** Sprint 4.7A Phase 4: reattaches to the trace the webhook controller started (persisted as a plain
@@ -74,6 +76,7 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     if (this.security.nodeEnvironment === "test") return;
+    if (this.appConfig && !this.appConfig.runs("channel-worker")) return; // Phase 3: role separation
     this.timer = setInterval(() => void this.processOnce(), POLL_INTERVAL_MS);
     this.timer.unref?.();
   }

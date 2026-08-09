@@ -198,8 +198,9 @@ export class TravelBookingService {
     if (booking.status !== "WAITING_FOR_CUSTOMER_APPROVAL") {
       throw new BadRequestException(`Cannot decide on booking in status ${booking.status}`);
     }
+    if (!booking.approvalRequestId) throw new BadRequestException("Booking has no associated approval request");
 
-    await this.approvalService.recordDecision(booking.approvalRequestId!, organizationId, decision as never, {
+    await this.approvalService.recordDecision(booking.approvalRequestId, organizationId, decision as never, {
       actorType: "CUSTOMER",
       actorExternalId: actorInfo.actorExternalId,
       comment: actorInfo.comment,

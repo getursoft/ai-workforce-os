@@ -9,7 +9,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Knowledge and Memory",
   description:
-    "See how AI Workforce OS grounds AI employees in your organisation's documents and systems, and how memory keeps context relevant over time.",
+    "See how Krevia.ai grounds AI employees in your organisation's documents and systems, and how memory keeps context relevant over time.",
   path: "/platform/knowledge",
 });
 

@@ -6,6 +6,7 @@ import {
   type SecurityConfig
 } from "../identity/infrastructure/security/security-config";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
+import { EntitlementModule } from "../entitlements/entitlement.module";
 import { PluginController } from "./plugin.controller";
 import { PluginService } from "./plugin.service";
 import { PluginAiService } from "./plugin-ai.service";
@@ -22,7 +23,7 @@ import {
 } from "./plugin.runtime";
 
 @Module({
-  imports: [PrismaModule, IdentityModule],
+  imports: [PrismaModule, IdentityModule, EntitlementModule],
   controllers: [PluginController],
   providers: [
     ManifestValidator,
@@ -43,7 +44,12 @@ import {
       provide: PluginSecretsEncryptionService,
       inject: [SECURITY_CONFIG],
       useFactory: (config: SecurityConfig) =>
-        new PluginSecretsEncryptionService(config.pluginSecrets.encryptionKey)
+        new PluginSecretsEncryptionService(
+          config.pluginSecrets.encryptionKey,
+          config.pluginSecrets.previousKey,
+          config.pluginSecrets.currentVersion,
+          config.pluginSecrets.previousVersion
+        )
     },
     SafeHttpTool,
     PluginAiService,

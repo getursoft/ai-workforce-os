@@ -44,6 +44,29 @@ describe("plugin runtime foundation", () => {
       "PLUGIN_SECRETS_ENCRYPTION_FAILED"
     );
   });
+  it("Sprint 5.0 Phase 7: supports a key-rotation window — old ciphertexts keep decrypting under the previous key while new ones use the current key", () => {
+    const oldKey = Buffer.alloc(32, 1);
+    const newKey = Buffer.alloc(32, 2);
+    // Before rotation: only the old key exists, at version 1.
+    const before = new PluginSecretsEncryptionService(oldKey, undefined, 1);
+    const legacyPayload = before.encrypt({ token: "legacy-secret" });
+    expect(legacyPayload.version).toBe(1);
+
+    // After rotation: current key/version is now the new key at version 2, with the old key kept around
+    // as `previousKey`/`previousVersion` so payloads encrypted before rotation still decrypt.
+    const rotated = new PluginSecretsEncryptionService(newKey, oldKey, 2, 1);
+    expect(rotated.decrypt(legacyPayload)).toEqual({ token: "legacy-secret" });
+
+    const freshPayload = rotated.encrypt({ token: "fresh-secret" });
+    expect(freshPayload.version).toBe(2);
+    expect(rotated.decrypt(freshPayload)).toEqual({ token: "fresh-secret" });
+
+    // A payload from neither the current nor the previous version is a diagnosable, distinct failure —
+    // not silently swallowed into the generic decryption-failure message.
+    expect(() => rotated.decrypt({ ...legacyPayload, version: 99 })).toThrow(
+      "PLUGIN_SECRETS_ENCRYPTION_KEY_VERSION_UNKNOWN"
+    );
+  });
   it("isolates registry entries by tenant", async () => {
     const registry = new PluginRegistry(),
       plugin = new DummyEchoPlugin();

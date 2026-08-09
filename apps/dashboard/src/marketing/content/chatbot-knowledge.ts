@@ -13,14 +13,14 @@ export interface KnowledgeEntry {
 }
 
 export const FALLBACK_ANSWER =
-  "I do not have a confirmed answer for that yet. I can help you contact the AI Workforce OS team for clarification.";
+  "I do not have a confirmed answer for that yet. I can help you contact the Krevia.ai team for clarification.";
 
 export const knowledgeBase: KnowledgeEntry[] = [
   {
     id: "what-is-platform",
     keywords: ["what is ai workforce os", "what does ai workforce os do", "platform overview", "what is this platform", "overview"],
     answer:
-      "AI Workforce OS is the operating system for AI employees — it lets organisations hire, manage and scale specialised AI employees that work across departments, grounded in company knowledge, connected to real tools, and supervised by human teams.",
+      "Krevia.ai is the operating system for AI employees — it lets organisations hire, manage and scale specialised AI employees that work across departments, grounded in company knowledge, connected to real tools, and supervised by human teams.",
     actions: [{ label: "Explore the Platform", href: "/platform", type: "primary" }],
     relatedQuestions: ["What is an AI employee?", "How is this different from a chatbot?"],
   },
@@ -36,7 +36,7 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "ai-employee-roles",
     keywords: ["which ai employees", "list of ai employees", "roles available", "types of ai employees"],
     answer:
-      "AI Workforce OS offers Travel, HR, Finance, IT Support, Sales and Marketing AI employees, plus Custom AI Employees configured around your own workflows.",
+      "Krevia.ai offers Travel, HR, Finance, IT Support, Sales and Marketing AI employees, plus Custom AI Employees configured around your own workflows.",
     actions: [{ label: "View All AI Employees", href: "/meet-ai-employees", type: "primary" }],
   },
   {
@@ -92,28 +92,28 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "integrations",
     keywords: ["integration", "connect", "crm", "systems", "tools connect"],
     answer:
-      "AI Workforce OS connects to CRM, email, calendar, documents, databases, cloud platforms, collaboration tools, travel systems, support platforms and custom APIs. Each integration is marked Available, In Development, Planned or Custom Integration.",
+      "Krevia.ai connects to CRM, email, calendar, documents, databases, cloud platforms, collaboration tools, travel systems, support platforms and custom APIs. Each integration is marked Available, In Development, Planned or Custom Integration.",
     actions: [{ label: "View Integrations", href: "/connect", type: "primary" }],
   },
   {
     id: "security",
     keywords: ["security", "governance", "access control", "audit", "compliance", "soc 2", "iso 27001", "gdpr"],
     answer:
-      "AI Workforce OS is designed to support enterprise security requirements with configurable governance controls, role-based access, audit logging and human approval workflows. We do not claim specific compliance certifications unless formally confirmed — contact our team for the latest status.",
+      "Krevia.ai is designed to support enterprise security requirements with configurable governance controls, role-based access, audit logging and human approval workflows. We do not claim specific compliance certifications unless formally confirmed — contact our team for the latest status.",
     actions: [{ label: "View Security Page", href: "/security", type: "primary" }],
   },
   {
     id: "pricing",
     keywords: ["pricing", "cost", "price", "plan", "how much"],
     answer:
-      "AI Workforce OS offers Starter, Growth and Enterprise plans, scaled by the number of AI employees, integrations and governance features you need. Enterprise pricing is handled through our sales team.",
+      "Krevia.ai offers Starter, Growth and Enterprise plans, scaled by the number of AI employees, integrations and governance features you need. Enterprise pricing is handled through our sales team.",
     actions: [{ label: "View Pricing", href: "/pricing", type: "primary" }],
   },
   {
     id: "enterprise",
     keywords: ["enterprise", "multi-tenant", "role-based access", "large organisation"],
     answer:
-      "For enterprises, AI Workforce OS offers multi-tenant architecture, role-based access, configurable governance, auditability, private integrations and dedicated onboarding support.",
+      "For enterprises, Krevia.ai offers multi-tenant architecture, role-based access, configurable governance, auditability, private integrations and dedicated onboarding support.",
     actions: [{ label: "View Enterprise Solutions", href: "/solutions/enterprise", type: "primary" }],
   },
   {
@@ -158,18 +158,18 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "login",
     keywords: ["login", "log in", "sign in", "existing customer", "access my account"],
     answer:
-      "Existing customers can log in to access the AI Workforce OS application from the Login page.",
+      "Existing customers can log in to access the Krevia.ai application from the Login page.",
     actions: [{ label: "Go to Login", href: "/login", type: "primary" }],
   },
 ];
 
 export const pageContext: Record<string, { greeting: string; suggestedPrompts: string[] }> = {
   "/": {
-    greeting: "Hi! I'm here to help you explore AI Workforce OS. Ask me about AI employees, capabilities, pricing or how to get started.",
+    greeting: "Hi! I'm here to help you explore Krevia.ai. Ask me about AI employees, capabilities, pricing or how to get started.",
     suggestedPrompts: ["What is an AI employee?", "Which AI employees are available?", "How is this different from a chatbot?"],
   },
   "/platform": {
-    greeting: "Ask me about the AI Workforce OS platform — knowledge, memory, tools, approvals and analytics.",
+    greeting: "Ask me about the Krevia.ai platform — knowledge, memory, tools, approvals and analytics.",
     suggestedPrompts: ["What is the platform's operating layer?", "How does organisational knowledge work?", "How do approvals work?"],
   },
   "/meet-ai-employees": {
@@ -209,11 +209,11 @@ export const pageContext: Record<string, { greeting: string; suggestedPrompts: s
     suggestedPrompts: ["What governance controls are available?", "Is this multi-tenant?", "How does enterprise onboarding work?"],
   },
   "/security": {
-    greeting: "Ask me about access control, tenant isolation and how AI Workforce OS approaches security.",
+    greeting: "Ask me about access control, tenant isolation and how Krevia.ai approaches security.",
     suggestedPrompts: ["Is this SOC 2 certified?", "How is data access controlled?", "How are sensitive actions approved?"],
   },
   "/connect": {
-    greeting: "Ask me which systems AI Workforce OS can connect to.",
+    greeting: "Ask me which systems Krevia.ai can connect to.",
     suggestedPrompts: ["Do you integrate with Salesforce?", "What is the status of your CRM integrations?", "Can you build a custom integration?"],
   },
   "/contact": {
@@ -226,7 +226,7 @@ export const pageContext: Record<string, { greeting: string; suggestedPrompts: s
   },
   "/login": {
     greeting: "Need help signing in or exploring the platform first? Ask me anything.",
-    suggestedPrompts: ["How do I access my account?", "What is AI Workforce OS?", "I forgot my password"],
+    suggestedPrompts: ["How do I access my account?", "What is Krevia.ai?", "I forgot my password"],
   },
 };
 

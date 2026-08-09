@@ -18,6 +18,7 @@ export type SpanType =
   | "RESPONSE_COMPOSITION"
   | "MESSAGE_DELIVERY"
   | "BILLING_RECORD"
+  | "SKILL_EXECUTION"
   | "ERROR";
 
 export type TraceStatus = "RUNNING" | "COMPLETED" | "FAILED";

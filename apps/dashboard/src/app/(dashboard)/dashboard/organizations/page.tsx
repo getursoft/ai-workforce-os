@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { OrganizationsPage } from "../../../../features/admin/organizations-page";
 
 export const metadata: Metadata = {
-  title: "Organizations | AI Workforce OS",
+  title: "Organizations | Krevia.ai",
   description: "Every organization on the platform"
 };
 

@@ -12,7 +12,7 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const post = getBlogPost(slug);
-  if (!post) return defaultMetadata({ title: "Blog", description: "AI Workforce OS blog.", path: "/resources/blog" });
+  if (!post) return defaultMetadata({ title: "Blog", description: "Krevia.ai blog.", path: "/resources/blog" });
   return defaultMetadata({ title: post.title, description: post.excerpt, path: `/resources/blog/${post.slug}` });
 }
 

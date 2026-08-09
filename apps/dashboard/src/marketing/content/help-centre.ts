@@ -8,7 +8,7 @@ export const helpTopics: HelpTopic[] = [
   {
     category: "Account",
     question: "How do I invite teammates to my organisation?",
-    answer: "Workspace administrators can invite teammates from the organisation settings area of the AI Workforce OS application, assigning a role that determines what they can configure.",
+    answer: "Workspace administrators can invite teammates from the organisation settings area of the Krevia.ai application, assigning a role that determines what they can configure.",
   },
   {
     category: "Account",

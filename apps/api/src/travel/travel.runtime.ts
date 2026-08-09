@@ -2790,7 +2790,7 @@ export function buildResendTicketReply(output: {
   if (channels.length === 0) {
     return `I found your booking${pnr ? ` (PNR: ${pnr})` : ""}, but I wasn't able to resend it just now — please contact support and we'll get it to you directly.`;
   }
-  return `I've resent your ticket${pnr ? ` (PNR: ${pnr})` : ""} via ${channels.join(" and ")}. This is a simulated booking in the AI Workforce OS demo environment.`;
+  return `I've resent your ticket${pnr ? ` (PNR: ${pnr})` : ""} via ${channels.join(" and ")}. This is a simulated booking in the Krevia.ai demo environment.`;
 }
 
 /** Deterministic, non-LLM closing line for a tool-continuation turn that matched no known output shape. */
@@ -9310,7 +9310,18 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // destination unless they were explicitly provided in this turn's message. Fields explicitly
     // extracted this turn (e.g. a new budget in "Tokyo 200000 INR ka trip") survive; old fields
     // the user didn't re-state are dropped so the new trip starts with a clean slate.
-    if (destinationChanged && intent !== "modify_trip") {
+    //
+    // Never when planningAction === "ADD_TRIP_LEG": that is a structured, deterministic signal (parsed
+    // separately, before this point) that the destination change is a CONTINUATION of the same connected
+    // multi-city journey ("london se newyork jana hai" after Delhi->London), not an ambiguous "did they
+    // abandon the whole trip" case — the two are mutually exclusive by construction. Without this
+    // exclusion, passenger count (adults/children/infants) — a whole-journey attribute that cannot
+    // plausibly differ leg to leg — was being wiped the instant a second leg started, so a later turn
+    // ("ji") that should have executed the connected-journey search instead saw a bogus missing "adults"
+    // field, fell through to a generic LLM reply, and never searched at all. `startNewJourneyLeg` already
+    // resets the fields that genuinely are per-leg (dates/duration/budget) on its own terms; this block
+    // must not additionally reset trip-wide ones.
+    if (destinationChanged && intent !== "modify_trip" && planningAction !== "ADD_TRIP_LEG") {
       const newTripEntityKeys: Array<keyof TravelEntities> = [
         "originCity", "travelMonth", "departureDate", "returnDate",
         "days", "nights", "totalTravellers", "adults", "children", "infants",

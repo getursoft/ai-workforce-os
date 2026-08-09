@@ -10,7 +10,7 @@ import { integrationCategories } from "@/content/integrations";
 export const metadata: Metadata = defaultMetadata({
   title: "Platform Integrations",
   description:
-    "How AI Workforce OS connects to the systems your organisation already uses, with scoped, permissioned and centrally visible integrations.",
+    "How Krevia.ai connects to the systems your organisation already uses, with scoped, permissioned and centrally visible integrations.",
   path: "/platform/integrations",
 });
 

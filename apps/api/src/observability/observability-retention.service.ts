@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 import {
   SECURITY_CONFIG,
   type SecurityConfig
@@ -25,11 +26,13 @@ export class ObservabilityRetentionService implements OnModuleInit, OnModuleDest
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() @Inject(APP_CONFIG) private readonly appConfig?: AppConfig
   ) {}
 
   onModuleInit() {
     if (this.security.nodeEnvironment === "test") return;
+    if (this.appConfig && !this.appConfig.runs("maintenance")) return; // Phase 3: role separation
     this.timer = setInterval(() => void this.runOnce(), RETENTION_INTERVAL_MS);
     this.timer.unref?.();
   }

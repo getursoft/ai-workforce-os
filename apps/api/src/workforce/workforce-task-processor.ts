@@ -1,6 +1,7 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { WorkforceOrchestratorService } from "./workforce-orchestrator.service";
+import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 
 /**
  * Sprint 4.6 (continued) — Phase 1's real out-of-request execution. There is no message broker/job queue
@@ -19,10 +20,12 @@ export class WorkforceTaskProcessor implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly orchestrator: WorkforceOrchestratorService
+    private readonly orchestrator: WorkforceOrchestratorService,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig
   ) {}
 
   onModuleInit(): void {
+    if (this.config && !this.config.runs("workforce-worker")) return; // Phase 3: role separation
     this.timer = setInterval(() => void this.tick(), WorkforceTaskProcessor.POLL_INTERVAL_MS);
     this.timer.unref?.();
   }

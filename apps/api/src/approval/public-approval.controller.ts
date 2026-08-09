@@ -3,7 +3,12 @@ import {
 } from "@nestjs/common";
 import { ApprovalService } from "./approval.service";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { RateLimit } from "../security/rate-limit.decorator";
 
+// Sprint 5.0 Phase 9: these routes are intentionally unauthenticated (the approval token IS the
+// credential) — that makes them a direct target for token-guessing, so every route here gets the strict
+// public-approval rate limit rather than the global default.
+@RateLimit("PUBLIC_APPROVAL_STRICT")
 @Controller("public/approvals")
 export class PublicApprovalController {
   constructor(

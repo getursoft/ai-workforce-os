@@ -9,7 +9,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "About Us",
   description:
-    "Learn about AI Workforce OS's mission, product philosophy and responsible AI principles — building AI employees that extend human teams.",
+    "Learn about Krevia.ai's mission, product philosophy and responsible AI principles — building AI employees that extend human teams.",
   path: "/about",
 });
 
@@ -26,7 +26,7 @@ export default function AboutPage() {
       <PageHero
         eyebrow="About us"
         title="Building the Operating System for AI Employees"
-        description="We started AI Workforce OS to help organisations put AI to work responsibly — as a colleague that extends teams, not a black box that replaces them."
+        description="We started Krevia.ai to help organisations put AI to work responsibly — as a colleague that extends teams, not a black box that replaces them."
       />
 
       <section className="mx-auto max-w-5xl px-4 py-9 sm:px-6 lg:px-8">
@@ -51,11 +51,11 @@ export default function AboutPage() {
         </div>
 
         <div className="mt-8 rounded-card border border-royal/10 bg-ivory/60 p-6">
-          <h2 className="text-xl font-bold text-ink">Why AI Workforce OS Exists</h2>
+          <h2 className="text-xl font-bold text-ink">Why Krevia.ai Exists</h2>
           <p className="mt-3 text-sm leading-relaxed text-muted">
             Most AI tools on the market are either narrow single-purpose chatbots or complex automation platforms
             that require significant engineering investment to configure. Neither gives a business team a
-            dependable AI colleague they can hand real work to. AI Workforce OS was built to close that gap — an
+            dependable AI colleague they can hand real work to. Krevia.ai was built to close that gap — an
             operating layer that makes it possible to deploy an AI employee for a specific department in days,
             grounded in that department&apos;s real knowledge and tools, with governance built in from the start.
           </p>
@@ -77,7 +77,7 @@ export default function AboutPage() {
         <SectionHeading
           eyebrow="Careers"
           title="Building the Team"
-          description="We're growing the team behind AI Workforce OS. We're not listing individual biographies here yet — reach out through our Contact page if you'd like to explore opportunities or partnerships."
+          description="We're growing the team behind Krevia.ai. We're not listing individual biographies here yet — reach out through our Contact page if you'd like to explore opportunities or partnerships."
         />
         <div className="mt-8">
           <ButtonLink href="/contact" variant="secondary">Get in Touch</ButtonLink>

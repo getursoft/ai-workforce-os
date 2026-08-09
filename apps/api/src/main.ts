@@ -18,6 +18,7 @@ import {
   SECURITY_CONFIG,
   type SecurityConfig
 } from "./identity/infrastructure/security/security-config";
+import { buildAppConfig } from "./config/app-config";
 import { ApiExceptionFilter } from "./identity/presentation/http/api-exception.filter";
 
 /**
@@ -80,18 +81,22 @@ function resolveBuildIdentifier(): string {
 async function bootstrap(): Promise<void> {
   const logger = new Logger("Bootstrap");
 
+  // Sprint 5.0: validate the strict environment schema BEFORE creating the Nest app so a production
+  // misconfiguration fails fast with a readable list of issues instead of a cryptic runtime crash.
+  const appConfig = buildAppConfig();
+  new Logger("Config").log({
+    event: "CONFIG_VALIDATED",
+    processRole: appConfig.processRole,
+    productionLike: appConfig.productionLike,
+    groups: appConfig.startupSummary()
+  });
+
   logger.log({
     event: "API_STARTUP",
     buildCommit: resolveBuildIdentifier(),
-    nodeEnv: process.env.NODE_ENV ?? "unknown"
+    nodeEnv: process.env.NODE_ENV ?? "unknown",
+    processRole: appConfig.processRole
   });
-
-  /*
-   * Safe temporary Sarvam configuration check.
-   *
-   * This confirms that the key was loaded without printing the actual key.
-   * Remove this block after successful verification.
-   */
 
   const app = await NestFactory.create(AppModule);
 
@@ -154,8 +159,20 @@ async function bootstrap(): Promise<void> {
     }
   );
 
+  // Sprint 5.0 (Phase 19): trusted proxy so client IPs are correct behind the load balancer.
+  if (appConfig.boolean("TRUST_PROXY", false)) {
+    app.getHttpAdapter().getInstance().set?.("trust proxy", 1);
+  }
+
+  // Sprint 5.0: strict CORS from the configured dashboard origin(s).
+  const allowedOrigins: string[] = appConfig
+    .string("CORS_ALLOWED_ORIGINS")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const corsOrigins = allowedOrigins.length > 0 ? allowedOrigins : [securityConfig.webAppUrl];
   app.enableCors({
-    origin: securityConfig.webAppUrl,
+    origin: corsOrigins,
     credentials: true,
     exposedHeaders: ["x-request-id"],
     methods: [
@@ -196,7 +213,7 @@ async function bootstrap(): Promise<void> {
 
   const swaggerConfiguration =
     new DocumentBuilder()
-      .setTitle("AI Workforce OS API")
+      .setTitle("Krevia.ai API")
       .setVersion("1.0")
       .addBearerAuth()
       .build();

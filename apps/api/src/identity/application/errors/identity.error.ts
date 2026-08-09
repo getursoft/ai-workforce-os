@@ -85,7 +85,16 @@ export type IdentityErrorCode =
   | "WORKFORCE_CROSS_TENANT_DENIED"
   | "WORKFORCE_DUPLICATE_COMPLETION"
   | "WORKFORCE_EMPLOYEE_NOT_INSTALLED"
-  | "WORKFORCE_TARGET_DISABLED";
+  | "WORKFORCE_TARGET_DISABLED"
+  // Sprint 5.0 — billing enforcement and abuse protection.
+  | "BILLING_SUBSCRIPTION_INACTIVE"
+  | "BILLING_HARD_LIMIT_REACHED"
+  | "BILLING_SPENDING_CAP_REACHED"
+  | "RATE_LIMIT_EXCEEDED"
+  | "ENTITLEMENT_LIMIT_REACHED"
+  | "ENTITLEMENT_FEATURE_NOT_AVAILABLE"
+  // Sprint 5.0A — account lockout.
+  | "ACCOUNT_LOCKED";
 
 export class IdentityApplicationError extends Error {
   constructor(
@@ -133,5 +142,10 @@ export const identityError = {
     new IdentityApplicationError("REFRESH_TOKEN_REUSED", "Refresh token reuse was detected."),
   conflict: () =>
     new IdentityApplicationError("CONFLICT", "The request conflicts with current state."),
+  accountLocked: () =>
+    new IdentityApplicationError(
+      "ACCOUNT_LOCKED",
+      "This account is temporarily locked due to repeated failed login attempts. Try again later."
+    ),
   internal: () => new IdentityApplicationError("INTERNAL_ERROR", "An internal error occurred.")
 } as const;

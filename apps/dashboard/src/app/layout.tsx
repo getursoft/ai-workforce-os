@@ -15,7 +15,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "AI Workforce OS",
+  title: "Krevia.ai",
   description: "Enterprise AI workforce operations platform"
 };
 

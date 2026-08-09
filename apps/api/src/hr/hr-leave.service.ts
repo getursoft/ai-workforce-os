@@ -137,8 +137,9 @@ export class HrLeaveService {
     if (leave.status !== "WAITING_FOR_MANAGER_APPROVAL") {
       throw new BadRequestException(`Leave request is not awaiting manager approval`);
     }
+    if (!leave.approvalRequestId) throw new BadRequestException("Leave request has no associated approval request");
 
-    await this.approvalService.recordDecision(leave.approvalRequestId!, organizationId, decision as never, {
+    await this.approvalService.recordDecision(leave.approvalRequestId, organizationId, decision as never, {
       actorType: "MANAGER",
       actorUserId: actorInfo.actorUserId ?? null,
       comment: actorInfo.comment ?? null,

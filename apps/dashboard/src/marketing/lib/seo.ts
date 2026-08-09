@@ -18,7 +18,7 @@ export function defaultMetadata({ title, description, path, keywords }: Metadata
     title,
     description,
     keywords: keywords ?? [
-      "AI Workforce OS",
+      "Krevia.ai",
       "AI employees",
       "enterprise AI platform",
       "AI agents for business",

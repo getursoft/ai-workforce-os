@@ -6,14 +6,14 @@ import { siteConfig } from "@/content/site";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Privacy Policy",
-  description: "Draft privacy policy for AI Workforce OS, pending legal review.",
+  description: "Draft privacy policy for Krevia.ai, pending legal review.",
   path: "/privacy",
 });
 
 const sections = [
   {
     title: "1. Introduction",
-    body: `This Privacy Policy describes how ${siteConfig.legalEntity} ("we", "us") collects, uses and protects information in connection with the AI Workforce OS website and platform.`,
+    body: `This Privacy Policy describes how ${siteConfig.legalEntity} ("we", "us") collects, uses and protects information in connection with the Krevia.ai website and platform.`,
   },
   {
     title: "2. Information We Collect",
@@ -56,7 +56,7 @@ const sections = [
 export default function PrivacyPage() {
   return (
     <>
-      <PageHero eyebrow="Legal" title="Privacy Policy" description="How we handle information across the AI Workforce OS website and platform." />
+      <PageHero eyebrow="Legal" title="Privacy Policy" description="How we handle information across the Krevia.ai website and platform." />
       <section className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <LegalNotice />
         <div className="space-y-8">

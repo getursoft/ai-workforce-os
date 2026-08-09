@@ -8,19 +8,20 @@ import { KnowledgeChunkingService } from "./knowledge.chunking";
 import type { KnowledgePageDto } from "./knowledge.dto";
 import { KnowledgeEmbeddingService } from "./knowledge.embedding";
 import { KnowledgeExtractorRegistry } from "./knowledge.extractors";
-import type {
-  KnowledgeFileStorage,
-  KnowledgeVirusScanner,
-  UploadedKnowledgeFile
-} from "./knowledge.types";
+import type { KnowledgeVirusScanner, UploadedKnowledgeFile } from "./knowledge.types";
 import { KNOWLEDGE_MIME_TYPES } from "./knowledge.types";
+import type { ObjectStorageService } from "../storage/object-storage.types";
+
+/** Tenant-scoped key prefix under which Knowledge documents live in ObjectStorageService — distinct from
+ *  other object-storage consumers (e.g. generated ticket PDFs) sharing the same bucket/root. */
+const KNOWLEDGE_OBJECT_PREFIX = "knowledge-documents";
 
 @Injectable()
 export class KnowledgeIndexingService {
   private readonly logger = new Logger(KnowledgeIndexingService.name);
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: KnowledgeFileStorage,
+    private readonly storage: ObjectStorageService,
     private readonly extractors: KnowledgeExtractorRegistry,
     private readonly chunker: KnowledgeChunkingService,
     private readonly embeddings: KnowledgeEmbeddingService,
@@ -40,7 +41,7 @@ export class KnowledgeIndexingService {
       data: { status: KnowledgeDocumentStatus.PROCESSING, processingError: null }
     });
     try {
-      const buffer = await this.storage.read(document.storageKey);
+      const buffer = await this.storage.getObject(organizationId, document.storageKey);
       const extracted = await this.extractors.extract(document.mimeType, buffer);
       const chunks = this.chunker.chunk(extracted);
       if (!chunks.length) throw new Error("KNOWLEDGE_TEXT_NOT_EXTRACTABLE");
@@ -154,7 +155,7 @@ export class KnowledgeIndexingService {
 export class KnowledgeService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: KnowledgeFileStorage,
+    private readonly storage: ObjectStorageService,
     private readonly scanner: KnowledgeVirusScanner,
     private readonly indexing: KnowledgeIndexingService,
     private readonly audit: AuditEventLogger,
@@ -185,15 +186,17 @@ export class KnowledgeService {
       }
     });
     try {
-      const saved = await this.storage.save({
+      const extension = extname(validated.originalname).toLowerCase();
+      const saved = await this.storage.putObject({
         organizationId,
-        documentId: id,
-        extension: extname(validated.originalname).toLowerCase(),
-        buffer: validated.buffer
+        key: `${KNOWLEDGE_OBJECT_PREFIX}/${id}${extension}`,
+        buffer: validated.buffer,
+        contentType: validated.mimetype,
+        maxBytes: this.maxFileSizeBytes
       });
       await this.prisma.knowledgeDocument.update({
         where: { id },
-        data: { storageKey: saved.storageKey }
+        data: { storageKey: saved.key }
       });
       this.audit.record("KNOWLEDGE_DOCUMENT_UPLOADED", requestId, {
         organizationId,
@@ -273,6 +276,18 @@ export class KnowledgeService {
     });
     return { ...document, chunks };
   }
+  /** A short-lived, tenant-scoped download reference for the original uploaded file — never a permanently
+   *  public URL (see ObjectStorageService.getSignedDownloadUrl). */
+  async getDownloadUrl(organizationId: string, id: string, expirySeconds?: number) {
+    const document = await this.prisma.knowledgeDocument.findFirst({
+      where: { id, organizationId, deletedAt: null },
+      select: { storageKey: true, originalFilename: true }
+    });
+    if (!document) throw new NotFoundException("KNOWLEDGE_DOCUMENT_NOT_FOUND");
+    if (!document.storageKey) throw new BadRequestException("KNOWLEDGE_FILE_INVALID");
+    const url = await this.storage.getSignedDownloadUrl(organizationId, document.storageKey, expirySeconds);
+    return { url, filename: document.originalFilename };
+  }
   reindex(organizationId: string, id: string) {
     return this.indexing.index(organizationId, id, true);
   }
@@ -293,7 +308,7 @@ export class KnowledgeService {
         data: { deletedAt: new Date(), chunkCount: 0 }
       })
     ]);
-    if (document.storageKey) await this.storage.delete(document.storageKey);
+    if (document.storageKey) await this.storage.deleteObject(organizationId, document.storageKey);
     this.audit.record("KNOWLEDGE_DOCUMENT_DELETED", requestId, {
       organizationId,
       userId,
@@ -319,8 +334,14 @@ export class KnowledgeService {
     if (!Object.hasOwn(KNOWLEDGE_MIME_TYPES, extension))
       throw new BadRequestException("KNOWLEDGE_FILE_TYPE_UNSUPPORTED");
     const expected = KNOWLEDGE_MIME_TYPES[extension];
-    if (file.mimetype !== expected && !(extension === ".md" && file.mimetype === "text/plain"))
-      throw new BadRequestException("KNOWLEDGE_FILE_TYPE_UNSUPPORTED");
+    // Browsers/OSes are inconsistent about the mimetype they send for a couple of extensions — the
+    // extension (already validated above) is the source of truth; these are known-equivalent aliases,
+    // not a loosening of what's accepted.
+    const aliasOk =
+      (extension === ".md" && file.mimetype === "text/plain") ||
+      (extension === ".zip" &&
+        (file.mimetype === "application/x-zip-compressed" || file.mimetype === "application/octet-stream"));
+    if (file.mimetype !== expected && !aliasOk) throw new BadRequestException("KNOWLEDGE_FILE_TYPE_UNSUPPORTED");
     return { ...file, originalname: safeFilename(file.originalname), mimetype: expected };
   }
 }

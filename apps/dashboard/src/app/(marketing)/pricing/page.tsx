@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = defaultMetadata({
   title: "Pricing",
   description:
-    "Explore Starter, Growth and Enterprise plans for AI Workforce OS, scaled by the number of AI employees, integrations and governance features you need.",
+    "Explore Starter, Growth and Enterprise plans for Krevia.ai, scaled by the number of AI employees, integrations and governance features you need.",
   path: "/pricing",
 });
 

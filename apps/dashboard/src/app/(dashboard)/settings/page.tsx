@@ -3,7 +3,7 @@ import Link from "next/link";
 import { EmptyState, PageHeader } from "../../../components/ui";
 
 export const metadata: Metadata = {
-  title: "Settings | AI Workforce OS"
+  title: "Settings | Krevia.ai"
 };
 
 export default function SettingsPage() {

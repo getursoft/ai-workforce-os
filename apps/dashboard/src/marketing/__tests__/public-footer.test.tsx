@@ -18,7 +18,7 @@ describe("PublicFooter", () => {
 
   it("renders the brand name and tagline", () => {
     render(<PublicFooter />);
-    expect(screen.getAllByText("AI Workforce OS").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Krevia.ai").length).toBeGreaterThan(0);
     expect(screen.getByText("The Operating System for AI Employees")).toBeInTheDocument();
   });
 

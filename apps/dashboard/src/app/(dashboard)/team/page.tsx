@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { PlaceholderPage } from "../../../components/dashboard/placeholder-page";
 
 export const metadata: Metadata = {
-  title: "Team | AI Workforce OS"
+  title: "Team | Krevia.ai"
 };
 
 export default function TeamPage() {

@@ -1,5 +1,5 @@
 import argon2 from "argon2";
-import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 
 const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
 const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
@@ -13,7 +13,7 @@ export async function ensurePlatformOwner(prisma: PrismaService): Promise<void> 
   const organization = await prisma.organization.upsert({
     where: { slug: "ai-workforce-os-platform" },
     update: {},
-    create: { name: "AI Workforce OS Platform", slug: "ai-workforce-os-platform", status: "ACTIVE" }
+    create: { name: "Krevia.ai Platform", slug: "ai-workforce-os-platform", status: "ACTIVE" }
   });
   const existing = await prisma.user.findUnique({ where: { normalizedEmail: PLATFORM_OWNER_EMAIL } });
   if (existing) return;

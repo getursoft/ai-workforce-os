@@ -43,7 +43,7 @@ export default function EnterpriseSolutionPage() {
       <PageHero
         eyebrow="For enterprises"
         title="Governed AI Employees at Enterprise Scale"
-        description="AI Workforce OS is designed to support enterprise security requirements with configurable governance controls and an integration-ready architecture — built for organisations deploying across multiple departments and business units."
+        description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls and an integration-ready architecture — built for organisations deploying across multiple departments and business units."
       >
         <ButtonLink href="/contact" variant="primary" className="bg-saffron hover:bg-[#d97b00]">
           Contact Sales
@@ -67,7 +67,7 @@ export default function EnterpriseSolutionPage() {
           <SectionHeading
             eyebrow="A note on compliance"
             title="Honest About Where We Stand"
-            description="AI Workforce OS is designed to support enterprise security requirements, with configurable governance controls and an integration-ready architecture. We do not claim SOC 2, ISO 27001 or GDPR certification unless it has been formally confirmed — please contact our team for the current status of any certification your organisation requires."
+            description="Krevia.ai is designed to support enterprise security requirements, with configurable governance controls and an integration-ready architecture. We do not claim SOC 2, ISO 27001 or GDPR certification unless it has been formally confirmed — please contact our team for the current status of any certification your organisation requires."
           />
         </div>
       </section>

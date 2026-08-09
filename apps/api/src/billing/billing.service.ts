@@ -77,6 +77,13 @@ export interface ModelUsage {
  *  measured baseline, so this is a deliberately conservative, disclosed assumption, not a fact. */
 const ASSUMED_MINUTES_SAVED_PER_EXECUTION = 8;
 
+/** The one place tokens are converted to credits — shared by usage reporting (this file) and
+ *  BillingEnforcementService so the number an org is billed on and the number that gates execution can
+ *  never drift apart. */
+export function tokensToCredits(totalTokens: number): number {
+  return Math.ceil((totalTokens * 4) / 1000);
+}
+
 const CAPABILITY_LABELS: Record<string, string> = {
   CHAT_GENERATION: "Chat Generation",
   KNOWLEDGE_RAG: "Knowledge / RAG",

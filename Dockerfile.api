@@ -1,7 +1,7 @@
 FROM node:22-alpine AS builder
 RUN corepack enable && corepack prepare pnpm@9.15.4 --activate
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json .npmrc ./
 COPY apps/api/package.json apps/api/package.json
 COPY apps/dashboard/package.json apps/dashboard/package.json
 COPY packages ./packages
@@ -14,12 +14,20 @@ RUN pnpm exec prisma generate --schema=database/prisma/schema.prisma \
   && pnpm --filter @ai-workforce-os/plugin-sdk build \
   && pnpm --filter @ai-workforce-os/plugin-dummy build \
   && pnpm --filter @ai-workforce-os/api build
+# Not `pnpm prune --prod`: it has no --filter support in pnpm workspaces and evaluates the whole
+# workspace's dependency graph at once, which is unreliable here. Do not reintroduce it without
+# switching to the workspace-aware `pnpm deploy` command and verifying the runtime container actually
+# starts.
 
 FROM node:22-alpine AS runtime
 ENV NODE_ENV=production APP_ENV=production
 WORKDIR /workspace
 RUN addgroup -S app && adduser -S -G app app
 COPY --from=builder --chown=app:app /workspace/node_modules ./node_modules
+# pnpm workspaces symlink each project's own dependencies (e.g. @nestjs/*) into that project's own
+# node_modules, not just the workspace root's — root node_modules alone only has root devDependencies.
+# Omitting this crash-loops the runtime container on "Cannot find module '@nestjs/common'".
+COPY --from=builder --chown=app:app /workspace/apps/api/node_modules ./apps/api/node_modules
 COPY --from=builder --chown=app:app /workspace/apps/api/dist ./apps/api/dist
 COPY --from=builder --chown=app:app /workspace/apps/api/package.json ./apps/api/package.json
 COPY --from=builder --chown=app:app /workspace/packages ./packages

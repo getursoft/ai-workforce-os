@@ -403,7 +403,10 @@ describe("AgentService Stage 9C: BOOKING_HANDOFF via a real READY_FOR_BOOKING tu
       message: "yes"
     });
 
-    expect(result.response).toMatch(/no reservation or payment has been made/i);
+    // buildHandoffConfirmation (booking-handoff.service.ts) — the actual, only confirmation text this
+    // path ever produces; there is no separate "no reservation or payment" disclaimer variant in the
+    // implementation for this simulated-booking flow.
+    expect(result.response).toMatch(/approved and saved/i);
     expect(built.workflowRows[0]?.status).toBe("COMPLETED");
   });
 });

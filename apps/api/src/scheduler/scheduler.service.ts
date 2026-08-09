@@ -10,14 +10,17 @@
  */
 
 import {
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
   OnModuleDestroy,
-  OnModuleInit
+  OnModuleInit,
+  Optional
 } from "@nestjs/common";
 import { Prisma, type ScheduledJob } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 import { SchedulerHandlers } from "./scheduler-handlers";
 import { JobRegistry } from "./job-registry";
 import { JobDispatcher } from "./job-dispatcher";
@@ -79,7 +82,8 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly locks: JobLockService,
     private readonly health: SchedulerWorkerHealth,
     private readonly bridge: SchedulerEventBridge,
-    private readonly events: SchedulerEventBus
+    private readonly events: SchedulerEventBus,
+    @Optional() @Inject(APP_CONFIG) private readonly config?: AppConfig
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -110,6 +114,7 @@ export class SchedulerService implements OnModuleInit, OnModuleDestroy {
   private startWorker(): void {
     if (this.timer) return;
     if (process.env.NODE_ENV === "test") return; // tests drive tick() directly
+    if (this.config && !this.config.runs("scheduler")) return; // Phase 3: only scheduler-role processes poll
     this.timer = setInterval(() => void this.tick(), POLL_INTERVAL_MS);
     this.timer.unref?.();
   }

@@ -38,7 +38,7 @@ describe("EmailService", () => {
     process.env.SMTP_USER = "no-reply@example.com";
     process.env.SMTP_PASSWORD = "secret";
     process.env.SMTP_FROM_EMAIL = "no-reply@example.com";
-    process.env.SMTP_FROM_NAME = "AI Workforce OS";
+    process.env.SMTP_FROM_NAME = "Krevia.ai";
 
     const service = new EmailService();
     const result = await service.sendMail({
@@ -52,8 +52,36 @@ describe("EmailService", () => {
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const [call] = sendMailMock.mock.calls[0] as unknown as [Record<string, unknown>];
     expect(call.to).toBe("traveler@example.com");
-    expect(call.from).toBe('"AI Workforce OS" <no-reply@example.com>');
+    expect(call.from).toBe('"Krevia.ai" <no-reply@example.com>');
     expect(call.attachments).toHaveLength(1);
+  });
+
+  it("sends an HTML body alongside the plain-text fallback when provided", async () => {
+    process.env.SMTP_HOST = "smtp.example.com";
+    process.env.SMTP_FROM_EMAIL = "no-reply@example.com";
+
+    const service = new EmailService();
+    await service.sendMail({
+      to: "user@example.com",
+      subject: "Reset your password",
+      text: "Reset your password: https://example.com/reset",
+      html: "<p>Reset your password: <a href=\"https://example.com/reset\">link</a></p>"
+    });
+
+    const [call] = sendMailMock.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(call.text).toBe("Reset your password: https://example.com/reset");
+    expect(call.html).toBe('<p>Reset your password: <a href="https://example.com/reset">link</a></p>');
+  });
+
+  it("omits the html field entirely (not even undefined) when no html body is given, matching pre-HTML-support behavior", async () => {
+    process.env.SMTP_HOST = "smtp.example.com";
+    process.env.SMTP_FROM_EMAIL = "no-reply@example.com";
+
+    const service = new EmailService();
+    await service.sendMail({ to: "user@example.com", subject: "Ticket", text: "body" });
+
+    const [call] = sendMailMock.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect("html" in call).toBe(false);
   });
 
   it("isConfigured() reflects SMTP_HOST presence", () => {

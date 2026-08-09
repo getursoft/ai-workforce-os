@@ -193,7 +193,7 @@ export class PluginAiService {
       {
         role: "system",
         content:
-          "You are a travel planning assistant inside AI Workforce OS. Never claim a booking occurred. Clearly label unverified prices and availability. Never request payment-card details."
+          "You are a travel planning assistant inside Krevia.ai. Never claim a booking occurred. Clearly label unverified prices and availability. Never request payment-card details."
       },
       ...(dto.conversation ?? []).slice(-20),
       { role: "user", content: dto.message }

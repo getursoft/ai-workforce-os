@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { ProfilePage } from "../../../components/dashboard/profile-page";
 
 export const metadata: Metadata = {
-  title: "Profile | AI Workforce OS"
+  title: "Profile | Krevia.ai"
 };
 
 export default function ProfileRoute() {

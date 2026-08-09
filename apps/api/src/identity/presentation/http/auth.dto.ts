@@ -66,6 +66,13 @@ export class ForgotPasswordDto {
   email!: string;
 }
 
+export class VerifyEmailDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(256)
+  token!: string;
+}
+
 export class ResetPasswordDto {
   @Transform(({ value }: { value: unknown }) =>
     typeof value === "string" ? value.trim().toLowerCase() : value

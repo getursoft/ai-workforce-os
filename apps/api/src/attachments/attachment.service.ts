@@ -1,7 +1,13 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { AttachmentExtractorRegistry } from "./attachment.extractors";
+import { OBJECT_STORAGE, sanitizeObjectKey, type ObjectStorageService } from "../storage/object-storage.types";
+import { FeatureFlagService } from "../feature-flags/feature-flag.service";
+import { SkillsRuntimeService } from "../skills-platform/skill-runtime.service";
+
+const SKILLS_FILE_ROUTING_FLAG = "SKILLS_FILE_ROUTING_ENABLED";
+const DOCUMENT_READER_SKILL_KEY = "document-reader";
 
 export interface UploadedAttachmentFile {
   originalname: string;
@@ -54,7 +60,10 @@ export class ConversationAttachmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly extractors: AttachmentExtractorRegistry,
-    private readonly store: InMemoryAttachmentFileStore
+    private readonly store: InMemoryAttachmentFileStore,
+    @Inject(OBJECT_STORAGE) @Optional() private readonly objectStorage?: ObjectStorageService,
+    @Optional() private readonly featureFlags?: FeatureFlagService,
+    @Optional() private readonly skillsRuntime?: SkillsRuntimeService
   ) {}
 
   async upload(
@@ -66,10 +75,31 @@ export class ConversationAttachmentService {
   ): Promise<ConversationAttachmentRecord> {
     if (!file || !file.buffer?.length)
       throw new NotFoundException("ATTACHMENT_FILE_REQUIRED");
-    if (!this.extractors.supports(file.mimetype))
-      throw new NotFoundException("ATTACHMENT_FILE_TYPE_UNSUPPORTED");
 
-    const extracted = await this.extractors.extract(file.mimetype, file.buffer);
+    const routed = await this.tryRouteThroughSkill(
+      organizationId,
+      pluginInstallationId,
+      conversationId,
+      createdByUserId,
+      file
+    );
+
+    let extractedText: string;
+    let objectStorageKey: string | null = routed?.objectStorageKey ?? null;
+
+    if (routed) {
+      extractedText = routed.text;
+    } else {
+      if (!this.extractors.supports(file.mimetype))
+        throw new NotFoundException("ATTACHMENT_FILE_TYPE_UNSUPPORTED");
+      const extracted = await this.extractors.extract(file.mimetype, file.buffer);
+      extractedText = extracted.text;
+    }
+
+    if (!objectStorageKey) {
+      objectStorageKey = await this.tryWriteObjectStorage(organizationId, conversationId, file);
+    }
+
     const storageKey = await this.store.save(file.buffer);
 
     const row = await this.prisma.conversationAttachment.create({
@@ -82,7 +112,8 @@ export class ConversationAttachmentService {
         mimeType: file.mimetype,
         sizeBytes: file.size,
         storageKey,
-        extractedText: extracted.text.slice(0, 50_000)
+        objectStorageKey,
+        extractedText: extractedText.slice(0, 50_000)
       }
     });
     this.logger.log({
@@ -90,9 +121,88 @@ export class ConversationAttachmentService {
       attachmentId: row.id,
       conversationId,
       mimeType: file.mimetype,
-      extractedCharacters: extracted.text.length
+      extractedCharacters: extractedText.length,
+      viaSkill: routed !== null
     });
     return row;
+  }
+
+  /**
+   * Sprint 6.1 — Phase 10 file routing. Behind SKILLS_FILE_ROUTING_ENABLED: if the employee has a
+   * granted, installed skill that supports this MIME type (Document Reader today), route the file
+   * through SkillsRuntimeService instead of the legacy AttachmentExtractorRegistry. Any failure —
+   * flag off, no compatible/granted skill, or a runtime error — falls back to the pre-existing
+   * extractor path untouched; this must never turn a previously-working upload into a failure.
+   */
+  private async tryRouteThroughSkill(
+    organizationId: string,
+    pluginInstallationId: string,
+    conversationId: string,
+    userId: string | null,
+    file: UploadedAttachmentFile
+  ): Promise<{ text: string; objectStorageKey: string | null } | null> {
+    if (!this.skillsRuntime || !this.featureFlags) return null;
+    try {
+      const enabled = await this.featureFlags.isEnabled(SKILLS_FILE_ROUTING_FLAG, organizationId);
+      if (!enabled) return null;
+
+      const granted = await this.skillsRuntime.skillsForEmployee(organizationId, pluginInstallationId);
+      const match = granted.find(
+        (skill) => skill.skillKey === DOCUMENT_READER_SKILL_KEY && skill.supportedMimeTypes.includes(file.mimetype)
+      );
+      if (!match) return null;
+
+      const objectStorageKey = await this.tryWriteObjectStorage(organizationId, conversationId, file);
+      const result = await this.skillsRuntime.execute({
+        skillKey: DOCUMENT_READER_SKILL_KEY,
+        organizationId,
+        pluginInstallationId,
+        conversationId,
+        ...(userId ? { userId } : {}),
+        input: {
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          ...(objectStorageKey ? { objectKey: objectStorageKey } : { content: file.buffer.toString("base64") })
+        }
+      });
+      const data = result.data as { text?: unknown } | null;
+      if (!data || typeof data.text !== "string") return null;
+      return { text: data.text, objectStorageKey };
+    } catch (error) {
+      this.logger.warn({
+        event: "ATTACHMENT_SKILL_ROUTING_FALLBACK",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return null;
+    }
+  }
+
+  /** Best-effort durable object-storage write so skills (now or later) can read the original bytes.
+   *  Never fails the upload — the in-memory store remains the record of truth for `storageKey`. */
+  private async tryWriteObjectStorage(
+    organizationId: string,
+    conversationId: string,
+    file: UploadedAttachmentFile
+  ): Promise<string | null> {
+    if (!this.objectStorage) return null;
+    try {
+      const key = sanitizeObjectKey(`conversation-attachments/${conversationId}/${randomUUID()}-${file.originalname}`);
+      const meta = await this.objectStorage.putObject({
+        organizationId,
+        key,
+        buffer: file.buffer,
+        contentType: file.mimetype
+      });
+      return meta.key;
+    } catch (error) {
+      this.logger.warn({
+        event: "ATTACHMENT_OBJECT_STORAGE_WRITE_FAILED",
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return null;
+    }
   }
 
   async listForConversation(

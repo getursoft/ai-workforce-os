@@ -27,7 +27,7 @@ export function FinalCta() {
             Ready to put AI employees to work?
           </h2>
           <p className="mt-4 text-base leading-relaxed text-muted">
-            See how AI Workforce OS can be configured around your organisation in a guided, no-pressure demo.
+            See how Krevia.ai can be configured around your organisation in a guided, no-pressure demo.
           </p>
           <div className="mt-8 flex w-full flex-col justify-center gap-4 sm:w-auto sm:flex-row">
             <ButtonLink href="/book-demo" variant="primary" className="bg-saffron hover:bg-[#d97b00]">

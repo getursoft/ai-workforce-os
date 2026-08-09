@@ -34,6 +34,10 @@ export interface LoginRequest {
 export interface ForgotPasswordResult {
   email: string;
   resetToken?: string;
+  /** Only present alongside resetToken (dev/test mode). True when a real email was actually sent —
+   *  lets the UI distinguish "SMTP isn't configured, here's the code" from "a real email was ALSO
+   *  sent, here's the code too for convenience" instead of always claiming delivery is unconfigured. */
+  emailSent?: boolean;
 }
 
 export interface RegisterRequest extends LoginRequest {

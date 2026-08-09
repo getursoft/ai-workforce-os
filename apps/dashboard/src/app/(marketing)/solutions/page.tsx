@@ -9,7 +9,7 @@ import { departmentSolutions, orgTypeSolutions } from "@/content/solutions";
 export const metadata: Metadata = defaultMetadata({
   title: "Solutions",
   description:
-    "Explore AI Workforce OS solutions by department and organisation type — from customer service and operations to enterprises and start-ups.",
+    "Explore Krevia.ai solutions by department and organisation type — from customer service and operations to enterprises and start-ups.",
   path: "/solutions",
 });
 

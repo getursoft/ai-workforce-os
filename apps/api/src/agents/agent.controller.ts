@@ -18,6 +18,8 @@ import { JwtAccessGuard } from "../identity/presentation/http/jwt-access.guard";
 import { PermissionGuard } from "../identity/presentation/http/permission.guard";
 import { RequirePermission } from "../identity/presentation/http/permission.decorators";
 import type { IdentityRequest } from "../identity/presentation/http/request-context";
+import { RateLimit } from "../security/rate-limit.decorator";
+import { RateLimitGuard } from "../security/rate-limit.guard";
 import { AgentRunDto, PageDto, UpdateConversationDto } from "./agent.dto";
 import { AgentService } from "./agent.service";
 
@@ -38,7 +40,10 @@ export class AgentController {
   @Get("agents/tools") @RequirePermission("agents.run") tools() {
     return this.agents.toolCatalog();
   }
-  @Post("agents/run") @RequirePermission("agents.run") async run(
+  // Sprint 5.0 Phase 9: the global RateLimitGuard already applies AI_EXECUTION per-IP (pre-auth layer);
+  // re-applying it here runs after JwtAccessGuard, so this second pass is keyed per-organization instead —
+  // a compromised/malicious authenticated account can't flood execution just by having a valid token.
+  @Post("agents/run") @RequirePermission("agents.run") @UseGuards(RateLimitGuard) @RateLimit("AI_EXECUTION") async run(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Req() req: IdentityRequest,
     @Body() dto: AgentRunDto

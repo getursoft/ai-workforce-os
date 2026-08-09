@@ -14,6 +14,7 @@
     "clean": "turbo run clean && rm -rf .turbo",
     "dev": "turbo run dev",
     "db:migrate": "prisma migrate deploy --schema=database/prisma/schema.prisma",
+    "db:seed": "prisma db seed --schema=database/prisma/schema.prisma",
     "health": "node --experimental-strip-types scripts/health-check.ts",
     "validate:production-config": "pnpm --filter @ai-workforce-os/api build && node apps/api/dist/production/validate-production-config.js",
     "lint": "turbo run lint",
@@ -27,15 +28,6 @@
   "prisma": {
     "seed": "node --experimental-strip-types database/prisma/seed.ts"
   },
-  "pnpm": {
-    "overrides": {
-      "glob@>=10.2.0 <10.5.0": "10.5.0",
-      "lodash@>=4.0.0 <=4.17.23": "4.18.0",
-      "multer@<2.2.0": "2.2.0",
-      "picomatch@>=4.0.0 <4.0.4": "4.0.4",
-      "tmp@<0.2.7": "0.2.7"
-    }
-  },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
     "@commitlint/config-conventional": "^19.6.0",
@@ -44,6 +36,7 @@
     "@types/node": "^22.10.5",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^15.14.0",
     "husky": "^9.1.7",
     "prettier": "^3.4.2",

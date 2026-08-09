@@ -8,7 +8,7 @@ import { siteConfig } from "@/content/site";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Contact Us",
-  description: "Get in touch with the AI Workforce OS team about AI employees, enterprise deployment, partnerships or press.",
+  description: "Get in touch with the Krevia.ai team about AI employees, enterprise deployment, partnerships or press.",
   path: "/contact",
 });
 

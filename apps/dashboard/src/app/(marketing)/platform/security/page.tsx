@@ -9,7 +9,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Platform Security",
   description:
-    "How AI Workforce OS approaches access control, tenant isolation, audit logging and human approval as part of the operating layer.",
+    "How Krevia.ai approaches access control, tenant isolation, audit logging and human approval as part of the operating layer.",
   path: "/platform/security",
 });
 

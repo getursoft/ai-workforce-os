@@ -2,7 +2,9 @@ export const KNOWLEDGE_MIME_TYPES = {
   ".pdf": "application/pdf",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ".txt": "text/plain",
-  ".md": "text/markdown"
+  ".md": "text/markdown",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".zip": "application/zip"
 } as const;
 
 export interface UploadedKnowledgeFile {

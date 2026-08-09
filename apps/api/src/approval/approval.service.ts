@@ -3,7 +3,7 @@ import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ApprovalPolicyEngine, type PolicyResolutionInput } from "./engine/approval-policy-engine";
 import { ApprovalAuditService } from "./approval-audit.service";
 import { WorkforceEventBus } from "../workforce/workforce-event-bus";
-import type { ApprovalRequest, ApprovalAssignment, ApproverType as PrismaApproverType } from "@prisma/client";
+import type { ApprovalRequest, ApproverType as PrismaApproverType } from "@prisma/client";
 
 export type ApprovalRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" | "EXPIRED" | "CANCELLED" | "SUPERSEDED";
 
@@ -86,7 +86,7 @@ export class ApprovalService {
       const existing = await this.prisma.approvalRequest.findUnique({
         where: { idempotencyKey: input.idempotencyKey },
       });
-      if (existing) return this.toData(existing, []);
+      if (existing) return this.toData(existing);
     }
 
     const policyResult = input.policyResolution
@@ -136,14 +136,14 @@ export class ApprovalService {
       metadata: { actionType: input.actionType, approverType: policyResult?.approverType ?? "MANAGER" },
     });
 
-    return this.toData(record, []);
+    return this.toData(record);
   }
 
   async findById(id: string, organizationId: string): Promise<ApprovalRequestData | null> {
     const record = await this.prisma.approvalRequest.findFirst({
       where: { id, organizationId },
     });
-    return record ? this.toData(record, []) : null;
+    return record ? this.toData(record) : null;
   }
 
   async list(organizationId: string, filter?: {
@@ -170,7 +170,7 @@ export class ApprovalService {
     ]);
 
     return {
-      items: items.map((r) => this.toData(r, [])),
+      items: items.map((r) => this.toData(r)),
       total,
     };
   }
@@ -184,7 +184,7 @@ export class ApprovalService {
       } as never,
       orderBy: { createdAt: "desc" },
     });
-    return records.map((r) => this.toData(r, []));
+    return records.map((r) => this.toData(r));
   }
 
   async recordDecision(
@@ -265,7 +265,7 @@ export class ApprovalService {
         },
       });
 
-      return { data: this.toData(updated, []), targetStatus, workflowExecutionId: record.workflowExecutionId };
+      return { data: this.toData(updated), targetStatus, workflowExecutionId: record.workflowExecutionId };
     });
     // Emitted after the transaction commits (never inside it) so a listener reading the DB always sees the
     // decision already persisted. This is the "approval decision emits a workflow signal/event" push
@@ -303,7 +303,7 @@ export class ApprovalService {
       data: { status: "SUPERSEDED", supersededById: newApprovalRequestId, resolvedAt: new Date() },
     });
 
-    return this.toData(updated, []);
+    return this.toData(updated);
   }
 
   private async createAssignments(
@@ -380,7 +380,7 @@ export class ApprovalService {
     return d;
   }
 
-  private toData(record: ApprovalRequest, _assignments: ApprovalAssignment[]): ApprovalRequestData {
+  private toData(record: ApprovalRequest): ApprovalRequestData {
     return {
       id: record.id,
       organizationId: record.organizationId,

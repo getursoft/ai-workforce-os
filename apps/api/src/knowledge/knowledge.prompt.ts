@@ -44,7 +44,7 @@ export function buildKnowledgeBlock(sources: readonly KnowledgeSource[]): string
 
 export function confidenceLabel(score: number): "High" | "Medium" | "Low" {
   if (score >= 0.6) return "High";
-  if (score >= 0.35) return "Medium";
+  if (score >= 0.33) return "Medium";
   return "Low";
 }
 
@@ -91,9 +91,13 @@ export function buildKnowledgeAnswer(sources: readonly KnowledgeSource[], query:
  * candidate must pass before it is ever rendered as a final answer (single-chunk or section-summary
  * member). All four are required:
  * - **Confidence sufficient**: `score` must clear a stricter bar than the retrieval-recall threshold
- *   (`MIN_ANSWER_SCORE`, above `confidenceLabel`'s own Medium cutoff) — retrieval intentionally keeps a
- *   lower floor so weaker sibling chunks are still available for section-summary aggregation, but
- *   nothing that weak should ever be presented as a precise answer on its own.
+ *   (`MIN_ANSWER_SCORE`, at `confidenceLabel`'s own Medium cutoff — lowered from 0.35 to 0.33 in Sprint
+ *   5.0B: an exact topical heading match with sparse body-keyword overlap — e.g. "Portal Benefits"
+ *   answering "what are the benefits of booking through your portal" — was scoring 0.339, just under the
+ *   old bar, purely because `exactPhraseBoost`/`keywordOverlap` can't reward a short heading-only match
+ *   the way they reward a query phrase that also appears verbatim in the body text) — retrieval
+ *   intentionally keeps a lower floor so weaker sibling chunks are still available for section-summary
+ *   aggregation, but nothing that weak should ever be presented as a precise answer on its own.
  * - **Not a heading conflict**: the one directional conflict rule (`queryConflictsWithHeading` — a
  *   fare/pricing query landing on a cancellation-only heading) is rejected outright, even if the
  *   candidate still happens to rank first after the ranking-side penalty.
@@ -106,7 +110,7 @@ export function buildKnowledgeAnswer(sources: readonly KnowledgeSource[], query:
  *   an unsupported/unmatched query from falling back to "the document introduction" merely because nothing
  *   else scored as high.
  */
-const MIN_ANSWER_SCORE = 0.35;
+const MIN_ANSWER_SCORE = 0.33;
 function isConfidentAnswer(source: KnowledgeSource, query: string): boolean {
   if (source.score < MIN_ANSWER_SCORE) return false;
   if (isNonPolicyDocumentRole(source.heading ?? source.sectionTitle ?? "")) return false;

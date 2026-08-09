@@ -25,7 +25,9 @@ export class UserPrismaMapper {
       status: this.toDomainStatus(record.status),
       lastLoginAt: record.lastLoginAt ? new Date(record.lastLoginAt) : null,
       createdAt: new Date(record.createdAt),
-      updatedAt: new Date(record.updatedAt)
+      updatedAt: new Date(record.updatedAt),
+      failedLoginAttempts: record.failedLoginAttempts,
+      lockedUntil: record.lockedUntil ? new Date(record.lockedUntil) : null
     });
   }
 
@@ -42,7 +44,9 @@ export class UserPrismaMapper {
       status: this.toPrismaStatus(user.status),
       lastLoginAt: user.lastLoginAt,
       createdAt: new Date(user.createdAt),
-      updatedAt: user.updatedAt
+      updatedAt: user.updatedAt,
+      failedLoginAttempts: user.failedLoginAttempts,
+      lockedUntil: user.lockedUntil
     };
   }
 
@@ -108,4 +112,6 @@ export interface UserPersistence {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  failedLoginAttempts: number;
+  lockedUntil: Date | null;
 }

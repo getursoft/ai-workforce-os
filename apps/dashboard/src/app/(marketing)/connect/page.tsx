@@ -8,7 +8,7 @@ import { integrationCategories } from "@/content/integrations";
 export const metadata: Metadata = defaultMetadata({
   title: "Integrations",
   description:
-    "See how AI Workforce OS connects to CRM, email, calendar, documents, databases, cloud platforms, collaboration tools and more.",
+    "See how Krevia.ai connects to CRM, email, calendar, documents, databases, cloud platforms, collaboration tools and more.",
   path: "/connect",
 });
 

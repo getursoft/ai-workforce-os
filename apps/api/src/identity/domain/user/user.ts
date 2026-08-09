@@ -34,12 +34,16 @@ export interface ReconstructedUser {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  failedLoginAttempts?: number;
+  lockedUntil?: Date | null;
 }
 
 export class User {
   readonly #passwordHash: PasswordHash;
   #lastLoginAt: Date | null;
   #updatedAt: Date;
+  #failedLoginAttempts: number;
+  #lockedUntil: Date | null;
 
   private constructor(
     readonly id: UserId,
@@ -52,11 +56,15 @@ export class User {
     readonly status: UserStatus,
     lastLoginAt: Date | null,
     readonly createdAt: Date,
-    updatedAt: Date
+    updatedAt: Date,
+    failedLoginAttempts: number,
+    lockedUntil: Date | null
   ) {
     this.#passwordHash = passwordHash;
     this.#lastLoginAt = lastLoginAt;
     this.#updatedAt = updatedAt;
+    this.#failedLoginAttempts = failedLoginAttempts;
+    this.#lockedUntil = lockedUntil;
   }
 
   static registerOwner(properties: RegisterOwnerProperties): User {
@@ -75,7 +83,9 @@ export class User {
       UserStatus.ACTIVE,
       null,
       createdAt,
-      new Date(createdAt)
+      new Date(createdAt),
+      0,
+      null
     );
   }
 
@@ -105,7 +115,9 @@ export class User {
       properties.status,
       lastLoginAt,
       createdAt,
-      updatedAt
+      updatedAt,
+      properties.failedLoginAttempts ?? 0,
+      properties.lockedUntil ?? null
     );
   }
 
@@ -117,8 +129,33 @@ export class User {
     return new Date(this.#updatedAt);
   }
 
+  get failedLoginAttempts(): number {
+    return this.#failedLoginAttempts;
+  }
+
+  get lockedUntil(): Date | null {
+    return this.#lockedUntil ? new Date(this.#lockedUntil) : null;
+  }
+
   canAuthenticate(): boolean {
     return this.status === UserStatus.ACTIVE;
+  }
+
+  isLockedOut(now = new Date()): boolean {
+    return this.#lockedUntil !== null && this.#lockedUntil.getTime() > now.getTime();
+  }
+
+  /** Records a failed login attempt, locking the account once `maxFailedAttempts` is reached. */
+  recordFailedLogin(
+    maxFailedAttempts: number,
+    lockoutDurationSeconds: number,
+    at = new Date()
+  ): void {
+    this.#failedLoginAttempts += 1;
+    if (this.#failedLoginAttempts >= maxFailedAttempts) {
+      this.#lockedUntil = new Date(at.getTime() + lockoutDurationSeconds * 1000);
+    }
+    this.#updatedAt = new Date(at);
   }
 
   recordLogin(at = new Date()): void {
@@ -131,6 +168,8 @@ export class User {
     }
     this.#lastLoginAt = loginAt;
     this.#updatedAt = new Date(loginAt);
+    this.#failedLoginAttempts = 0;
+    this.#lockedUntil = null;
   }
 
   passwordHashMatches(value: string): boolean {

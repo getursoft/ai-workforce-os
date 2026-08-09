@@ -38,6 +38,7 @@ import {
   Network,
   Activity,
   Clock,
+  Sparkles,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -88,6 +89,7 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
   { href: "/channels", label: "Channels", icon: Radio, permission: "channel.read" },
   { href: "/connectors", label: "Connectors", icon: Cable, permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", icon: Puzzle, permission: "plugin.read" },
+  { href: "/skills", label: "Skills", icon: Sparkles, permission: "skill.marketplace.read" },
   {
     href: "/dashboard/service-accounts",
     label: "Service Accounts",
@@ -219,7 +221,7 @@ export function DashboardShell({
       <main className="dashboard-shell dashboard-shell--loading">
         <section className="dashboard-loading">
           <PageHeader
-            eyebrow="AI Workforce OS"
+            eyebrow="Krevia.ai"
             title="Loading your workspace"
             description="Restoring your authenticated session."
           />
@@ -240,8 +242,8 @@ export function DashboardShell({
     <div className="dashboard-shell">
       <aside className={`dashboard-sidebar ${mobileOpen ? "dashboard-sidebar--open" : ""}`}>
         <div className="dashboard-sidebar__brand">
-          <Link href="/" className="dashboard-sidebar__brand-link" aria-label="Go to the AI Workforce OS website">
-            <p className="dashboard-sidebar__eyebrow">AI Workforce OS</p>
+          <Link href="/" className="dashboard-sidebar__brand-link" aria-label="Go to the Krevia.ai website">
+            <p className="dashboard-sidebar__eyebrow">Krevia.ai</p>
             <h2>{state.organization?.name ?? "Organization"}</h2>
           </Link>
           <Button
@@ -317,7 +319,7 @@ export function DashboardShell({
         <div className="dashboard-ribbon">
           <Link href="/" className="dashboard-ribbon__brand">
             <LogoMark className="h-6 w-6 flex-shrink-0" />
-            <span>AI Workforce OS</span>
+            <span>Krevia.ai</span>
           </Link>
           <nav className="dashboard-ribbon__links" aria-label="Website">
             {RIBBON_LINKS.map((link) => (
@@ -390,7 +392,7 @@ export function DashboardShell({
         <main className="dashboard-content">{children}</main>
 
         <footer className="dashboard-footer">
-          <span>&copy; {new Date().getFullYear()} AI Workforce OS</span>
+          <span>&copy; {new Date().getFullYear()} Krevia.ai</span>
           <div className="dashboard-footer__links">
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Terms</Link>

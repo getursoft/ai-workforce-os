@@ -45,22 +45,30 @@ export class LoginHandler {
 
   async execute(command: LoginCommand): Promise<AuthenticationResult> {
     const email = Email.create(command.email);
+    const now = this.clock.now();
     const user = await this.users.findByNormalizedEmail(email);
     if (!user) {
       await this.passwordHasher.hash(command.password);
       throw identityError.authenticationFailed();
     }
+    if (user.isLockedOut(now)) {
+      throw identityError.accountLocked();
+    }
     const passwordValid = await this.passwordHasher.verify(
       command.password,
       user.passwordHashForPersistence()
     );
+    if (!passwordValid) {
+      await this.users.recordFailedLogin(
+        user.id,
+        this.lifetimes.accountLockout.maxFailedAttempts,
+        this.lifetimes.accountLockout.lockoutDurationSeconds,
+        now
+      );
+      throw identityError.authenticationFailed();
+    }
     const organization = await this.organizations.findById(user.organizationId);
-    if (
-      !passwordValid ||
-      !user.canAuthenticate() ||
-      !organization ||
-      organization.status !== OrganizationStatus.ACTIVE
-    ) {
+    if (!user.canAuthenticate() || !organization || organization.status !== OrganizationStatus.ACTIVE) {
       throw identityError.authenticationFailed();
     }
     const isPlatformOwner = this.platformOwner.isPlatformOwnerEmail(user.email.toString());
@@ -76,7 +84,6 @@ export class LoginHandler {
       throw identityError.organizationSwitchDenied();
     }
     const activeOrganizationId = target.id;
-    const now = this.clock.now();
     const sessionId = AuthenticationSessionId.from(this.identifiers.generate());
     const rawRefreshToken = this.refreshTokens.generate(sessionId);
     const session = AuthenticationSession.create({

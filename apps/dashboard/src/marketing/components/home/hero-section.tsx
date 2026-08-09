@@ -56,7 +56,7 @@ export function HeroSection() {
         <div>
           <DashboardPreview />
           <p className="mt-3 text-center text-xs text-muted">
-            Representative preview of the AI Workforce OS dashboard using illustrative data.
+            Representative preview of the Krevia.ai dashboard using illustrative data.
           </p>
         </div>
       </div>

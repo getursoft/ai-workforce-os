@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { MulterModule } from "@nestjs/platform-express";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { IdentityModule } from "../identity/identity.module";
+import { SkillPlatformModule } from "../skills-platform/skill-platform.module";
 import {
   AttachmentExtractorRegistry,
   DocxAttachmentTextExtractor,
@@ -16,6 +17,7 @@ import { ConversationAttachmentController } from "./attachment.controller";
   imports: [
     PrismaModule,
     IdentityModule,
+    SkillPlatformModule,
     MulterModule.register({ limits: { fileSize: 25 * 1024 * 1024 } })
   ],
   controllers: [ConversationAttachmentController],

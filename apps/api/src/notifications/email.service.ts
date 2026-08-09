@@ -24,6 +24,9 @@ export interface SendMailInput {
   to: string;
   subject: string;
   text: string;
+  /** Optional HTML body. When present, the message is sent as multipart (HTML + the `text` fallback);
+   *  when absent, behavior is unchanged from before HTML support existed (plain text only). */
+  html?: string;
   attachments?: EmailAttachment[];
   /** Per-installation SMTP settings (see EmailConfigurationService.resolve) — falls back to the
    *  process-wide SMTP_* env vars when omitted. */
@@ -116,6 +119,7 @@ export class EmailService {
       to: input.to,
       subject: input.subject,
       text: input.text,
+      ...(input.html ? { html: input.html } : {}),
       attachments: input.attachments?.map((attachment) => ({
         filename: attachment.filename,
         content: attachment.content,

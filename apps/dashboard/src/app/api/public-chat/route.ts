@@ -23,7 +23,7 @@ function buildSystemPrompt(pathname: string) {
     .map((entry) => `- ${entry.answer}`)
     .join("\n");
 
-  return `You are the AI Workforce OS public website assistant. AI Workforce OS is "${siteConfig.tagline}" — ${siteConfig.description}
+  return `You are the Krevia.ai public website assistant. Krevia.ai is "${siteConfig.tagline}" — ${siteConfig.description}
 
 The visitor is currently on the page: ${pathname || "/"}
 
@@ -35,7 +35,7 @@ Rules:
 - Never claim the platform is SOC 2, ISO 27001 or GDPR certified — only that it is "designed to support enterprise security requirements".
 - Never claim AI employees replace humans, operate fully autonomously without oversight, or guarantee savings.
 - Position AI employees as collaborators that support and extend human teams.
-- If the question is unrelated to AI Workforce OS or not covered by the information above, reply with exactly: "${FALLBACK_ANSWER}"`;
+- If the question is unrelated to Krevia.ai or not covered by the information above, reply with exactly: "${FALLBACK_ANSWER}"`;
 }
 
 export async function POST(request: Request) {

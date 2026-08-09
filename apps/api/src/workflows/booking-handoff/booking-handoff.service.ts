@@ -577,5 +577,5 @@ function buildBookingConfirmedText(
   tripContext: BookingHandoffTripContext
 ): string {
   if (bookingSummary.pnr === null) return buildHandoffConfirmation(tripContext);
-  return `Your booking is confirmed! PNR: ${bookingSummary.pnr}${bookingSummary.bookingRef ? `, Reference: ${bookingSummary.bookingRef}` : ""}. ${bookingSummary.ticketCount > 0 ? `${bookingSummary.ticketCount} ticket(s) have been generated.` : ""} This is a simulated booking in the AI Workforce OS demo environment.`;
+  return `Your booking is confirmed! PNR: ${bookingSummary.pnr}${bookingSummary.bookingRef ? `, Reference: ${bookingSummary.bookingRef}` : ""}. ${bookingSummary.ticketCount > 0 ? `${bookingSummary.ticketCount} ticket(s) have been generated.` : ""} This is a simulated booking in the Krevia.ai demo environment.`;
 }

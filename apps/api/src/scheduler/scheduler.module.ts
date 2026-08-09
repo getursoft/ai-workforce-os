@@ -3,6 +3,7 @@ import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { IdentityModule } from "../identity/identity.module";
 import { AgentModule } from "../agents/agent.module";
 import { MemoryModule } from "../memory/memory.module";
+import { SkillPlatformModule } from "../skills-platform/skill-platform.module";
 import { SchedulerService } from "./scheduler.service";
 import { SchedulerController } from "./scheduler.controller";
 import { JobRegistry } from "./job-registry";
@@ -19,7 +20,7 @@ import { SchedulerEventBridge } from "./scheduler-event-bridge";
 import { SchedulerEventsModule } from "./scheduler-event-bus";
 
 @Module({
-  imports: [PrismaModule, IdentityModule, AgentModule, MemoryModule, SchedulerEventsModule],
+  imports: [PrismaModule, IdentityModule, AgentModule, MemoryModule, SchedulerEventsModule, SkillPlatformModule],
   controllers: [SchedulerController],
   providers: [
     SchedulerService,

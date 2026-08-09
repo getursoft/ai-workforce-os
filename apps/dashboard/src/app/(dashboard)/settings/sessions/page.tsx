@@ -3,7 +3,7 @@ import Link from "next/link";
 import { EmptyState, PageHeader } from "../../../../components/ui";
 
 export const metadata: Metadata = {
-  title: "Sessions | AI Workforce OS"
+  title: "Sessions | Krevia.ai"
 };
 
 export default function SessionsPage() {

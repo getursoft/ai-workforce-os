@@ -16,7 +16,7 @@ export function ResetPasswordForm() {
   const searchParams = useSearchParams();
   const { client } = useAuth();
   const [email, setEmail] = useState(searchParams.get("email") ?? "");
-  const [token, setToken] = useState("");
+  const [token, setToken] = useState(searchParams.get("token") ?? "");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<{
@@ -30,11 +30,7 @@ export function ResetPasswordForm() {
   const [succeeded, setSucceeded] = useState(false);
 
   function clearFieldError(field: "email" | "token" | "newPassword" | "confirmPassword") {
-    setFieldErrors((current) => {
-      const next = { ...current };
-      delete next[field];
-      return next;
-    });
+    setFieldErrors((current) => ({ ...current, [field]: undefined }));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -63,7 +59,7 @@ export function ResetPasswordForm() {
     return (
       <Card className="auth-card">
         <div className="auth-card__branding">
-          <p className="auth-card__eyebrow">AI Workforce OS</p>
+          <p className="auth-card__eyebrow">Krevia.ai</p>
           <h1>Password updated</h1>
           <p>Your password has been reset. Sign in with your new password.</p>
         </div>
@@ -77,9 +73,9 @@ export function ResetPasswordForm() {
   return (
     <Card className="auth-card">
       <div className="auth-card__branding">
-        <p className="auth-card__eyebrow">AI Workforce OS</p>
+        <p className="auth-card__eyebrow">Krevia.ai</p>
         <h1>Reset your password</h1>
-        <p>Enter the reset code from your email along with your new password.</p>
+        <p>Enter the 8-digit code from your email along with your new password.</p>
       </div>
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
         {error ? (
@@ -105,16 +101,20 @@ export function ResetPasswordForm() {
           {fieldErrors.email ? <p className="ui-field__error">{fieldErrors.email}</p> : null}
         </div>
         <div className="ui-field">
-          <Label htmlFor="reset-token">Reset code</Label>
+          <Label htmlFor="reset-token">8-digit code</Label>
           <Input
             id="reset-token"
             name="token"
             type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={8}
             autoComplete="one-time-code"
+            placeholder="00000000"
             value={token}
             aria-invalid={fieldErrors.token ? "true" : "false"}
             onChange={(event) => {
-              setToken(event.target.value);
+              setToken(event.target.value.replace(/\D/g, "").slice(0, 8));
               if (fieldErrors.token) clearFieldError("token");
             }}
           />

@@ -136,13 +136,25 @@ export class ConfigurationSchemaValidator {
 }
 
 export interface EncryptedPayload {
-  version: 1;
+  version: number;
   iv: string;
   tag: string;
   ciphertext: string;
 }
+/**
+ * Sprint 5.0 Phase 7: `previousKey`/`previousVersion` support a rotation window — pass them (or leave them
+ * undefined) without changing any existing call site. New encryptions always use `key`/`currentVersion`;
+ * decrypting a payload recorded under `previousVersion` still works until it's re-encrypted under the
+ * current key. A payload whose version matches neither key throws a distinct, diagnosable error rather
+ * than the generic decryption-failure message.
+ */
 export class PluginSecretsEncryptionService {
-  constructor(private readonly key: Buffer) {
+  constructor(
+    private readonly key: Buffer,
+    private readonly previousKey?: Buffer,
+    private readonly currentVersion: number = 1,
+    private readonly previousVersion?: number
+  ) {
     if (key.length !== 32) throw new Error("PLUGIN_SECRETS_KEY_INVALID");
   }
   encrypt(secrets: Record<string, string>): EncryptedPayload {
@@ -154,15 +166,22 @@ export class PluginSecretsEncryptionService {
       cipher.final()
     ]);
     return {
-      version: 1,
+      version: this.currentVersion,
       iv: iv.toString("base64"),
       tag: cipher.getAuthTag().toString("base64"),
       ciphertext: ciphertext.toString("base64")
     };
   }
   decrypt(payload: EncryptedPayload): Record<string, string> {
+    const key =
+      payload.version === this.currentVersion
+        ? this.key
+        : this.previousKey && payload.version === this.previousVersion
+          ? this.previousKey
+          : undefined;
+    if (!key) throw new Error("PLUGIN_SECRETS_ENCRYPTION_KEY_VERSION_UNKNOWN");
     try {
-      const decipher = createDecipheriv("aes-256-gcm", this.key, Buffer.from(payload.iv, "base64"));
+      const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(payload.iv, "base64"));
       decipher.setAuthTag(Buffer.from(payload.tag, "base64"));
       return JSON.parse(
         Buffer.concat([

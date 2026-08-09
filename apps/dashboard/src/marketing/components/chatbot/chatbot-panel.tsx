@@ -30,7 +30,7 @@ export function ChatbotPanel() {
     <div
       role="dialog"
       aria-modal="false"
-      aria-label="AI Workforce OS assistant"
+      aria-label="Krevia.ai assistant"
       className="fixed inset-x-4 bottom-4 z-50 flex h-[70vh] max-h-[600px] flex-col overflow-hidden rounded-card border border-royal/10 bg-white shadow-card sm:inset-x-auto sm:bottom-24 sm:right-6 sm:w-96"
     >
       <div className="flex items-center justify-between bg-royal px-4 py-3.5">
@@ -39,7 +39,7 @@ export function ChatbotPanel() {
             <Bot className="h-4 w-4" aria-hidden="true" />
           </div>
           <div>
-            <p className="text-sm font-semibold leading-tight">AI Workforce OS Assistant</p>
+            <p className="text-sm font-semibold leading-tight">Krevia.ai Assistant</p>
             <p className="text-[11px] text-white/60">Usually replies instantly</p>
           </div>
         </div>

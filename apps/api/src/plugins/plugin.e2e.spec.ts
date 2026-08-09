@@ -56,7 +56,7 @@ suite("Plugin runtime HTTP", () => {
       .send({
         email: PLATFORM_OWNER_EMAIL,
         password: PLATFORM_OWNER_PASSWORD,
-        organizationName: "AI Workforce OS Platform"
+        organizationName: "Krevia.ai Platform"
       })
       .expect(200);
     const switched = await request(app.getHttpServer())

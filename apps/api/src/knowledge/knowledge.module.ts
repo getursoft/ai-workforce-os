@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { MulterModule } from "@nestjs/platform-express";
-import { resolve } from "node:path";
 import { IdentityModule } from "../identity/identity.module";
 import {
   SECURITY_CONFIG,
@@ -18,11 +17,14 @@ import {
   DocxKnowledgeTextExtractor,
   KnowledgeExtractorRegistry,
   PdfKnowledgeTextExtractor,
-  PlainKnowledgeTextExtractor
+  PlainKnowledgeTextExtractor,
+  XlsxKnowledgeTextExtractor,
+  ZipKnowledgeTextExtractor
 } from "./knowledge.extractors";
 import { KnowledgeSearchService } from "./knowledge.search";
 import { KnowledgeIndexingService, KnowledgeService } from "./knowledge.service";
-import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledge.storage";
+import { NoopKnowledgeVirusScanner } from "./knowledge.storage";
+import { OBJECT_STORAGE, type ObjectStorageService } from "../storage/object-storage.types";
 
 @Module({
   imports: [
@@ -42,20 +44,36 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
     PlainKnowledgeTextExtractor,
     PdfKnowledgeTextExtractor,
     DocxKnowledgeTextExtractor,
+    XlsxKnowledgeTextExtractor,
     {
-      provide: KnowledgeExtractorRegistry,
-      inject: [PlainKnowledgeTextExtractor, PdfKnowledgeTextExtractor, DocxKnowledgeTextExtractor],
+      // ZipKnowledgeTextExtractor gets its own "inner" extractor list directly (not the registry, and
+      // never including itself) — a zip's entries are processed with plain/pdf/docx/xlsx only, no
+      // zip-in-zip recursion (see the extractor's own doc comment for why).
+      provide: ZipKnowledgeTextExtractor,
+      inject: [PlainKnowledgeTextExtractor, PdfKnowledgeTextExtractor, DocxKnowledgeTextExtractor, XlsxKnowledgeTextExtractor],
       useFactory: (
         plain: PlainKnowledgeTextExtractor,
         pdf: PdfKnowledgeTextExtractor,
-        docx: DocxKnowledgeTextExtractor
-      ) => new KnowledgeExtractorRegistry([plain, pdf, docx])
+        docx: DocxKnowledgeTextExtractor,
+        xlsx: XlsxKnowledgeTextExtractor
+      ) => new ZipKnowledgeTextExtractor([plain, pdf, docx, xlsx])
     },
     {
-      provide: LocalKnowledgeFileStorage,
-      inject: [SECURITY_CONFIG],
-      useFactory: (config: SecurityConfig) =>
-        new LocalKnowledgeFileStorage(resolve(config.knowledge.storagePath))
+      provide: KnowledgeExtractorRegistry,
+      inject: [
+        PlainKnowledgeTextExtractor,
+        PdfKnowledgeTextExtractor,
+        DocxKnowledgeTextExtractor,
+        XlsxKnowledgeTextExtractor,
+        ZipKnowledgeTextExtractor
+      ],
+      useFactory: (
+        plain: PlainKnowledgeTextExtractor,
+        pdf: PdfKnowledgeTextExtractor,
+        docx: DocxKnowledgeTextExtractor,
+        xlsx: XlsxKnowledgeTextExtractor,
+        zip: ZipKnowledgeTextExtractor
+      ) => new KnowledgeExtractorRegistry([plain, pdf, docx, xlsx, zip])
     },
     {
       provide: KnowledgeChunkingService,
@@ -88,7 +106,7 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
       provide: KnowledgeIndexingService,
       inject: [
         PrismaService,
-        LocalKnowledgeFileStorage,
+        OBJECT_STORAGE,
         KnowledgeExtractorRegistry,
         KnowledgeChunkingService,
         KnowledgeEmbeddingService,
@@ -96,7 +114,7 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
       ],
       useFactory: (
         prisma: PrismaService,
-        storage: LocalKnowledgeFileStorage,
+        storage: ObjectStorageService,
         extractors: KnowledgeExtractorRegistry,
         chunker: KnowledgeChunkingService,
         embeddings: KnowledgeEmbeddingService,
@@ -107,7 +125,7 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
       provide: KnowledgeService,
       inject: [
         PrismaService,
-        LocalKnowledgeFileStorage,
+        OBJECT_STORAGE,
         NoopKnowledgeVirusScanner,
         KnowledgeIndexingService,
         AuditEventLogger,
@@ -115,7 +133,7 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
       ],
       useFactory: (
         prisma: PrismaService,
-        storage: LocalKnowledgeFileStorage,
+        storage: ObjectStorageService,
         scanner: NoopKnowledgeVirusScanner,
         indexing: KnowledgeIndexingService,
         audit: AuditEventLogger,
@@ -131,6 +149,6 @@ import { LocalKnowledgeFileStorage, NoopKnowledgeVirusScanner } from "./knowledg
         )
     }
   ],
-  exports: [KnowledgeSearchService, KnowledgeEmbeddingService]
+  exports: [KnowledgeSearchService, KnowledgeEmbeddingService, KnowledgeExtractorRegistry]
 })
 export class KnowledgeModule {}
