@@ -39,6 +39,8 @@ import {
   Activity,
   Clock,
   Sparkles,
+  Cpu,
+  Target,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -60,10 +62,21 @@ const RIBBON_LINKS: readonly { href: string; label: string }[] = [
 
 const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permission?: string }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/ask-krevia", label: "Ask Krevia", icon: Sparkles, permission: "agents.run" },
   { href: "/ai-employees", label: "AI Employees", icon: Bot, permission: "agents.run" },
   { href: "/tools", label: "Tools", icon: Wrench, permission: "agents.run" },
-  { href: "/conversations", label: "Conversations", icon: MessageSquare, permission: "agents.conversations.read" },
-  { href: "/execution-history", label: "Execution History", icon: History, permission: "agents.executions.read" },
+  {
+    href: "/conversations",
+    label: "Conversations",
+    icon: MessageSquare,
+    permission: "agents.conversations.read"
+  },
+  {
+    href: "/execution-history",
+    label: "Execution History",
+    icon: History,
+    permission: "agents.executions.read"
+  },
   { href: "/knowledge", label: "Knowledge Base", icon: BookOpen, permission: "knowledge.read" },
   { href: "/memory", label: "Memory", icon: Brain, permission: "agents.memory.read" },
   { href: "/dashboard/integrations", label: "Integrations", icon: Plug },
@@ -72,14 +85,49 @@ const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permissi
   { href: "/settings", label: "Settings", icon: SettingsIcon }
 ] as const;
 
-export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon; permission: string }[] = [
-  { href: "/travel-employee", label: "Travel Employee", icon: Plane, permission: "travel.config.read" },
+export const ADMIN_ITEMS: readonly {
+  href: string;
+  label: string;
+  icon: NavIcon;
+  permission: string;
+}[] = [
+  {
+    href: "/travel-employee",
+    label: "Travel Employee",
+    icon: Plane,
+    permission: "travel.config.read"
+  },
   { href: "/hr-employee", label: "HR Employee", icon: UserCog, permission: "hr.config.read" },
-  { href: "/finance-employee", label: "Finance Employee", icon: Wallet, permission: "finance.config.read" },
-  { href: "/it-support-employee", label: "IT Support Employee", icon: Headset, permission: "it.config.read" },
-  { href: "/sales-employee", label: "Sales Employee", icon: TrendingUp, permission: "sales.config.read" },
-  { href: "/marketing-employee", label: "Marketing Employee", icon: Megaphone, permission: "marketing.config.read" },
-  { href: "/legal-employee", label: "Legal Employee", icon: Scale, permission: "legal.config.read" },
+  {
+    href: "/finance-employee",
+    label: "Finance Employee",
+    icon: Wallet,
+    permission: "finance.config.read"
+  },
+  {
+    href: "/it-support-employee",
+    label: "IT Support Employee",
+    icon: Headset,
+    permission: "it.config.read"
+  },
+  {
+    href: "/sales-employee",
+    label: "Sales Employee",
+    icon: TrendingUp,
+    permission: "sales.config.read"
+  },
+  {
+    href: "/marketing-employee",
+    label: "Marketing Employee",
+    icon: Megaphone,
+    permission: "marketing.config.read"
+  },
+  {
+    href: "/legal-employee",
+    label: "Legal Employee",
+    icon: Scale,
+    permission: "legal.config.read"
+  },
   {
     href: "/customer-support-employee",
     label: "Customer Support Employee",
@@ -89,6 +137,12 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
   { href: "/channels", label: "Channels", icon: Radio, permission: "channel.read" },
   { href: "/connectors", label: "Connectors", icon: Cable, permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", icon: Puzzle, permission: "plugin.read" },
+  {
+    href: "/settings/ai-providers",
+    label: "AI Providers",
+    icon: Cpu,
+    permission: "ai.provider.read"
+  },
   { href: "/skills", label: "Skills", icon: Sparkles, permission: "skill.marketplace.read" },
   {
     href: "/dashboard/service-accounts",
@@ -97,13 +151,38 @@ export const ADMIN_ITEMS: readonly { href: string; label: string; icon: NavIcon;
     permission: "service_accounts.read"
   },
   { href: "/dashboard/settings/users", label: "Users", icon: UserCircle, permission: "users.read" },
-  { href: "/dashboard/settings/roles", label: "Roles", icon: ShieldCheck, permission: "roles.read" },
-  { href: "/dashboard/settings/permissions", label: "Permissions", icon: Lock, permission: "roles.read" },
-  { href: "/dashboard/settings/invitations", label: "Invitations", icon: Mail, permission: "invitations.read" },
-  { href: "/dashboard/approvals", label: "Approvals", icon: CheckCircle2, permission: "approval.read" },
+  {
+    href: "/dashboard/settings/roles",
+    label: "Roles",
+    icon: ShieldCheck,
+    permission: "roles.read"
+  },
+  {
+    href: "/dashboard/settings/permissions",
+    label: "Permissions",
+    icon: Lock,
+    permission: "roles.read"
+  },
+  {
+    href: "/dashboard/settings/invitations",
+    label: "Invitations",
+    icon: Mail,
+    permission: "invitations.read"
+  },
+  {
+    href: "/dashboard/approvals",
+    label: "Approvals",
+    icon: CheckCircle2,
+    permission: "approval.read"
+  },
   { href: "/workforce", label: "AI Workforce", icon: Network, permission: "workforce.read" },
   { href: "/scheduler", label: "Scheduler", icon: Clock, permission: "scheduler.read" },
-  { href: "/observability", label: "Observability", icon: Activity, permission: "observability.read" },
+  {
+    href: "/observability",
+    label: "Observability",
+    icon: Activity,
+    permission: "observability.read"
+  },
   { href: "/usage", label: "Usage & Billing", icon: BarChart3, permission: "usage.read" }
 ] as const;
 
@@ -117,7 +196,9 @@ export function adminNavigationItemsFor(permissions: ReadonlySet<string>) {
 function OrganizationSwitcher() {
   const router = useRouter();
   const { state, client, switchOrganization } = useAuth();
-  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string }> | null>(
+    null
+  );
   const [error, setError] = useState(false);
   const [switching, setSwitching] = useState(false);
   const isPlatformOwner = state.user?.isPlatformOwner === true;
@@ -242,7 +323,11 @@ export function DashboardShell({
     <div className="dashboard-shell">
       <aside className={`dashboard-sidebar ${mobileOpen ? "dashboard-sidebar--open" : ""}`}>
         <div className="dashboard-sidebar__brand">
-          <Link href="/" className="dashboard-sidebar__brand-link" aria-label="Go to the Krevia.ai website">
+          <Link
+            href="/"
+            className="dashboard-sidebar__brand-link"
+            aria-label="Go to the Krevia.ai website"
+          >
             <p className="dashboard-sidebar__eyebrow">Krevia.ai</p>
             <h2>{state.organization?.name ?? "Organization"}</h2>
           </Link>
@@ -265,7 +350,12 @@ export function DashboardShell({
                 href={item.href}
                 onClick={() => setMobileOpen(false)}
               >
-                <item.icon className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <item.icon
+                  className="dashboard-nav__icon"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
                 <span>{item.label}</span>
               </Link>
             )
@@ -280,7 +370,12 @@ export function DashboardShell({
               href={item.href}
               onClick={() => setMobileOpen(false)}
             >
-              <item.icon className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+              <item.icon
+                className="dashboard-nav__icon"
+                size={16}
+                strokeWidth={2}
+                aria-hidden="true"
+              />
               <span>{item.label}</span>
             </Link>
           ))}
@@ -291,7 +386,12 @@ export function DashboardShell({
                 href="/dashboard/settings/payments"
                 onClick={() => setMobileOpen(false)}
               >
-                <CreditCard className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <CreditCard
+                  className="dashboard-nav__icon"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
                 <span>Payment Settings</span>
               </Link>
               <Link
@@ -299,8 +399,29 @@ export function DashboardShell({
                 href="/dashboard/organizations"
                 onClick={() => setMobileOpen(false)}
               >
-                <Globe className="dashboard-nav__icon" size={16} strokeWidth={2} aria-hidden="true" />
+                <Globe
+                  className="dashboard-nav__icon"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
                 <span>Organizations</span>
+              </Link>
+              {/* Platform-owner-only, same as Payment Settings/Organizations above — not backed by an
+                  ordinary permission key (see PlatformLeadsController, guarded by PlatformOwnerGuard
+                  server-side), so it's gated the same bare isPlatformOwner way, not via ADMIN_ITEMS. */}
+              <Link
+                className={`dashboard-nav__item ${pathname.startsWith("/dashboard/sales-leads") ? "dashboard-nav__item--active" : ""}`}
+                href="/dashboard/sales-leads"
+                onClick={() => setMobileOpen(false)}
+              >
+                <Target
+                  className="dashboard-nav__icon"
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+                <span>Sales Leads</span>
               </Link>
             </>
           ) : null}

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import PDFDocument from "pdfkit";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 
@@ -38,7 +38,12 @@ export class TicketGeneratorService {
     const booking = await this.prisma.travelBooking.findFirst({
       where: { id: bookingId, organizationId },
     });
-    if (!booking) throw new Error(`Booking ${bookingId} not found`);
+    // Fix (Travel Booking UAT correction pass — download-auth verification): a plain Error here was falling
+    // through NestJS's exception filter as an unhandled 500 for BOTH a genuinely missing booking id AND a
+    // cross-tenant request for another org's real booking — neither is a server fault. No data ever leaked
+    // either way (the `{id, organizationId}` filter above already guarantees that), but the wrong org must
+    // see a 404, not a 500.
+    if (!booking) throw new NotFoundException(`Booking ${bookingId} not found`);
 
     const ticketNumbers = Array.isArray(booking.ticketNumbersJson)
       ? (booking.ticketNumbersJson as string[])

@@ -69,7 +69,7 @@ export class PendingInputQuestionService {
       case null:
         return "";
       default:
-        return "Please provide more information.";
+        return "Could you tell me a bit more?";
     }
   }
 }
@@ -89,7 +89,7 @@ const QUESTION_TEMPLATES = {
       "Can you provide the breakdown? How many adults, children, and infants?",
     DURATION: "How long is your trip? (in days or nights)",
     NO_PENDING_INPUT: "Your trip details are complete. Ready to proceed!",
-    UNKNOWN_FIELD: "Please provide more information about your trip."
+    UNKNOWN_FIELD: "Could you tell me a bit more about your trip?"
   },
   SPANISH: {
     ORIGIN: "¿De dónde viaja?",

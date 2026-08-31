@@ -12,6 +12,7 @@
 export type RateLimitCategory =
   | "AUTH_STRICT"
   | "PUBLIC_APPROVAL_STRICT"
+  | "PUBLIC_LEAD_CAPTURE"
   | "AI_EXECUTION"
   | "FILE_UPLOAD"
   | "WEBHOOK"
@@ -26,6 +27,7 @@ export interface RateLimitRule {
 export const RATE_LIMIT_RULES: Record<RateLimitCategory, RateLimitRule> = {
   AUTH_STRICT: { limit: 10, windowMs: 5 * 60_000 },
   PUBLIC_APPROVAL_STRICT: { limit: 20, windowMs: 5 * 60_000 },
+  PUBLIC_LEAD_CAPTURE: { limit: 8, windowMs: 5 * 60_000 },
   AI_EXECUTION: { limit: 60, windowMs: 60_000 },
   FILE_UPLOAD: { limit: 20, windowMs: 5 * 60_000 },
   WEBHOOK: { limit: 60, windowMs: 10_000 },

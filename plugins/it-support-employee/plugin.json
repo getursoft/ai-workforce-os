@@ -6,10 +6,79 @@
   "description": "AI IT support employee. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["it.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "it.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "it.create_ticket", "description": "Persist an IT support request after the employee consents and shares a contact number" },
-    { "name": "it.escalate", "description": "Escalate the conversation to a human IT support team member" }
-  ]
+    {
+      "name": "it.create_ticket",
+      "description": "Persist an IT support request after the employee consents and shares a contact number"
+    },
+    {
+      "name": "it.escalate",
+      "description": "Escalate the conversation to a human IT support team member"
+    }
+  ],
+  "routing": {
+    "employeeKey": "it-support-employee",
+    "employeeType": "IT_SUPPORT",
+    "displayName": "IT Support Employee",
+    "summary": "Handles VPN, network, password, hardware, and other first-line technical support requests.",
+    "domains": [
+      "it support",
+      "technical support",
+      "helpdesk"
+    ],
+    "capabilities": [
+      "it.chat",
+      "it.access",
+      "it.hardware",
+      "it.troubleshooting"
+    ],
+    "intents": [
+      "ACCESS_ISSUE",
+      "HARDWARE_ISSUE",
+      "SOFTWARE_ISSUE",
+      "NETWORK_ISSUE",
+      "PASSWORD_RESET"
+    ],
+    "examples": [
+      "My VPN isn't connecting",
+      "I need a password reset",
+      "My laptop won't turn on",
+      "I can't access the network"
+    ],
+    "aliases": [
+      "IT Support",
+      "IT",
+      "Helpdesk",
+      "Tech support"
+    ],
+    "keywords": [
+      "vpn",
+      "computer",
+      "laptop",
+      "password",
+      "network",
+      "software",
+      "hardware",
+      "technical",
+      "access",
+      "login",
+      "password reset",
+      "printer",
+      "outage",
+      "wifi",
+      "install",
+      "device",
+      "ticket"
+    ]
+  }
 }

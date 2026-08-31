@@ -6,10 +6,36 @@ import {
   extractTravelMonth,
   extractPassengerComposition,
   parseExplicitTravelDate,
+  interpretDatePhrase,
+  findKnownCityMentions,
   KNOWN_DESTINATIONS,
   type TravelEntities,
   type TravelSlots
 } from "./travel.runtime";
+import { CORRECTION_MARKER_PATTERN } from "../conversation/input-semantics";
+
+/**
+ * Sprint 6.5 — Part 13: `extractDestination` returns whichever known city appears FIRST in its own
+ * internal catalog, not first in the message text — harmless for a single-city mention, but wrong for a
+ * correction that restates two cities in one message ("Dubai nahi, Singapore kar do", "not Dubai,
+ * Singapore"): it could return the OLD (negated) city instead of the new one, depending on catalog order.
+ *
+ * Gated on `CORRECTION_MARKER_PATTERN` (the same shared marker `classifyUserInput` uses) actually being
+ * present — NOT merely "2+ distinct cities mentioned": a message that states origin AND destination
+ * together in one breath ("Dubai, 12 August, ... from Delhi") also mentions two distinct known cities but
+ * is not a correction at all, and must keep Dubai as the destination (a real regression this fix
+ * introduced and caught via live e2e testing before it was reduced to this narrower, correct form). Only
+ * when an explicit correction marker is present does the LAST-mentioned city (text order, via the
+ * newly-exported `findKnownCityMentions`) win over `extractDestination`'s catalog-order pick.
+ */
+function extractDestinationRespectingCorrection(text: string): string | null {
+  if (CORRECTION_MARKER_PATTERN.test(text)) {
+    const mentions = findKnownCityMentions(text);
+    const distinctCities = [...new Set(mentions.map((mention) => mention.name))];
+    if (distinctCities.length >= 2) return mentions[mentions.length - 1]!.name;
+  }
+  return extractDestination(text);
+}
 
 export const SPRINT_4_4B_VERSION = "1.0.0";
 
@@ -159,14 +185,21 @@ export function mergeEntitiesWithPriorState(
 ): TravelEntities {
   const result: TravelEntities = { ...prior };
 
-  const name = extractCustomerName([currentText]);
-  if (name) result.customerName = name;
+  // Fix (Sprint 6.3 — Part 1/7): a confirmed name must never be re-derived from a later turn's text. Once
+  // `prior.customerName` is known, `extractCustomerName`'s bare-short-reply heuristic (designed for the
+  // ORIGINAL "may I know your name?" answer) would otherwise treat ANY later short, punctuation-free 1-3
+  // word reply — "share it here", "share the pdf", "no thanks" — as a fresh name and silently overwrite
+  // the real one. Only attempt extraction while the name is still genuinely unknown.
+  if (!prior.customerName) {
+    const name = extractCustomerName([currentText]);
+    if (name) result.customerName = name;
+  }
 
   const askingOrigin = isOriginQuestion(lastAssistantMessage);
   const askingDestination = isDestinationQuestion(lastAssistantMessage);
 
   let originFromText = extractOriginCity(currentText);
-  const destFromDestination = extractDestination(currentText);
+  const destFromDestination = extractDestinationRespectingCorrection(currentText);
   let destFromText = destFromDestination;
 
   if (originFromText && destFromText) {
@@ -231,6 +264,20 @@ export function mergeEntitiesWithPriorState(
   if (explicitDate) {
     result.departureDate = explicitDate.normalizedDate;
     result.travelMonth = explicitDate.travelMonth;
+  }
+
+  // Sprint 6.5 — Part 9/10: relative-date phrases ("next month", "next week", "this weekend", "first
+  // week of October", "end of September", ...) — this engine (the deterministic no-LLM-configured path)
+  // previously only understood a literal month NAME or a fully explicit date, so "I want to travel next
+  // month" left `travelMonth` null forever and the traveler was asked the same "which month?" question on
+  // every subsequent turn no matter what else they supplied. Only applied when nothing more specific
+  // (an explicit month name or full date, both checked above) was already found this turn, and never when
+  // the message is actually answering an origin/destination question, exactly like the plain month-name
+  // branch above.
+  if (!month && !explicitDate && !askingOrigin && !askingDestination) {
+    const relative = interpretDatePhrase(currentText);
+    if (relative.normalizedDate) result.departureDate = relative.normalizedDate;
+    if (relative.travelMonth) result.travelMonth = relative.travelMonth;
   }
 
   const durationDays = extractDurationDays(currentText);

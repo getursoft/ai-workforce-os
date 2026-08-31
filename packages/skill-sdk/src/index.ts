@@ -25,6 +25,7 @@ export type {
   SkillCapabilities,
   ObjectReadInput,
   AiCapabilityInput,
+  AiCapabilityPurpose,
   AiCapabilityResult
 } from "./types/context.js";
 

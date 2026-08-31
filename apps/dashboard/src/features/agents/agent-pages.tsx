@@ -1,14 +1,23 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Bot, FileText, Paperclip, Send, Sparkles, User, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AccessGate, Can } from "../admin/authorization";
 import { useAuth } from "../auth/auth-provider";
-import { Alert, Badge, BackLink, Button, Card, EmptyState, Input, Skeleton } from "../../components/ui";
+import {
+  Alert,
+  Badge,
+  BackLink,
+  Button,
+  Card,
+  EmptyState,
+  Input,
+  Skeleton
+} from "../../components/ui";
 import { ApiError } from "../../lib/api-error";
-import { createAgentApi, type ConversationMessage } from "./agent-api";
+import { createAgentApi, type ConversationMessage, type ReceptionistResult } from "./agent-api";
 import { createPluginApi } from "../plugins/plugin-api";
 import { createTravelApi, TRAVEL_EMPLOYEE_PLUGIN_ID, type TravelStage } from "../travel/travel-api";
 import { parseTravelRecommendation, type ParsedItinerary } from "./itinerary";
@@ -24,14 +33,62 @@ export interface ChatMessage {
     chunkIndex: number;
     score: number;
   }>;
-  attachments?: Array<{
-    type: "PDF_TICKET";
-    bookingId: string;
-    url: string;
-    filename: string;
-  }>;
+  attachments?: Array<
+    | { type: "PDF_TICKET"; bookingId: string; url: string; filename: string }
+    | { type: "CONVERSATION_LINK"; employeeInstallationId: string; conversationId: string; label: string }
+  >;
   /** Names of files the user attached to this message (displayed in the user bubble). */
   fileAttachments?: string[];
+  receptionist?: ReceptionistResult;
+}
+
+export function receptionistFrontDoorError(error: unknown): {
+  title: string;
+  message: string;
+  safeCode: string;
+  requestId?: string;
+} {
+  if (!(error instanceof ApiError))
+    return {
+      title: "Unable to load the workforce front door",
+      message: "The AI Receptionist could not be loaded. Please try again.",
+      safeCode: "UNKNOWN_ERROR"
+    };
+  const common = {
+    safeCode: error.kind === "network" || error.kind === "timeout" ? "API_UNAVAILABLE" : error.code,
+    ...(error.requestId ? { requestId: error.requestId } : {})
+  };
+  if (error.kind === "authentication")
+    return {
+      ...common,
+      title: "Your session has expired",
+      message: "Sign in again to open the AI Receptionist."
+    };
+  if (error.kind === "authorization")
+    return {
+      ...common,
+      title: "AI Receptionist access is restricted",
+      message: "Ask an organization administrator for AI Employee access."
+    };
+  if (error.kind === "network" || error.kind === "timeout")
+    return {
+      ...common,
+      title: "AI service is unavailable",
+      message: "The dashboard could not reach the API. Please retry shortly."
+    };
+  if (error.status === 404)
+    return {
+      ...common,
+      safeCode: "RECEPTIONIST_ENDPOINT_UNAVAILABLE",
+      title: "AI Receptionist service is not available",
+      message: "The workforce front-door API is not registered on the running server."
+    };
+  return {
+    ...common,
+    title: "Unable to load the workforce front door",
+    message:
+      "The AI Receptionist could not be loaded safely. Please retry or contact an administrator."
+  };
 }
 
 /** Maps an installed AI employee's plugin slug to its dedicated dashboard configuration route — every
@@ -58,7 +115,8 @@ export const GREETING_EMPLOYEE_SLUGS: ReadonlySet<string> = new Set([
   "sales-employee",
   "marketing-employee",
   "legal-employee",
-  "customer-support-employee"
+  "customer-support-employee",
+  "receptionist-employee"
 ]);
 
 /** sessionStorage key that remembers the *last* conversation id for one AI employee, purely so the UI
@@ -73,10 +131,11 @@ export function conversationStorageKey(pluginInstallationId: string): string {
  * so there is nothing to offer resuming), or ask the user to explicitly choose between resuming the
  * last conversation and starting a new one. Pure and unit-testable independent of sessionStorage/React. */
 export type ConversationEntryDecision =
-  | { action: "GREET_NEW" }
-  | { action: "ASK_RESUME_OR_NEW"; storedConversationId: string };
+  { action: "GREET_NEW" } | { action: "ASK_RESUME_OR_NEW"; storedConversationId: string };
 
-export function decideConversationEntry(storedConversationId: string | null): ConversationEntryDecision {
+export function decideConversationEntry(
+  storedConversationId: string | null
+): ConversationEntryDecision {
   return storedConversationId
     ? { action: "ASK_RESUME_OR_NEW", storedConversationId }
     : { action: "GREET_NEW" };
@@ -90,7 +149,12 @@ export function toLocalMessages(rows: ConversationMessage[]): ChatMessage[] {
       (row): row is ConversationMessage & { role: "USER" | "ASSISTANT" } =>
         (row.role === "USER" || row.role === "ASSISTANT") && row.content.trim().length > 0
     )
-    .map((row) => ({ role: row.role, content: row.content }));
+    .map((row) => ({
+      role: row.role,
+      content: row.content,
+      ...(row.contentJson?.receptionist ? { receptionist: row.contentJson.receptionist } : {}),
+      ...(row.contentJson?.attachments?.length ? { attachments: row.contentJson.attachments } : {})
+    }));
 }
 
 /** Context-aware input placeholder for the Travel Employee, driven by its onboarding/collection stage and
@@ -120,8 +184,24 @@ export const EMPLOYEE_PLACEHOLDERS: Record<string, string> = {
   "sales-employee": "Ask about a product, request a quote, or book a demo…",
   "marketing-employee": "Plan a campaign, draft content, or summarise performance…",
   "legal-employee": "Draft a reply to a notice, or ask about a response deadline…",
-  "customer-support-employee": "Where is my order, request a refund, or report an issue…"
+  "customer-support-employee": "Where is my order, request a refund, or report an issue…",
+  "receptionist-employee": "Ask Krevia anything…"
 };
+
+export const RECEPTIONIST_PLUGIN_SLUG = "receptionist-employee";
+
+/** Quick-start shortcuts shown on the Receptionist's empty-conversation welcome screen. Each one is
+ *  nothing more than a natural customer message sent through the exact same Receptionist endpoint a typed
+ *  message would use — the routing engine (deterministic scoring, domain-switch detection, identity
+ *  capture) stays fully authoritative and is never bypassed or second-guessed here. */
+export const RECEPTIONIST_QUICK_ACTIONS: ReadonlyArray<{ label: string; message: string }> = [
+  { label: "Plan a trip", message: "I want to plan a trip." },
+  { label: "Apply for leave", message: "I want to apply for leave." },
+  { label: "Review a contract", message: "I need help reviewing a contract." },
+  { label: "Check an invoice", message: "I need help with an invoice." },
+  { label: "IT support", message: "I need help with an IT issue." },
+  { label: "Customer support", message: "I need customer support." }
+];
 
 /** Resolves the composer placeholder for the currently open employee. Travel stays stage-aware (via its
  *  conversation state); every other employee uses its own domain hint. */
@@ -134,7 +214,7 @@ export function employeePlaceholder(
   if (slug === "travel-employee")
     return hasConversation
       ? derivePlaceholder(travelStage, hasKnowledgeSources)
-      : EMPLOYEE_PLACEHOLDERS["travel-employee"] ?? DEFAULT_PLACEHOLDER;
+      : (EMPLOYEE_PLACEHOLDERS["travel-employee"] ?? DEFAULT_PLACEHOLDER);
   return EMPLOYEE_PLACEHOLDERS[slug] ?? "Type your message…";
 }
 
@@ -281,18 +361,74 @@ export function EmployeesPage() {
   );
 }
 
+/** Universal workforce entry point. The active receptionist is discovered from its declared
+ * `workforce.intake` capability by the API, so this page does not encode an installation id. */
+export function ReceptionistEntryPage() {
+  const api = useApi();
+  const frontDoor = useQuery({
+    queryKey: ["receptionist", "front-door"],
+    queryFn: api.receptionistFrontDoor
+  });
+  if (frontDoor.isLoading) return <Skeleton />;
+  if (frontDoor.isError) {
+    const state = receptionistFrontDoorError(frontDoor.error);
+    return (
+      <Alert tone="danger" title={state.title}>
+        {state.message} Safe code: {state.safeCode}.
+        {state.requestId ? ` Request ID: ${state.requestId}.` : ""}
+      </Alert>
+    );
+  }
+  const frontDoorData = frontDoor.data;
+  if (!frontDoorData || !frontDoorData.enabled || !frontDoorData.pluginInstallationId) {
+    const unavailable = {
+      RECEPTIONIST_NOT_INSTALLED: {
+        title: "AI Receptionist is not installed",
+        description: "An organization administrator can install it from AI Employees."
+      },
+      RECEPTIONIST_DISABLED: {
+        title: "AI Receptionist is disabled",
+        description: "An organization administrator can enable the installed Receptionist."
+      },
+      RECEPTIONIST_NOT_CONFIGURED: {
+        title: "AI Receptionist is not the web front door",
+        description: "Enable the default web front-door setting in Receptionist configuration."
+      }
+    }[frontDoorData?.reasonCode ?? "RECEPTIONIST_NOT_INSTALLED"];
+    return <EmptyState title={unavailable.title} description={unavailable.description} />;
+  }
+  return (
+    <EmployeeChatPage
+      employeeId={frontDoorData.pluginInstallationId}
+      displayNameOverride={frontDoorData.displayName}
+    />
+  );
+}
+
 /** Dedicated chat page for a single AI employee (`/ai-employees/[id]`), reached from the "Run" button on
  * the employee grid. Previously the chat rendered inline below the full grid + install sections on the
  * same page, which meant clicking "Run" scrolled a long way down to a chat panel still surrounded by every
  * other employee card — this page shows just that one employee's chat with a Back link, like every other
  * detail route in the dashboard (execution-history/[id], team/[id], etc.). */
-export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
+export function EmployeeChatPage({
+  employeeId,
+  displayNameOverride
+}: {
+  employeeId: string;
+  displayNameOverride?: string;
+}) {
   const api = useApi(),
     travel = useTravelApi(),
     qc = useQueryClient();
   const { client } = useAuth();
+  const searchParams = useSearchParams();
+  const deepLinkedConversationId = searchParams.get("conversationId");
   const q = useQuery({ queryKey: ["agents"], queryFn: api.employees });
-  const employee = q.data?.find((item) => item.id === employeeId) ?? null;
+  const installedEmployee = q.data?.find((item) => item.id === employeeId) ?? null;
+  const employee =
+    installedEmployee && displayNameOverride
+      ? { ...installedEmployee, displayName: displayNameOverride }
+      : installedEmployee;
   // Downloads a ticket PDF chat attachment via an authenticated blob fetch (never a plain <a href>/
   // window.open — the ticket.pdf route requires a bearer token, which a raw link/navigation can't carry).
   const downloadTicketMutation = useMutation({
@@ -332,11 +468,22 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
       const execId = typeof r.executionId === "string" ? r.executionId : "";
       const sources = Array.isArray(r.sources) ? r.sources : [];
       const attachments = Array.isArray(r.attachments) ? r.attachments : [];
+      const receptionist =
+        r.receptionist && typeof r.receptionist === "object"
+          ? (r.receptionist as unknown as ReceptionistResult)
+          : undefined;
       setConversationId(convId);
       if (resp) {
         setMessages((current) => [
           ...current,
-          { role: "ASSISTANT", content: resp, executionId: execId, sources, attachments }
+          {
+            role: "ASSISTANT",
+            content: resp,
+            executionId: execId,
+            sources,
+            attachments,
+            ...(receptionist ? { receptionist } : {})
+          }
         ]);
       }
       if (convId) {
@@ -384,11 +531,21 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
     setMessages([]);
     setConversationId(undefined);
     setResumeChoice(null);
+    // A conversation link from another employee's routing handoff (see agent.service.ts's
+    // ROUTING_HANDOFF_FAILED/CONVERSATION_LINK path) always wins over the stored-conversation prompt below —
+    // the user explicitly navigated here to continue a specific conversation, so there's no ambiguity to ask
+    // about.
+    if (deepLinkedConversationId) {
+      resumeConversation(employee.id, deepLinkedConversationId);
+      return;
+    }
     // The Travel Employee and every shared-engine domain employee (HR, Finance, IT, Sales, Marketing,
     // Legal, Customer Support) proactively greet — every other AI employee keeps starting blank until
     // the user sends the first message, unchanged from before.
     if (!GREETING_EMPLOYEE_SLUGS.has(employee.slug)) return;
-    const decision = decideConversationEntry(sessionStorage.getItem(conversationStorageKey(employee.id)));
+    const decision = decideConversationEntry(
+      sessionStorage.getItem(conversationStorageKey(employee.id))
+    );
     // A stored conversation id is never auto-resumed: resuming silently reuses whatever customer context
     // (name, trip state) that conversation had, which is exactly the isolation bug this guards against.
     // The user must explicitly choose — see the resume/new-conversation prompt in the render below.
@@ -397,7 +554,9 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
       return;
     }
     startNewConversation(employee.id);
-    // `run`/`api` intentionally excluded: only the employee identity should re-trigger this effect.
+    // `run`/`api`/`resumeConversation`/`deepLinkedConversationId` intentionally excluded: only the employee
+    // identity should re-trigger this effect (a conversationId query param never changes without a fresh
+    // navigation, which remounts the page anyway).
   }, [employee?.id]);
   const travelStateQuery = useQuery({
     queryKey: ["travel-state", employee?.id, conversationId],
@@ -416,7 +575,9 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
     if (!node) return;
     node.scrollTop = node.scrollHeight;
   }, [messages, run.isPending]);
-  const lastAssistantMessage = [...messages].reverse().find((message) => message.role === "ASSISTANT");
+  const lastAssistantMessage = [...messages]
+    .reverse()
+    .find((message) => message.role === "ASSISTANT");
   const placeholder = employee
     ? employeePlaceholder(
         employee.slug,
@@ -425,6 +586,32 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
         Boolean(conversationId)
       )
     : "Type your message…";
+  const isReceptionist = employee?.slug === RECEPTIONIST_PLUGIN_SLUG;
+  // The Receptionist's own front-door welcome screen — shown until the customer has actually said
+  // something. The proactive greeting (an ASSISTANT-only turn) does not count: it arrives automatically
+  // on mount and would otherwise make the welcome screen flash away before anyone typed anything.
+  const hasCustomerMessage = messages.some((message) => message.role === "USER");
+  const showReceptionistWelcome = isReceptionist && !hasCustomerMessage;
+  // Driven entirely by the backend's own handoff payload on the most recent assistant turn — never
+  // inferred from message text — so this only ever reflects what ReceptionistService actually decided.
+  const activeHandoff = isReceptionist
+    ? [...messages].reverse().find((message) => message.role === "ASSISTANT" && message.receptionist?.handoff)
+        ?.receptionist?.handoff
+    : undefined;
+  // Sends a plain text message through the exact same run.mutate() call the composer form uses — the
+  // single path every message (typed or a quick-action shortcut) goes through, so there is only ever one
+  // way a message reaches the Receptionist API.
+  const sendMessage = (message: string) => {
+    if (!employee || run.isPending) return;
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    setMessages((current) => [...current, { role: "USER", content: trimmed }]);
+    run.mutate({
+      pluginInstallationId: employee.id,
+      ...(conversationId ? { conversationId } : {}),
+      message: trimmed
+    });
+  };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!employee || run.isPending) return;
@@ -432,45 +619,44 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
       message = String(new FormData(form).get("message") ?? "").trim();
     const files = pendingFiles;
     if (!message && files.length === 0) return;
+    if (files.length === 0) {
+      sendMessage(message);
+      form.reset();
+      return;
+    }
     setMessages((current) => [
       ...current,
       {
         role: "USER",
-        content: message || (files.length ? `Attached ${files.length} file(s)` : ""),
+        content: message || `Attached ${files.length} file(s)`,
         fileAttachments: files.map((file) => file.name)
       }
     ]);
-    if (files.length) {
-      setPendingFiles([]);
-      // Upload each file, then send the message referencing the uploaded attachment ids.
-      void (async () => {
-        try {
-          const uploaded = [];
-          for (const file of files) {
-            const record = await uploadAttachment.mutateAsync(file);
-            uploaded.push(record.id);
-          }
-          run.mutate({
-            pluginInstallationId: employee.id,
-            ...(conversationId ? { conversationId } : {}),
-            message,
-            ...(uploaded.length ? { attachmentIds: uploaded } : {})
-          });
-        } catch {
-          setMessages((current) => [
-            ...current,
-            { role: "ASSISTANT", content: "I couldn't upload that file. Please try a PDF, Word, text, or image file." }
-          ]);
+    setPendingFiles([]);
+    // Upload each file, then send the message referencing the uploaded attachment ids.
+    void (async () => {
+      try {
+        const uploaded = [];
+        for (const file of files) {
+          const record = await uploadAttachment.mutateAsync(file);
+          uploaded.push(record.id);
         }
-      })();
-      form.reset();
-      return;
-    }
-    run.mutate({
-      pluginInstallationId: employee.id,
-      ...(conversationId ? { conversationId } : {}),
-      message
-    });
+        run.mutate({
+          pluginInstallationId: employee.id,
+          ...(conversationId ? { conversationId } : {}),
+          message,
+          ...(uploaded.length ? { attachmentIds: uploaded } : {})
+        });
+      } catch {
+        setMessages((current) => [
+          ...current,
+          {
+            role: "ASSISTANT",
+            content: "I couldn't upload that file. Please try a PDF, Word, text, or image file."
+          }
+        ]);
+      }
+    })();
     form.reset();
   };
   const onSelectFiles = (files: FileList | null) => {
@@ -500,11 +686,16 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
         ) : resumeChoice ? (
           <Card>
             <h2>Chat with {employee.displayName}</h2>
-            <p>You have a previous conversation with {employee.displayName}. Resume it, or start fresh?</p>
+            <p>
+              You have a previous conversation with {employee.displayName}. Resume it, or start
+              fresh?
+            </p>
             <Button onClick={() => resumeConversation(employee.id, resumeChoice)}>
               Resume previous conversation
             </Button>{" "}
-            <Button onClick={() => startNewConversation(employee.id)}>Start new conversation</Button>
+            <Button onClick={() => startNewConversation(employee.id)}>
+              Start new conversation
+            </Button>
           </Card>
         ) : (
           <Card className="chat-panel">
@@ -515,11 +706,51 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
               <div className="chat-panel__title">
                 <h2>{employee.displayName}</h2>
                 <span className="chat-panel__status">
-                  {employee.runtimeReady ? "Runtime ready" : "Limited — memory tools disabled"}
+                  {employee.runtimeReady
+                    ? isReceptionist
+                      ? "AI Receptionist ready"
+                      : "Runtime ready"
+                    : isReceptionist
+                      ? "Getting ready…"
+                      : "Limited — memory tools disabled"}
                 </span>
               </div>
+              {activeHandoff ? (
+                <div className="chat-panel__active-employee">
+                  <span className="chat-panel__active-employee-label">Currently helping</span>
+                  <span className="chat-panel__active-employee-name">
+                    {activeHandoff.targetDisplayName}
+                  </span>
+                </div>
+              ) : null}
             </div>
-            <div className="chat-thread" aria-live="polite" ref={chatThreadRef}>
+            {showReceptionistWelcome ? (
+              <div className="chat-welcome">
+                <div className="chat-welcome__icon" aria-hidden="true">
+                  <Sparkles size={26} />
+                </div>
+                <h3 className="chat-welcome__title">Hi, I&rsquo;m Krevia</h3>
+                <p className="chat-welcome__subtitle">Your AI Workforce Receptionist</p>
+                <p className="chat-welcome__hint">
+                  Tell me what you need help with and I&rsquo;ll connect you with the right AI
+                  employee.
+                </p>
+                <div className="chat-welcome__actions" role="group" aria-label="Quick actions">
+                  {RECEPTIONIST_QUICK_ACTIONS.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      className="chat-quick-action focus-ring"
+                      onClick={() => sendMessage(action.message)}
+                      disabled={run.isPending}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="chat-thread" aria-live="polite" ref={chatThreadRef}>
               {messages
                 .filter((message) => message.content?.trim()?.length > 0)
                 .map((message, index) => {
@@ -534,7 +765,21 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
                         {isUser ? <User size={15} /> : <Bot size={15} />}
                       </div>
                       <div className="chat-bubble__content">
-                        <span className="chat-bubble__author">{isUser ? "You" : employee.displayName}</span>
+                        {!isUser && message.receptionist?.handoff ? (
+                          <div className="chat-handoff-indicator" role="status">
+                            <span className="chat-handoff-indicator__label">Connected to</span>
+                            <span className="chat-handoff-indicator__name">
+                              {message.receptionist.handoff.targetDisplayName}
+                            </span>
+                          </div>
+                        ) : null}
+                        <span className="chat-bubble__author">
+                          {isUser
+                            ? "You"
+                            : message.receptionist?.handoff?.displayMode === "TRANSPARENT_HANDOFF"
+                              ? message.receptionist.handoff.targetDisplayName
+                              : employee.displayName}
+                        </span>
                         {itinerary ? (
                           <TravelItineraryCards itinerary={itinerary} />
                         ) : (
@@ -563,26 +808,38 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
                         ) : null}
                         {message.attachments?.length ? (
                           <div className="chat-attachments">
-                            {message.attachments.map((attachment) => (
-                              <Button
-                                key={attachment.bookingId}
-                                variant="ghost"
-                                loading={
-                                  downloadTicketMutation.isPending &&
-                                  downloadTicketMutation.variables?.url === attachment.url
-                                }
-                                onClick={() => downloadTicketMutation.mutate(attachment)}
-                              >
-                                <FileText size={14} /> Download Ticket PDF
-                              </Button>
-                            ))}
+                            {message.attachments.map((attachment) =>
+                              attachment.type === "CONVERSATION_LINK" ? (
+                                <Link
+                                  key={attachment.conversationId}
+                                  href={`/ai-employees/${attachment.employeeInstallationId}?conversationId=${attachment.conversationId}`}
+                                  className="ui-button ui-button--ghost"
+                                >
+                                  {attachment.label}
+                                </Link>
+                              ) : (
+                                <Button
+                                  key={attachment.bookingId}
+                                  variant="ghost"
+                                  loading={
+                                    downloadTicketMutation.isPending &&
+                                    downloadTicketMutation.variables?.url === attachment.url
+                                  }
+                                  onClick={() => downloadTicketMutation.mutate(attachment)}
+                                >
+                                  <FileText size={14} /> Download Ticket PDF
+                                </Button>
+                              )
+                            )}
                           </div>
                         ) : null}
                         {message.executionId ? (
                           <details className="chat-debug">
                             <summary>Debug</summary>
                             <div>
-                              <Link href={`/execution-history/${message.executionId}`}>View execution</Link>
+                              <Link href={`/execution-history/${message.executionId}`}>
+                                View execution
+                              </Link>
                             </div>
                           </details>
                         ) : null}
@@ -590,7 +847,8 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
                     </article>
                   );
                 })}
-            </div>
+              </div>
+            )}
             {run.isError ? (
               <Alert tone="danger" title="Agent execution failed">
                 {agentRunErrorMessage(run.error)}
@@ -614,7 +872,10 @@ export function EmployeeChatPage({ employeeId }: { employeeId: string }) {
                 ))}
               </div>
             ) : null}
-            <form onSubmit={submit} className="chat-composer">
+            <form
+              onSubmit={submit}
+              className={`chat-composer${isReceptionist ? " chat-composer--receptionist" : ""}`}
+            >
               <label className="chat-composer__attach" aria-label="Attach a file">
                 <Paperclip size={18} />
                 <input

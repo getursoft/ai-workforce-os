@@ -112,6 +112,7 @@ export class EntityExtractionSkill implements SkillAdapter<EntityExtractionInput
           .map(([field, type]) => `- ${field} (${type})`)
           .join("\n");
         const result = await context.capabilities.ai.complete({
+          purpose: "EXTRACTION",
           messages: [
             {
               role: "system",

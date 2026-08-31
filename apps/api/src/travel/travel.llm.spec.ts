@@ -420,7 +420,7 @@ describe("TravelEmployeeLlmOrchestrator", () => {
       tools: [{ name: "travel.search_flights", description: "", inputSchema: {} }]
     });
     expect(offer.toolCalls).toEqual([]);
-    expect(offer.content).toMatch(/would you like me to look up flight and hotel options/i);
+    expect(offer.content).toMatch(/look up flight and hotel options/i);
     expect(orchestrator.pendingAction).toBe("SEARCH_OPTIONS");
 
     const real2 = fakeProvider({ extraction: {}, intent: "confirm_plan" });
@@ -450,6 +450,44 @@ describe("TravelEmployeeLlmOrchestrator", () => {
     const result = await orchestrator.complete({ messages: [{ role: "user", content: "hi" }] });
     expect(result.content).toBeTruthy();
     expect(orchestrator.lastEntities).toEqual({ ...EMPTY_TRAVEL_ENTITIES, customerName: "Alex" });
+    // Regression: the configured welcome message has its own "may I know your name?" question baked into
+    // its literal text (see DEFAULT_TRAVEL_EMPLOYEE_CONFIG.welcomeMessage) — the fallback path must not
+    // recite it verbatim when the name (Alex, seeded via the constructor — e.g. a Receptionist handoff)
+    // was already known before this turn.
+    expect(result.content).not.toContain(config.welcomeMessage);
+  });
+
+  it("does not recite the configured welcome message (which re-asks for the name) when a Receptionist handoff already seeded the customer's name, for a fully generic first message", async () => {
+    const real = fakeProvider({ extraction: {}, reply: "Sure — where would you like to go, and when?" });
+    // Mirrors exactly how agent.service.ts seeds a brand-new Travel conversation reached via
+    // ReceptionistService.startHandoff: no persisted state yet, only a name carried over in the handoff.
+    const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, {
+      ...EMPTY_TRAVEL_ENTITIES,
+      customerName: "Krishna"
+    });
+    await orchestrator.complete({
+      messages: [{ role: "user", content: "I want to plan a trip." }]
+    });
+    // call[0] is the entity-extraction call, call[1] is the reply-generation call whose system prompt
+    // this bug lived in (see buildGenerationSystemPrompt).
+    const generationPrompt = real.calls[1]?.messages[0]?.content ?? "";
+    expect(generationPrompt).not.toContain(config.welcomeMessage);
+    expect(generationPrompt.toLowerCase()).not.toContain('begin the reply with: "hi');
+    expect(generationPrompt).toMatch(/name is already known/i);
+    expect(generationPrompt).toMatch(/do not ask for their name/i);
+  });
+
+  it("direct-chat regression: still asks for the name on a genuinely fresh, unknown-identity conversation (never reaches the reply-generation prompt at all — the deterministic COLLECT_NAME gate answers first)", async () => {
+    const real = fakeProvider({ extraction: {}, reply: "Hi! Where would you like to go?" });
+    const orchestrator = new TravelEmployeeLlmOrchestrator(real, config, EMPTY_TRAVEL_ENTITIES);
+    const result = await orchestrator.complete({
+      messages: [{ role: "user", content: "I want to plan a trip." }]
+    });
+    expect(result.content).toMatch(/may I know your name/i);
+    expect(orchestrator.lastStage).toBe("COLLECT_NAME");
+    // Only the entity-extraction call happens — the name gate answers deterministically, without ever
+    // reaching buildGenerationSystemPrompt/the real LLM a second time.
+    expect(real.calls).toHaveLength(1);
   });
 
   it("continues a flights -> hotels -> recommendation tool chain using the merged entities", async () => {
@@ -2312,7 +2350,12 @@ describe("Stage 9E: TravelRuntimeExecutionMode for the BELOW_MINIMUM budget trig
     expect(orchestrator.lastWorkflowSignal).toBeNull();
   });
 
-  it("PLATFORM_MANAGED additionally emits a typed START_TRIP_SUBMISSION signal, with the identical user-facing message and legacy memory transition (self-healing fallback if the signal dispatch itself ever fails)", async () => {
+  it("PLATFORM_MANAGED additionally emits a typed START_TRIP_SUBMISSION signal, with the identical user-facing message and legacy memory transition, once the budget-override offer is declined (self-healing fallback if the signal dispatch itself ever fails)", async () => {
+    // Fix (Travel Booking Closure Pass): with a complete trip, PLATFORM_MANAGED now offers the priced
+    // budget-override question FIRST (see handleBelowMinimumFeasibility) — this test's original single-turn
+    // comparison now happens on the DECLINE turn, which is what actually reaches the legacy lead-capture
+    // transition/signal this test is about. STANDALONE_COMPATIBILITY is unaffected (no override gate),
+    // still reaching the same state in one turn — see its own regression test above.
     const real = fakeProvider({ extraction: {}, intent: "provide_trip_details" });
     const standalone = new TravelEmployeeLlmOrchestrator(
       real,
@@ -2331,11 +2374,25 @@ describe("Stage 9E: TravelRuntimeExecutionMode for the BELOW_MINIMUM budget trig
       { ...EMPTY_TRAVEL_CONVERSATION_MEMORY, budgetMode: "USER_DEFINED" },
       "PLATFORM_MANAGED"
     );
-    const platformManagedResult = await platformManaged.complete({
+    const offerResult = await platformManaged.complete({
       messages: [{ role: "user", content: "can you check this" }]
     });
+    expect(offerResult.content).toMatch(/would you like me to continue with options above your budget/i);
+    expect(platformManaged.lastWorkflowSignal).toBeNull();
 
-    expect(platformManagedResult.content).toBe(standaloneResult.content);
+    const platformManagedResult = await platformManaged.complete({
+      messages: [
+        { role: "user", content: "can you check this" },
+        { role: "assistant", content: offerResult.content },
+        { role: "user", content: "no thanks" }
+      ]
+    });
+
+    // Content is no longer byte-identical to the standalone single-turn flow (the decline reply doesn't
+    // repeat the below-minimum explanation already shown in the override-question turn) — both are the
+    // same underlying "please share a mobile number" ask, just reached over a different number of turns.
+    expect(standaloneResult.content).toMatch(/mobile number/i);
+    expect(platformManagedResult.content).toMatch(/mobile number/i);
     expect(platformManaged.completionStage).toBe(standalone.completionStage);
     expect(platformManaged.pendingInputAction).toBe(standalone.pendingInputAction);
     expect(standalone.lastWorkflowSignal).toBeNull();
@@ -2353,7 +2410,16 @@ describe("Stage 9E: TravelRuntimeExecutionMode for the BELOW_MINIMUM budget trig
       { ...EMPTY_TRAVEL_CONVERSATION_MEMORY, budgetMode: "USER_DEFINED" },
       "PLATFORM_MANAGED"
     );
-    await orchestrator.complete({ messages: [{ role: "user", content: "can you check this" }] });
+    const offer = await orchestrator.complete({ messages: [{ role: "user", content: "can you check this" }] });
+    expect(orchestrator.lastWorkflowSignal).toBeNull();
+
+    await orchestrator.complete({
+      messages: [
+        { role: "user", content: "can you check this" },
+        { role: "assistant", content: offer.content },
+        { role: "user", content: "no thanks" }
+      ]
+    });
     expect(orchestrator.lastWorkflowSignal).not.toBeNull();
 
     orchestrator.pendingInputAction = null;
@@ -2375,12 +2441,21 @@ describe("Stage 9E: TravelRuntimeExecutionMode for the BELOW_MINIMUM budget trig
       { ...EMPTY_TRAVEL_CONVERSATION_MEMORY, budgetMode: "USER_DEFINED" },
       "PLATFORM_MANAGED"
     );
-    const result = await platformManaged.complete({
+    const offer = await platformManaged.complete({
       messages: [{ role: "user", content: "can you check this" }],
       tools: [{ name: "travel.crm.create_lead", description: "", inputSchema: {} }]
     });
+    expect(offer.toolCalls).toEqual([]);
+
+    const result = await platformManaged.complete({
+      messages: [
+        { role: "user", content: "can you check this" },
+        { role: "assistant", content: offer.content },
+        { role: "user", content: "no thanks" }
+      ],
+      tools: [{ name: "travel.crm.create_lead", description: "", inputSchema: {} }]
+    });
     expect(result.toolCalls).toEqual([]);
-    expect(result.content).toMatch(/minimum budget/i);
     expect(result.content).toMatch(/mobile number/i);
     expect(platformManaged.lastWorkflowSignal).toEqual({
       signalType: "START_TRIP_SUBMISSION",
@@ -5187,7 +5262,7 @@ describe("TravelEmployeeLlmOrchestrator: onboarding (COLLECT_NAME gate)", () => 
     expect(orchestrator.lastEntities.customerName).toBe("Krishna");
     expect(orchestrator.lastStage).toBe("DISCOVER_INTENT");
     expect(result.content).toMatch(/krishna/i);
-    expect(result.content).toMatch(/how may i help you today/i);
+    expect(result.content).toMatch(/what can i help you with/i);
     expect(result.content).toMatch(/plan a trip/i);
     expect(result.content).toMatch(/build an itinerary/i);
     expect(result.content).toMatch(/estimate costs/i);

@@ -76,6 +76,69 @@ export class ManifestValidator {
       else if (new Set(value.capabilities).size !== value.capabilities.length)
         errors.push("capabilities must be unique");
     }
+    if (value.routing !== undefined) {
+      if (!isRecord(value.routing)) errors.push("routing must be an object");
+      else {
+        const routing = value.routing;
+        const stringFields = ["employeeKey", "employeeType", "displayName", "summary"];
+        const requiredArrayFields = [
+          "domains",
+          "capabilities",
+          "intents",
+          "examples",
+          "aliases",
+          "keywords"
+        ];
+        const optionalArrayFields = [
+          "negativeCapabilities",
+          "supportedActions",
+          "channelEligibility"
+        ];
+        const arrayFields = [...requiredArrayFields, ...optionalArrayFields];
+        const requiredRouting = ["employeeKey", ...requiredArrayFields];
+        for (const key of requiredRouting)
+          if (!(key in routing)) errors.push(`routing.${key} is required`);
+        for (const key of stringFields)
+          if (
+            routing[key] !== undefined &&
+            (typeof routing[key] !== "string" || !routing[key].trim())
+          )
+            errors.push(`routing.${key} must be a non-blank string`);
+        for (const key of arrayFields) {
+          const values = routing[key];
+          if (values === undefined && optionalArrayFields.includes(key)) continue;
+          if (
+            !Array.isArray(values) ||
+            values.some((item) => typeof item !== "string" || !item.trim())
+          )
+            errors.push(`routing.${key} must contain non-blank strings`);
+          else if (new Set(values).size !== values.length)
+            errors.push(`routing.${key} must be unique`);
+        }
+        if (
+          Array.isArray(routing.channelEligibility) &&
+          routing.channelEligibility.some(
+            (channel) => !["WEB", "WHATSAPP", "VOICE"].includes(channel)
+          )
+        )
+          errors.push("routing.channelEligibility contains an unsupported channel");
+        for (const key of ["delegationEnabled", "enabled"])
+          if (routing[key] !== undefined && typeof routing[key] !== "boolean")
+            errors.push(`routing.${key} must be boolean`);
+        if (routing.priority !== undefined && !Number.isInteger(routing.priority))
+          errors.push("routing.priority must be an integer");
+        const allowedRouting = new Set([
+          ...stringFields,
+          ...arrayFields,
+          "delegationEnabled",
+          "priority",
+          "enabled"
+        ]);
+        for (const key of Object.keys(routing))
+          if (!allowedRouting.has(key) || forbidden.has(key))
+            errors.push(`unsupported routing field: ${key}`);
+      }
+    }
     if (!Array.isArray(value.tools)) errors.push("tools must be an array");
     else {
       const names: string[] = [];
@@ -92,7 +155,7 @@ export class ManifestValidator {
       }
       if (new Set(names).size !== names.length) errors.push("tool names must be unique");
     }
-    const allowed = new Set([...required, "configSchema", "capabilities"]);
+    const allowed = new Set([...required, "configSchema", "capabilities", "routing"]);
     for (const key of Object.keys(value))
       if (!allowed.has(key) || forbidden.has(key))
         errors.push(`unsupported manifest field: ${key}`);

@@ -140,6 +140,12 @@ suite("Travel contact input routing through POST /api/v1/agents/run", () => {
     );
     expect(below.body.response).toMatch(/mobile number/i);
 
+    // Fix (Travel Booking Closure Pass): with a complete trip, BELOW_MINIMUM now offers the priced
+    // budget-override question first (see handleBelowMinimumFeasibility) — decline it to reach the same
+    // AWAITING_LEAD_CONTACT state this test was originally written against in one turn.
+    const decline = await turn("no thanks", conversationId);
+    expect(decline.body.response).toMatch(/mobile number/i);
+
     const thanks = await turn("okay thank you", conversationId);
     expect(thanks.body.response).toMatch(/whenever you're ready/i);
     expect(thanks.body.response).not.toMatch(/doesn't look like a valid mobile/i);
@@ -240,6 +246,12 @@ suite("Travel contact input routing through POST /api/v1/agents/run", () => {
       conversationId
     );
     expect(below.body.response).toMatch(/mobile number/i);
+
+    // Fix (Travel Booking Closure Pass): decline the priced budget-override question first — see the
+    // sibling test above for why this is now a required extra turn before TRIP_SUBMISSION exists at all.
+    const decline = await turn("no thanks", conversationId);
+    expect(decline.body.response).toMatch(/mobile number/i);
+
     const beforeCorrection = await prisma.workflowExecution.findFirstOrThrow({
       where: { conversationId, workflowType: "TRIP_SUBMISSION" }
     });

@@ -102,21 +102,24 @@ export class OpenAiCompatibleProvider implements AiProvider {
       toolNameMap(request.tools ?? [])
     );
     // Structured provider timing log — no secrets, no prompts, no customer data
-    Logger.log({
-      event: "AI_PROVIDER_CALL",
-      model,
-      provider: this.settings.providerType,
-      serialiseMs,
-      bodyBytes,
-      fetchMs,
-      parseMs,
-      totalMs,
-      statusCode,
-      inputTokens: result.usage?.inputTokens,
-      outputTokens: result.usage?.outputTokens,
-      toolCount: request.tools?.length ?? 0,
-      messageCount: request.messages.length
-    }, OpenAiCompatibleProvider.name);
+    Logger.log(
+      {
+        event: "AI_PROVIDER_CALL",
+        model,
+        provider: this.settings.providerType,
+        serialiseMs,
+        bodyBytes,
+        fetchMs,
+        parseMs,
+        totalMs,
+        statusCode,
+        inputTokens: result.usage?.inputTokens,
+        outputTokens: result.usage?.outputTokens,
+        toolCount: request.tools?.length ?? 0,
+        messageCount: request.messages.length
+      },
+      OpenAiCompatibleProvider.name
+    );
     return result;
   }
 }

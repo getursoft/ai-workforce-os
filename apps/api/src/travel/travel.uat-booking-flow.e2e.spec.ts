@@ -101,19 +101,19 @@ suite("Travel Employee: end-to-end runtime UAT of the failed booking-flow conver
     expect(r1.response).toMatch(/Option 1 — Value/);
     expect(r1.response).toMatch(/Option 2 — Recommended/);
     expect(r1.response).toMatch(/Option 3 — Premium/);
-    expect(r1.response).toMatch(/Please select Option 1, Option 2 or Option 3\./);
+    expect(r1.response).toMatch(/value, recommended, or premium/i);
 
     const r2 = await chat("Book my flight");
-    expect(r2.response).toMatch(/select option 1, option 2 or option 3/i);
+    expect(r2.response).toMatch(/value, recommended, or premium/i);
     expect(r2.response).not.toMatch(/Option 1 — Value/);
   });
 
   it("defects 4/5: selecting Option 2 asks for every traveller's name/age/gender, then shows a final confirmation summary; an explicit 'Confirm booking' immediately books and tickets the trip (customer confirmation IS the approval — never a separate manual approval step)", async () => {
     const r1 = await chat("Option 2");
-    expect(r1.response).toMatch(/full name, age, and gender for each traveller \(3 total\)/);
+    expect(r1.response).toMatch(/each traveller's full name, age and gender/i);
 
     const r2 = await chat("1. Krishna Pandey, 34, Male; 2. Rekha Pandey, 31, Female; 3. Aarav Pandey, 6, Male");
-    expect(r2.response).toMatch(/Where should I send your ticket/);
+    expect(r2.response).toMatch(/would you like the ticket here in chat, by email, or on WhatsApp/i);
 
     const r2b = await chat("krishna@example.com");
     expect(r2b.response).toMatch(/Please confirm your simulated booking/);
@@ -123,6 +123,41 @@ suite("Travel Employee: end-to-end runtime UAT of the failed booking-flow conver
     const r3 = await chat("Confirm booking");
     expect(r3.response).toMatch(/booking is confirmed/i);
     expect(r3.response).toMatch(/PNR/);
+    // Defect 2: the booking PDF must be surfaced in the SAME turn that reports the booking as confirmed —
+    // not left in storage with only a PNR/reference mentioned in text.
+    expect(r3.attachments).toBeDefined();
+    expect(r3.attachments?.[0]).toMatchObject({
+      type: "PDF_TICKET",
+      bookingId: expect.any(String),
+      url: expect.stringMatching(/^\/travel\/bookings\/.+\/ticket\.pdf$/)
+    });
+  });
+
+  it("defect 3 (post-booking retrieval): 'share the pdf' after booking retrieves the SAME existing booking (never restarts recommendations, never creates a second booking)", async () => {
+    const bookingsBefore = await request(app.getHttpServer())
+      .get(`/api/v1/travel/bookings?organizationId=${organizationId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(bookingsBefore.body.items.length).toBe(1);
+    const existing = bookingsBefore.body.items[0];
+
+    const r1 = await chat("share the pdf");
+    // Must never fall back into trip recommendation/planning — the original defect.
+    expect(r1.response).not.toMatch(/Option 1 — Value/);
+    expect(r1.response).not.toMatch(/where would you like to travel/i);
+    expect(r1.attachments).toBeDefined();
+    expect(r1.attachments?.[0]).toMatchObject({ type: "PDF_TICKET", bookingId: existing.id });
+
+    // Idempotency: asking again produces the exact same booking reference/PNR and does not mint a new one.
+    const r2 = await chat("send my pdf again please");
+    expect(r2.attachments?.[0]).toMatchObject({ bookingId: existing.id });
+
+    const bookingsAfter = await request(app.getHttpServer())
+      .get(`/api/v1/travel/bookings?organizationId=${organizationId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+    expect(bookingsAfter.body.items.length).toBe(1);
+    expect(bookingsAfter.body.items[0].providerPnr).toBe(existing.providerPnr);
   });
 
   it("defect 6: a TravelBooking record now exists, already ticketed in the same turn as 'Confirm booking' (created via the real booking/approval engine, not a duplicate system)", async () => {

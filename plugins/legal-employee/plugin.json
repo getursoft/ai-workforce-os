@@ -6,10 +6,82 @@
   "description": "AI legal document employee. Reads incoming legal and regulatory notifications and drafts structured replies ready for professional review and filing.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["legal.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "legal.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "legal.create_notice", "description": "Persist a legal notice record after the client consents and shares a contact number" },
-    { "name": "legal.escalate", "description": "Escalate the conversation to a licensed CA or advocate" }
-  ]
+    {
+      "name": "legal.create_notice",
+      "description": "Persist a legal notice record after the client consents and shares a contact number"
+    },
+    {
+      "name": "legal.escalate",
+      "description": "Escalate the conversation to a licensed CA or advocate"
+    }
+  ],
+  "routing": {
+    "employeeKey": "legal-employee",
+    "employeeType": "LEGAL",
+    "displayName": "Legal Employee",
+    "summary": "Handles legal and regulatory notices, contract questions, and compliance matters.",
+    "domains": [
+      "legal",
+      "compliance",
+      "contracts"
+    ],
+    "capabilities": [
+      "legal.chat",
+      "legal.notice",
+      "legal.contract"
+    ],
+    "intents": [
+      "LEGAL_NOTICE_QUESTION",
+      "CONTRACT_REVIEW",
+      "COMPLIANCE_QUESTION",
+      "GST_NOTICE"
+    ],
+    "examples": [
+      "I received a GST notice",
+      "Can you review this contract?",
+      "Is this compliant with regulations?"
+    ],
+    "aliases": [
+      "Legal",
+      "Legal team",
+      "Advocate"
+    ],
+    "keywords": [
+      "legal",
+      "contract",
+      "contract review",
+      "employment contract",
+      "agreement",
+      "notice",
+      "compliance",
+      "regulatory",
+      "gst",
+      "liability",
+      "clause",
+      "advocate",
+      "deadline",
+      "terms and conditions",
+      "legal notice",
+      "legal opinion",
+      "gst notice",
+      "income tax",
+      "scrutiny",
+      "show cause",
+      "demand",
+      "assessment",
+      "summon",
+      "filing"
+    ]
+  }
 }

@@ -39,7 +39,8 @@ export function buildSkillCapabilities(
           throw new SkillError("SKILL_ENTITLEMENT_DENIED", "AI capability requires an employee context");
         const { provider } = await services.pluginAi.resolveProvider(
           context.organizationId,
-          context.pluginInstallationId
+          context.pluginInstallationId,
+          input.purpose && input.purpose !== "DEFAULT" ? input.purpose : undefined
         );
         const result = await provider.complete({
           messages: input.messages,

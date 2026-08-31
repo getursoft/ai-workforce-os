@@ -361,6 +361,56 @@ enum SalesLeadStatus {
   @@map("sales_lead_status")
 }
 
+/// Distinguishes a lead generated for Krevia itself (the platform's own acquisition funnel — website
+/// "Book a Demo"/"Contact Us"/etc) from a lead an organization's own AI Employee (e.g. Sales Employee)
+/// generates for THAT organization's own customers. `PlatformLead` rows are always PLATFORM — there is
+/// no code path that ever writes TENANT here (a tenant's own leads live in SalesLead/TravelLead/etc,
+/// each already organization-scoped) — but the value is kept explicit/queryable rather than implied, so
+/// the platform-owner API's "only PLATFORM leads" guarantee is a visible WHERE clause, not a structural
+/// accident, and so a future genuinely-platform-relevant TENANT-linked lead type has somewhere to go
+/// without a schema change.
+enum PlatformLeadScope {
+  PLATFORM
+  TENANT
+
+  @@map("platform_lead_scope")
+}
+
+/// Where a platform lead came from. WEBSITE_DEMO/CONTACT_US map to the public marketing site's actual
+/// forms (see apps/dashboard/src/app/api/demo, /api/contact); CONTACT_SALES/WEBSITE_ENQUIRY are reserved
+/// for future sources that don't exist as real forms yet; OTHER covers anything manually entered.
+enum PlatformLeadSource {
+  WEBSITE_DEMO
+  CONTACT_SALES
+  CONTACT_US
+  WEBSITE_ENQUIRY
+  OTHER
+
+  @@map("platform_lead_source")
+}
+
+/// Coarse categorization derived server-side from `source` at creation time (see
+/// PlatformLeadService.typeForSource) — never client-supplied.
+enum PlatformLeadType {
+  DEMO_REQUEST
+  SALES_ENQUIRY
+  GENERAL_ENQUIRY
+  OTHER
+
+  @@map("platform_lead_type")
+}
+
+enum PlatformLeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  DEMO_SCHEDULED
+  WON
+  LOST
+
+  @@map("platform_lead_status")
+}
+
 enum MarketingCampaignStatus {
   DRAFT
   APPROVED
@@ -468,6 +518,37 @@ enum PluginAiProviderType {
   AZURE_OPENAI
 
   @@map("plugin_ai_provider_type")
+}
+
+enum AiProviderConnectionStatus {
+  ACTIVE
+  DISABLED
+
+  @@map("ai_provider_connection_status")
+}
+
+enum AiProviderHealthStatus {
+  HEALTHY
+  DEGRADED
+  UNHEALTHY
+  UNKNOWN
+
+  @@map("ai_provider_health_status")
+}
+
+/// Stable purpose keys a reusable AiModelProfile can serve — see AiConfigurationResolverService.
+/// Kept intentionally small and platform-defined (not free text) so resolution precedence stays
+/// predictable across every employee/skill/embedding call site.
+enum AiProfilePurpose {
+  DEFAULT
+  ROUTING
+  CONVERSATION
+  REASONING
+  EXTRACTION
+  SUMMARIZATION
+  EMBEDDING
+
+  @@map("ai_profile_purpose")
 }
 
 enum ConnectorAuthType {
@@ -612,6 +693,28 @@ enum ChannelMessageStatus {
   @@map("channel_message_status")
 }
 
+enum ReceptionistHandoffStatus {
+  ROUTING
+  CLARIFYING
+  HANDOFF_ACTIVE
+  WAITING_SPECIALIST
+  RETURNED_TO_RECEPTIONIST
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("receptionist_handoff_status")
+}
+
+enum VoiceSessionStatus {
+  RINGING
+  ACTIVE
+  ENDED
+  FAILED
+
+  @@map("voice_session_status")
+}
+
 /// A lead's progress through human follow-up, set by staff — the Conversation Completion framework itself
 /// only ever creates a lead as NEW; it never advances status on its own.
 enum TravelLeadStatus {
@@ -659,6 +762,10 @@ model Organization {
   agentToolExecutions                   AgentToolExecution[]
   agentMemories                         AgentMemory[]
   pluginAiConfigurations                PluginAiConfiguration[]
+  aiProviderConnections                 AiProviderConnection[]
+  aiModelProfiles                       AiModelProfile[]
+  employeeAiProfileAssignments          EmployeeAiProfileAssignment[]
+  aiDefaults                            OrganizationAiDefaults?
   emailDeliveryConfigurations           EmailDeliveryConfiguration[]
   connectorInstallations                ConnectorInstallation[]
   connectorExecutions                   ConnectorExecution[]
@@ -677,6 +784,8 @@ model Organization {
   workflowExecutions                    WorkflowExecution[]
   approvalRequests                      ApprovalRequest[]
   employeeRoutingProfiles               EmployeeRoutingProfile[]
+  receptionistHandoffs                  ReceptionistHandoff[]
+  voiceSessions                         VoiceSession[]
   usageEvents                           UsageEvent[]
   creditPurchaseOrders                  CreditPurchaseOrder[]
   paymentGatewayConfigurations          PaymentGatewayConfiguration[]
@@ -894,6 +1003,7 @@ model User {
   agentExecutions                              AgentExecution[]
   agentMemories                                AgentMemory[]
   pluginAiConfigurationsUpdated                PluginAiConfiguration[]                @relation("PluginAiConfigurationUpdater")
+  aiProviderConnectionsCreated                 AiProviderConnection[]                 @relation("AiProviderConnectionCreatedBy")
   emailDeliveryConfigurationsUpdated           EmailDeliveryConfiguration[]           @relation("EmailDeliveryConfigurationUpdater")
   creditPurchaseOrdersCreated                  CreditPurchaseOrder[]
   paymentGatewayConfigurationsUpdated          PaymentGatewayConfiguration[]          @relation("PaymentGatewayConfigurationUpdater")
@@ -1046,6 +1156,7 @@ model Plugin {
   agentExecutions                      AgentExecution[]
   agentMemories                        AgentMemory[]
   aiConfiguration                      PluginAiConfiguration?
+  aiProfileAssignments                 EmployeeAiProfileAssignment[]
   emailDeliveryConfiguration           EmailDeliveryConfiguration?
   channelConnections                   ChannelConnection[]
   knowledgeCollections                 KnowledgeCollection[]
@@ -1195,7 +1306,7 @@ model ConversationAttachment {
   createdByUserId      String?      @map("created_by_user_id") @db.Uuid
   originalFilename     String       @map("original_filename") @db.VarChar(255)
   mimeType             String       @map("mime_type") @db.VarChar(160)
-  sizeBytes           Int          @map("size_bytes")
+  sizeBytes            Int          @map("size_bytes")
   storageKey           String       @map("storage_key") @db.VarChar(500)
   /// Sprint 6.1: durable object-storage key written at upload time (when available) so skills can read
   /// the original bytes for structured parsing. Null for legacy uploads that only have in-memory storage.
@@ -1652,6 +1763,117 @@ model PluginAiConfiguration {
   @@index([organizationId, providerType])
   @@index([organizationId, pluginInstallationId])
   @@map("plugin_ai_configurations")
+}
+
+/// Organization-level shared AI provider credential: provider type + base URL/endpoint + ONE
+/// encrypted credential (AES-256-GCM via PluginSecretsEncryptionService, same convention as
+/// PluginAiConfiguration/EmailDeliveryConfiguration). Many AiModelProfile rows reference the same
+/// connection so an API key is stored exactly once per organization instead of copied into every
+/// employee's own PluginAiConfiguration row. Never put a model name here — a connection is
+/// "provider + credentials + endpoint" only; model selection lives on AiModelProfile.
+model AiProviderConnection {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  organizationId          String                     @map("organization_id") @db.Uuid
+  name                    String                     @db.VarChar(120)
+  providerType            PluginAiProviderType       @map("provider_type")
+  baseUrl                 String?                    @map("base_url") @db.VarChar(500)
+  encryptedCredentialJson Json                       @map("encrypted_credential_json")
+  encryptionVersion       Int                        @default(1) @map("encryption_version")
+  status                  AiProviderConnectionStatus @default(ACTIVE)
+  isDefault               Boolean                    @default(false) @map("is_default")
+  metadataJson            Json                       @default("{}") @map("metadata_json")
+  lastHealthCheckAt       DateTime?                  @map("last_health_check_at")
+  lastHealthStatus        AiProviderHealthStatus     @default(UNKNOWN) @map("last_health_status")
+  createdByUserId         String                     @map("created_by_user_id") @db.Uuid
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
+  organization            Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy               User                       @relation("AiProviderConnectionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  modelProfiles           AiModelProfile[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@map("ai_provider_connections")
+}
+
+/// A reusable, named model configuration (model + purpose + generation settings) referencing exactly
+/// one AiProviderConnection. Many profiles may reuse the same connection's credential (e.g. "Standard
+/// GPT-4.1" and "Fast Routing" both pointing at the same "OpenAI Production" connection) — profiles
+/// never carry their own credential.
+model AiModelProfile {
+  id                     String                        @id @default(uuid()) @db.Uuid
+  organizationId         String                        @map("organization_id") @db.Uuid
+  providerConnectionId   String                        @map("provider_connection_id") @db.Uuid
+  name                   String                        @db.VarChar(120)
+  purpose                AiProfilePurpose              @default(DEFAULT)
+  model                  String?                       @db.VarChar(160)
+  embeddingModel         String?                       @map("embedding_model") @db.VarChar(160)
+  temperature            Decimal?                      @db.Decimal(3, 2)
+  maxOutputTokens        Int?                          @map("max_output_tokens")
+  timeoutMs              Int?                          @map("timeout_ms")
+  additionalSettingsJson Json                          @default("{}") @map("additional_settings_json")
+  isDefault              Boolean                       @default(false) @map("is_default")
+  isActive               Boolean                       @default(true) @map("is_active")
+  createdAt              DateTime                      @default(now()) @map("created_at")
+  updatedAt              DateTime                      @updatedAt @map("updated_at")
+  organization           Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  providerConnection     AiProviderConnection          @relation(fields: [providerConnectionId], references: [id], onDelete: Restrict)
+  employeeAssignments    EmployeeAiProfileAssignment[]
+  orgDefaultFor          OrganizationAiDefaults[]      @relation("OrgDefaultProfile")
+  orgRoutingDefaultFor   OrganizationAiDefaults[]      @relation("OrgRoutingProfile")
+  orgReasoningDefaultFor OrganizationAiDefaults[]      @relation("OrgReasoningProfile")
+  orgEmbeddingDefaultFor OrganizationAiDefaults[]      @relation("OrgEmbeddingProfile")
+
+  @@index([organizationId])
+  @@index([organizationId, purpose])
+  @@index([organizationId, purpose, isDefault])
+  @@index([providerConnectionId])
+  @@map("ai_model_profiles")
+}
+
+/// Which model profile a given employee (plugin installation) should use for a purpose — database-
+/// driven, no employee-name conditions anywhere in the resolver. Absence of a row for a given purpose
+/// means "fall through to the organization default for that purpose" (see
+/// AiConfigurationResolverService's precedence). A DEFAULT-purpose row is the employee's fallback
+/// profile for every purpose that has no purpose-specific row of its own.
+model EmployeeAiProfileAssignment {
+  id                   String           @id @default(uuid()) @db.Uuid
+  organizationId       String           @map("organization_id") @db.Uuid
+  pluginInstallationId String           @map("plugin_installation_id") @db.Uuid
+  modelProfileId       String           @map("model_profile_id") @db.Uuid
+  purpose              AiProfilePurpose @default(DEFAULT)
+  createdAt            DateTime         @default(now()) @map("created_at")
+  updatedAt            DateTime         @updatedAt @map("updated_at")
+  organization         Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation   Plugin           @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  modelProfile         AiModelProfile   @relation(fields: [modelProfileId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, pluginInstallationId, purpose])
+  @@index([organizationId])
+  @@index([modelProfileId])
+  @@map("employee_ai_profile_assignments")
+}
+
+/// Organization-wide fallback profiles per purpose — consulted after employee-level assignments and
+/// before legacy PluginAiConfiguration in AiConfigurationResolverService's precedence. Changing
+/// `defaultProfileId` here immediately changes what every employee resolving "Organization Default"
+/// (i.e. with no explicit assignment of their own) uses, with no per-employee re-configuration.
+model OrganizationAiDefaults {
+  id                 String          @id @default(uuid()) @db.Uuid
+  organizationId     String          @unique @map("organization_id") @db.Uuid
+  defaultProfileId   String?         @map("default_profile_id") @db.Uuid
+  routingProfileId   String?         @map("routing_profile_id") @db.Uuid
+  reasoningProfileId String?         @map("reasoning_profile_id") @db.Uuid
+  embeddingProfileId String?         @map("embedding_profile_id") @db.Uuid
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultProfile     AiModelProfile? @relation("OrgDefaultProfile", fields: [defaultProfileId], references: [id], onDelete: SetNull)
+  routingProfile     AiModelProfile? @relation("OrgRoutingProfile", fields: [routingProfileId], references: [id], onDelete: SetNull)
+  reasoningProfile   AiModelProfile? @relation("OrgReasoningProfile", fields: [reasoningProfileId], references: [id], onDelete: SetNull)
+  embeddingProfile   AiModelProfile? @relation("OrgEmbeddingProfile", fields: [embeddingProfileId], references: [id], onDelete: SetNull)
+
+  @@map("organization_ai_defaults")
 }
 
 /**
@@ -2178,14 +2400,18 @@ model EmployeeRoutingProfile {
   id                             String       @id @default(uuid()) @db.Uuid
   organizationId                 String       @map("organization_id") @db.Uuid
   pluginInstallationId           String       @unique @map("plugin_installation_id") @db.Uuid
+  employeeKey                    String?      @map("employee_key") @db.VarChar(120)
   displayName                    String       @map("display_name") @db.VarChar(160)
   employeeType                   String?      @map("employee_type") @db.VarChar(80)
   summary                        String?      @db.VarChar(500)
   supportedDomains               Json         @default("[]") @map("supported_domains")
+  capabilities                   Json         @default("[]")
   supportedIntents               Json         @default("[]") @map("supported_intents")
   exampleQueries                 Json         @default("[]") @map("example_queries")
   excludedIntents                Json         @default("[]") @map("excluded_intents")
   routingKeywords                Json         @default("[]") @map("routing_keywords")
+  channelEligibility             Json         @default("[\"WEB\",\"WHATSAPP\",\"VOICE\"]") @map("channel_eligibility")
+  currentAvailability            String       @default("AVAILABLE") @map("current_availability") @db.VarChar(40)
   enabledForChannelRouting       Boolean      @default(true) @map("enabled_for_channel_routing")
   routingPriority                Int          @default(0) @map("routing_priority")
   // --- Sprint 4.6: collaboration/delegation profile (additive) ---
@@ -2209,6 +2435,65 @@ model EmployeeRoutingProfile {
   @@index([organizationId, enabledForChannelRouting])
   @@index([organizationId, enabledForDelegation])
   @@map("employee_routing_profiles")
+}
+
+/// Durable front-door state. The receptionist and specialist keep separate Conversation rows; this record
+/// is the tenant-scoped bridge that gives short follow-up messages active-handoff precedence.
+model ReceptionistHandoff {
+  id                           String                    @id @default(uuid()) @db.Uuid
+  organizationId               String                    @map("organization_id") @db.Uuid
+  receptionistInstallationId   String                    @map("receptionist_installation_id") @db.Uuid
+  conversationId               String                    @map("conversation_id") @db.Uuid
+  customerIdentityId           String?                   @map("customer_identity_id") @db.Uuid
+  targetEmployeeInstallationId String                    @map("target_employee_installation_id") @db.Uuid
+  targetConversationId         String?                   @map("target_conversation_id") @db.Uuid
+  delegatedTaskId              String?                   @map("delegated_task_id") @db.Uuid
+  status                       ReceptionistHandoffStatus @default(ROUTING)
+  routingIntent                String?                   @map("routing_intent") @db.VarChar(120)
+  routingCapability            String?                   @map("routing_capability") @db.VarChar(120)
+  routingConfidence            Float                     @default(0) @map("routing_confidence")
+  sourceChannel                String                    @map("source_channel") @db.VarChar(40)
+  startedAt                    DateTime                  @default(now()) @map("started_at")
+  completedAt                  DateTime?                 @map("completed_at")
+  lastActivityAt               DateTime                  @default(now()) @map("last_activity_at")
+  parentTraceId                String?                   @map("parent_trace_id") @db.VarChar(64)
+  metadataJson                 Json                      @default("{}") @map("metadata_json")
+  createdAt                    DateTime                  @default(now()) @map("created_at")
+  updatedAt                    DateTime                  @updatedAt @map("updated_at")
+  organization                 Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, conversationId, status])
+  @@index([organizationId, customerIdentityId, status])
+  @@index([organizationId, targetEmployeeInstallationId, status])
+  @@map("receptionist_handoffs")
+}
+
+/// Provider-neutral voice-call correlation. Provider credentials and media never live here.
+model VoiceSession {
+  id                         String             @id @default(uuid()) @db.Uuid
+  organizationId             String             @map("organization_id") @db.Uuid
+  channelConnectionId        String             @map("channel_connection_id") @db.Uuid
+  customerIdentityId         String?            @map("customer_identity_id") @db.Uuid
+  receptionistConversationId String             @map("receptionist_conversation_id") @db.Uuid
+  activeHandoffId            String?            @map("active_handoff_id") @db.Uuid
+  provider                   String             @db.VarChar(80)
+  providerCallId             String             @map("provider_call_id") @db.VarChar(200)
+  status                     VoiceSessionStatus @default(RINGING)
+  startedAt                  DateTime           @default(now()) @map("started_at")
+  endedAt                    DateTime?          @map("ended_at")
+  speechEndToAckMs           Int?               @map("speech_end_to_ack_ms")
+  routingMs                  Int?               @map("routing_ms")
+  specialistFirstResponseMs  Int?               @map("specialist_first_response_ms")
+  totalTurnMs                Int?               @map("total_turn_ms")
+  metadataJson               Json               @default("{}") @map("metadata_json")
+  createdAt                  DateTime           @default(now()) @map("created_at")
+  updatedAt                  DateTime           @updatedAt @map("updated_at")
+  organization               Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, providerCallId])
+  @@index([organizationId, status])
+  @@index([organizationId, receptionistConversationId])
+  @@map("voice_sessions")
 }
 
 /// Sprint 4.6 — Multi-Employee Collaboration & Delegation Engine.
@@ -2661,6 +2946,41 @@ model SalesLead {
   @@map("sales_leads")
 }
 
+/// A lead generated for Krevia AS A BUSINESS (the platform's own acquisition funnel), never a tenant
+/// organization's own customer lead — those stay in SalesLead/TravelLead/etc, each tied to an
+/// organizationId. Deliberately has NO organizationId/pluginInstallationId/conversationId column at all:
+/// a public website visitor submitting "Book a Demo" is not yet a customer of any tenant, so there is
+/// structurally nothing tenant-scoped to attach — this is the strongest possible guarantee that the
+/// Platform Owner's Sales Leads screen can never become a cross-tenant CRM surveillance dump (see
+/// PlatformLeadsController, guarded by PlatformOwnerGuard). `scope` is still stored explicitly (always
+/// PLATFORM today) so the read path's tenant-isolation guarantee is a visible query condition.
+model PlatformLead {
+  id                String             @id @default(uuid()) @db.Uuid
+  scope             PlatformLeadScope  @default(PLATFORM)
+  source            PlatformLeadSource
+  type              PlatformLeadType
+  name              String             @db.VarChar(160)
+  email             String             @db.VarChar(320)
+  phone             String?            @db.VarChar(40)
+  company           String?            @db.VarChar(160)
+  /// Free-text requirement/message. Never rendered directly in the leads table (only in lead detail) —
+  /// see the dashboard Sales Leads page.
+  requirement       String?            @db.Text
+  /// Extra structured fields the source form collected that don't warrant their own column (e.g. job
+  /// title, company size, department, use case) — shown only in lead detail, never in the table.
+  metadata          Json               @default("{}")
+  preferredDemoDate String?            @map("preferred_demo_date") @db.VarChar(60)
+  preferredDemoTime String?            @map("preferred_demo_time") @db.VarChar(60)
+  timezone          String?            @db.VarChar(60)
+  status            PlatformLeadStatus @default(NEW)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  @@index([scope, status, createdAt])
+  @@index([scope, source, createdAt])
+  @@map("platform_leads")
+}
+
 // ============================================================================
 // Marketing Employee
 // ============================================================================
@@ -3091,24 +3411,24 @@ model ObservabilitySettings {
 /// built-in catalog is seeded lazily by SchedulerService.onModuleInit; plugin authors extend the platform
 /// by registering handlers in the JobRegistry, not by writing engine code.
 model JobDefinition {
-  id           String   @id @default(uuid()) @db.Uuid
-  key          String   @unique @db.VarChar(120)
-  name         String   @db.VarChar(200)
-  description  String   @default("") @db.VarChar(500)
+  id          String   @id @default(uuid()) @db.Uuid
+  key         String   @unique @db.VarChar(120)
+  name        String   @db.VarChar(200)
+  description String   @default("") @db.VarChar(500)
   /// Domain grouping — TRAVEL, HR, FINANCE, LEGAL, SALES, PLATFORM, WORKFLOW, CHANNEL, ...
-  category     String   @default("PLATFORM") @db.VarChar(60)
+  category    String   @default("PLATFORM") @db.VarChar(60)
   /// What the handler does when the job runs. SEND_REMINDER, START_WORKFLOW, REQUEST_APPROVAL,
   /// PUBLISH_EVENT, RUN_AGENT, ESCALATE_APPROVAL, PENDING_APPROVAL_SCAN are the built-ins.
-  handlerType  String   @map("handler_type") @db.VarChar(60)
+  handlerType String   @map("handler_type") @db.VarChar(60)
   /// The default retry policy: IMMEDIATE, 30_SEC, 2_MIN, 5_MIN, 30_MIN, 2_HOUR, 24_HOUR, NONE.
-  retryPolicy  String   @default("5_MIN") @map("retry_policy") @db.VarChar(20)
-  maxRetry     Int      @default(5) @map("max_retry")
-  timeoutMs    Int      @default(30000) @map("timeout_ms")
+  retryPolicy String   @default("5_MIN") @map("retry_policy") @db.VarChar(20)
+  maxRetry    Int      @default(5) @map("max_retry")
+  timeoutMs   Int      @default(30000) @map("timeout_ms")
   /// The event name that triggers this definition when triggerType is EVENT/AFTER_* (e.g. booking.approved).
-  eventName    String?  @map("event_name") @db.VarChar(120)
-  enabled      Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  eventName   String?  @map("event_name") @db.VarChar(120)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@index([category, enabled])
   @@map("job_definitions")
@@ -3118,23 +3438,23 @@ model JobDefinition {
 /// platform; an organization can copy a template into its own org-scoped row and customize it. Instantiating
 /// a template creates an ACTIVE ScheduledJob.
 model JobTemplate {
-  id             String                   @id @default(uuid()) @db.Uuid
-  organizationId String?                  @map("organization_id") @db.Uuid
-  name           String                   @db.VarChar(200)
-  description    String                   @default("") @db.VarChar(500)
-  definitionKey  String                   @map("definition_key") @db.VarChar(120)
-  triggerType    ScheduledJobTriggerType  @map("trigger_type")
-  cronExpression String?                  @map("cron_expression") @db.VarChar(120)
-  intervalMs     Int?                     @map("interval_ms")
-  timezone       String                   @default("UTC") @db.VarChar(64)
-  priority       ScheduledJobPriority     @default(NORMAL)
-  maxRetry       Int                      @default(5) @map("max_retry")
-  timeoutMs      Int                      @default(30000) @map("timeout_ms")
-  payload        Json                     @default("{}")
-  createdBy      String?                  @map("created_by") @db.Uuid
-  createdAt      DateTime                 @default(now()) @map("created_at")
-  updatedAt      DateTime                 @updatedAt @map("updated_at")
-  organization   Organization?            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String?                 @map("organization_id") @db.Uuid
+  name           String                  @db.VarChar(200)
+  description    String                  @default("") @db.VarChar(500)
+  definitionKey  String                  @map("definition_key") @db.VarChar(120)
+  triggerType    ScheduledJobTriggerType @map("trigger_type")
+  cronExpression String?                 @map("cron_expression") @db.VarChar(120)
+  intervalMs     Int?                    @map("interval_ms")
+  timezone       String                  @default("UTC") @db.VarChar(64)
+  priority       ScheduledJobPriority    @default(NORMAL)
+  maxRetry       Int                     @default(5) @map("max_retry")
+  timeoutMs      Int                     @default(30000) @map("timeout_ms")
+  payload        Json                    @default("{}")
+  createdBy      String?                 @map("created_by") @db.Uuid
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  organization   Organization?           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, definitionKey])
   @@map("job_templates")
@@ -3145,36 +3465,36 @@ model JobTemplate {
 /// runs twice because of a duplicated event. `nextRun` decides dispatch eligibility; one-time jobs are
 /// marked COMPLETED after their single run, recurring jobs keep advancing `nextRun`.
 model ScheduledJob {
-  id              String                  @id @default(uuid()) @db.Uuid
-  organizationId  String                  @map("organization_id") @db.Uuid
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String                  @map("organization_id") @db.Uuid
   /// The AI Employee (Plugin installation) the job belongs to — null for platform/organization jobs.
-  employeeId      String?                 @map("employee_id") @db.Uuid
-  workflowId      String?                 @map("workflow_id") @db.Uuid
-  definitionKey   String                  @map("definition_key") @db.VarChar(120)
-  triggerType     ScheduledJobTriggerType @map("trigger_type")
-  cronExpression  String?                 @map("cron_expression") @db.VarChar(120)
-  intervalMs      Int?                    @map("interval_ms")
-  timezone        String                  @default("UTC") @db.VarChar(64)
-  status          ScheduledJobStatus      @default(ACTIVE)
-  priority        ScheduledJobPriority    @default(NORMAL)
-  nextRun         DateTime?               @map("next_run")
-  lastRun         DateTime?               @map("last_run")
-  retryCount      Int                     @default(0) @map("retry_count")
-  maxRetry        Int                     @default(5) @map("max_retry")
-  timeoutMs       Int                     @default(30000) @map("timeout_ms")
-  payload         Json                    @default("{}")
-  context         Json                    @default("{}")
-  dedupeKey       String?                 @unique @map("dedupe_key") @db.VarChar(500)
-  pausedAt        DateTime?               @map("paused_at")
-  pausedBy        String?                 @map("paused_by") @db.Uuid
-  cancelledAt     DateTime?               @map("cancelled_at")
-  cancelledBy     String?                 @map("cancelled_by") @db.Uuid
-  createdBy       String?                 @map("created_by") @db.Uuid
-  createdAt       DateTime                @default(now()) @map("created_at")
-  updatedAt       DateTime                @updatedAt @map("updated_at")
-  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  employee        Plugin?                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  executions      ScheduledExecution[]
+  employeeId     String?                 @map("employee_id") @db.Uuid
+  workflowId     String?                 @map("workflow_id") @db.Uuid
+  definitionKey  String                  @map("definition_key") @db.VarChar(120)
+  triggerType    ScheduledJobTriggerType @map("trigger_type")
+  cronExpression String?                 @map("cron_expression") @db.VarChar(120)
+  intervalMs     Int?                    @map("interval_ms")
+  timezone       String                  @default("UTC") @db.VarChar(64)
+  status         ScheduledJobStatus      @default(ACTIVE)
+  priority       ScheduledJobPriority    @default(NORMAL)
+  nextRun        DateTime?               @map("next_run")
+  lastRun        DateTime?               @map("last_run")
+  retryCount     Int                     @default(0) @map("retry_count")
+  maxRetry       Int                     @default(5) @map("max_retry")
+  timeoutMs      Int                     @default(30000) @map("timeout_ms")
+  payload        Json                    @default("{}")
+  context        Json                    @default("{}")
+  dedupeKey      String?                 @unique @map("dedupe_key") @db.VarChar(500)
+  pausedAt       DateTime?               @map("paused_at")
+  pausedBy       String?                 @map("paused_by") @db.Uuid
+  cancelledAt    DateTime?               @map("cancelled_at")
+  cancelledBy    String?                 @map("cancelled_by") @db.Uuid
+  createdBy      String?                 @map("created_by") @db.Uuid
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  organization   Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employee       Plugin?                 @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  executions     ScheduledExecution[]
 
   @@index([organizationId, status, nextRun])
   @@index([organizationId, triggerType, status])
@@ -3186,33 +3506,33 @@ model ScheduledJob {
 /// `dedupeKey` (nullable, unique) is set from `jobId:attempt:scheduledFor` so a concurrent worker can never
 /// create two executions for the same attempt. `traceId` is the Sprint 4.7 ExecutionTrace this run spans.
 model ScheduledExecution {
-  id              String                   @id @default(uuid()) @db.Uuid
-  organizationId  String                   @map("organization_id") @db.Uuid
-  jobId           String                   @map("job_id") @db.Uuid
-  employeeId      String?                  @map("employee_id") @db.Uuid
-  definitionKey   String                   @map("definition_key") @db.VarChar(120)
-  triggerType     ScheduledJobTriggerType  @map("trigger_type")
-  priority        ScheduledJobPriority     @default(NORMAL)
-  status          ScheduledExecutionStatus @default(QUEUED)
-  scheduledFor    DateTime                 @map("scheduled_for")
-  attemptCount    Int                      @default(1) @map("attempt_count")
-  startedAt       DateTime?                @map("started_at")
-  completedAt     DateTime?                @map("completed_at")
-  durationMs      Int?                     @map("duration_ms")
-  nextAttemptAt   DateTime?                @map("next_attempt_at")
-  traceId         String?                  @map("trace_id") @db.VarChar(64)
-  workerId        String?                  @map("worker_id") @db.VarChar(100)
-  result          Json?                    @default("{}")
-  errorCode       String?                  @map("error_code") @db.VarChar(100)
-  errorMessage    String?                  @map("error_message") @db.VarChar(1000)
-  tokens          Int                      @default(0)
-  credits         Int                      @default(0)
-  createdBy       String?                  @map("created_by") @db.Uuid
-  dedupeKey       String?                  @unique @map("dedupe_key") @db.VarChar(600)
-  createdAt       DateTime                 @default(now()) @map("created_at")
-  updatedAt       DateTime                 @updatedAt @map("updated_at")
-  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  job             ScheduledJob             @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  jobId          String                   @map("job_id") @db.Uuid
+  employeeId     String?                  @map("employee_id") @db.Uuid
+  definitionKey  String                   @map("definition_key") @db.VarChar(120)
+  triggerType    ScheduledJobTriggerType  @map("trigger_type")
+  priority       ScheduledJobPriority     @default(NORMAL)
+  status         ScheduledExecutionStatus @default(QUEUED)
+  scheduledFor   DateTime                 @map("scheduled_for")
+  attemptCount   Int                      @default(1) @map("attempt_count")
+  startedAt      DateTime?                @map("started_at")
+  completedAt    DateTime?                @map("completed_at")
+  durationMs     Int?                     @map("duration_ms")
+  nextAttemptAt  DateTime?                @map("next_attempt_at")
+  traceId        String?                  @map("trace_id") @db.VarChar(64)
+  workerId       String?                  @map("worker_id") @db.VarChar(100)
+  result         Json?                    @default("{}")
+  errorCode      String?                  @map("error_code") @db.VarChar(100)
+  errorMessage   String?                  @map("error_message") @db.VarChar(1000)
+  tokens         Int                      @default(0)
+  credits        Int                      @default(0)
+  createdBy      String?                  @map("created_by") @db.Uuid
+  dedupeKey      String?                  @unique @map("dedupe_key") @db.VarChar(600)
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            ScheduledJob             @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, status, scheduledFor])
   @@index([organizationId, jobId, createdAt])
@@ -3226,15 +3546,15 @@ model ScheduledExecution {
 /// it with an atomic `version` guard (optimistic locking) and a short `leaseExpiresAt`. A crashed worker's
 /// lock is stolen by any worker after the lease expires — that is the crash-recovery mechanism.
 model JobLock {
-  id             String   @id @default(uuid()) @db.Uuid
-  jobId          String   @unique @map("job_id") @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  workerId       String   @map("worker_id") @db.VarChar(100)
-  version        Int      @default(0)
-  lockedAt       DateTime @default(now()) @map("locked_at")
-  leaseExpiresAt DateTime @map("lease_expires_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id             String       @id @default(uuid()) @db.Uuid
+  jobId          String       @unique @map("job_id") @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  workerId       String       @map("worker_id") @db.VarChar(100)
+  version        Int          @default(0)
+  lockedAt       DateTime     @default(now()) @map("locked_at")
+  leaseExpiresAt DateTime     @map("lease_expires_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, leaseExpiresAt])
@@ -3279,30 +3599,30 @@ enum QueueCategory {
 /// `nextAttemptAt` schedules retries with backoff; `maxAttempts` bounds the ladder then the message is
 /// parked on the dead-letter state.
 model QueueMessage {
-  id             String              @id @default(uuid()) @db.Uuid
-  organizationId String              @map("organization_id") @db.Uuid
-  category       QueueCategory       @map("category")
-  refType        String              @map("ref_type") @db.VarChar(80)
-  refId          String              @map("ref_id") @db.VarChar(200)
+  id             String             @id @default(uuid()) @db.Uuid
+  organizationId String             @map("organization_id") @db.Uuid
+  category       QueueCategory      @map("category")
+  refType        String             @map("ref_type") @db.VarChar(80)
+  refId          String             @map("ref_id") @db.VarChar(200)
   /// Optional employee (Plugin installation) the work belongs to — for tenant-scoped worker fan-out.
-  employeeId     String?             @map("employee_id") @db.Uuid
-  priority       Int                 @default(0)
-  status         QueueMessageStatus  @default(QUEUED)
-  payload        Json                @default("{}")
-  availableAt    DateTime            @default(now()) @map("available_at")
-  attemptCount   Int                 @default(0) @map("attempt_count")
-  maxAttempts    Int                 @default(5) @map("max_attempts")
-  nextAttemptAt  DateTime?           @map("next_attempt_at")
-  visibilityMs   Int                 @default(60000) @map("visibility_ms")
-  workerId       String?             @map("worker_id") @db.VarChar(100)
-  traceId        String?             @map("trace_id") @db.VarChar(64)
-  dedupeKey      String?             @unique @map("dedupe_key") @db.VarChar(600)
-  errorCode      String?             @map("error_code") @db.VarChar(100)
-  errorMessage   String?             @map("error_message") @db.VarChar(1000)
-  completedAt    DateTime?           @map("completed_at")
-  createdAt      DateTime            @default(now()) @map("created_at")
-  updatedAt      DateTime            @updatedAt @map("updated_at")
-  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employeeId     String?            @map("employee_id") @db.Uuid
+  priority       Int                @default(0)
+  status         QueueMessageStatus @default(QUEUED)
+  payload        Json               @default("{}")
+  availableAt    DateTime           @default(now()) @map("available_at")
+  attemptCount   Int                @default(0) @map("attempt_count")
+  maxAttempts    Int                @default(5) @map("max_attempts")
+  nextAttemptAt  DateTime?          @map("next_attempt_at")
+  visibilityMs   Int                @default(60000) @map("visibility_ms")
+  workerId       String?            @map("worker_id") @db.VarChar(100)
+  traceId        String?            @map("trace_id") @db.VarChar(64)
+  dedupeKey      String?            @unique @map("dedupe_key") @db.VarChar(600)
+  errorCode      String?            @map("error_code") @db.VarChar(100)
+  errorMessage   String?            @map("error_message") @db.VarChar(1000)
+  completedAt    DateTime?          @map("completed_at")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([status, availableAt, priority])
   @@index([organizationId, status, category])
@@ -3315,15 +3635,15 @@ model QueueMessage {
 /// ORGANIZATION flags override for one tenant. Flags control rollout, never authorization — RBAC and
 /// entitlements remain authoritative.
 model FeatureFlag {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String?   @map("organization_id") @db.Uuid
-  key            String    @db.VarChar(120)
-  enabled        Boolean   @default(false)
-  value          Json      @default("{}")
-  description    String?   @db.VarChar(500)
-  createdBy      String?   @map("created_by") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String?       @map("organization_id") @db.Uuid
+  key            String        @db.VarChar(120)
+  enabled        Boolean       @default(false)
+  value          Json          @default("{}")
+  description    String?       @db.VarChar(500)
+  createdBy      String?       @map("created_by") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, key])
@@ -3334,18 +3654,18 @@ model FeatureFlag {
 /// Sprint 5.0: per-organization data-retention policy. Tenants configure retention within the platform
 /// minimum/maximum bounds (enforced by RetentionService). Null = inherit the platform default.
 model DataRetentionPolicy {
-  id                    String    @id @default(uuid()) @db.Uuid
-  organizationId        String    @unique @map("organization_id") @db.Uuid
-  conversationDays      Int?      @map("conversation_days")
-  uploadDays            Int?      @map("upload_days")
-  traceDays             Int?      @map("trace_days")
-  memoryDays            Int?      @map("memory_days")
-  schedulerExecutionDays Int?     @map("scheduler_execution_days")
-  channelMessageDays    Int?      @map("channel_message_days")
-  legalHold             Boolean   @default(false) @map("legal_hold")
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  id                     String       @id @default(uuid()) @db.Uuid
+  organizationId         String       @unique @map("organization_id") @db.Uuid
+  conversationDays       Int?         @map("conversation_days")
+  uploadDays             Int?         @map("upload_days")
+  traceDays              Int?         @map("trace_days")
+  memoryDays             Int?         @map("memory_days")
+  schedulerExecutionDays Int?         @map("scheduler_execution_days")
+  channelMessageDays     Int?         @map("channel_message_days")
+  legalHold              Boolean      @default(false) @map("legal_hold")
+  createdAt              DateTime     @default(now()) @map("created_at")
+  updatedAt              DateTime     @updatedAt @map("updated_at")
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("data_retention_policies")
 }
@@ -3424,20 +3744,20 @@ enum SkillBillingCategory {
 /// authoritative for marketplace/install state; the SkillManifest code in the adapter is authoritative
 /// for built-in adapter behavior.
 model Skill {
-  id            String           @id @default(uuid()) @db.Uuid
-  key           String           @unique @db.VarChar(160)
-  name          String           @db.VarChar(200)
-  description   String           @db.VarChar(2000)
-  category      String           @db.VarChar(100)
-  author        String           @db.VarChar(160)
-  visibility    SkillVisibility  @default(PUBLIC)
-  icon          String?          @db.VarChar(500)
-  latestVersion String           @db.VarChar(50)
-  isActive      Boolean          @default(true)
-  metadataJson  Json             @default("{}") @map("metadata_json")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @updatedAt @map("updated_at")
-  deletedAt     DateTime?        @map("deleted_at")
+  id            String          @id @default(uuid()) @db.Uuid
+  key           String          @unique @db.VarChar(160)
+  name          String          @db.VarChar(200)
+  description   String          @db.VarChar(2000)
+  category      String          @db.VarChar(100)
+  author        String          @db.VarChar(160)
+  visibility    SkillVisibility @default(PUBLIC)
+  icon          String?         @db.VarChar(500)
+  latestVersion String          @db.VarChar(50)
+  isActive      Boolean         @default(true)
+  metadataJson  Json            @default("{}") @map("metadata_json")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  deletedAt     DateTime?       @map("deleted_at")
   versions      SkillVersion[]
 
   @@index([category])
@@ -3503,19 +3823,19 @@ model SkillInstallation {
 /// Per-employee grant linking an installed skill to an installed AI Employee (Plugin installation).
 /// Every query is organization-scoped; cross-tenant grants are structurally impossible.
 model EmployeeSkillGrant {
-  id                        String               @id @default(uuid()) @db.Uuid
-  organizationId            String               @map("organization_id") @db.Uuid
-  pluginInstallationId      String               @map("plugin_installation_id") @db.Uuid
-  skillInstallationId       String               @map("skill_installation_id") @db.Uuid
-  enabled                   Boolean              @default(true)
-  configurationOverrideJson Json?                @map("configuration_override_json")
-  grantedByUserId           String               @map("granted_by_user_id") @db.Uuid
-  createdAt                 DateTime             @default(now()) @map("created_at")
-  updatedAt                 DateTime             @updatedAt @map("updated_at")
-  organization              Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  pluginInstallation        Plugin               @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
-  skillInstallation         SkillInstallation    @relation(fields: [skillInstallationId], references: [id], onDelete: Cascade)
-  grantedBy                 User                 @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
+  id                        String            @id @default(uuid()) @db.Uuid
+  organizationId            String            @map("organization_id") @db.Uuid
+  pluginInstallationId      String            @map("plugin_installation_id") @db.Uuid
+  skillInstallationId       String            @map("skill_installation_id") @db.Uuid
+  enabled                   Boolean           @default(true)
+  configurationOverrideJson Json?             @map("configuration_override_json")
+  grantedByUserId           String            @map("granted_by_user_id") @db.Uuid
+  createdAt                 DateTime          @default(now()) @map("created_at")
+  updatedAt                 DateTime          @updatedAt @map("updated_at")
+  organization              Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pluginInstallation        Plugin            @relation(fields: [pluginInstallationId], references: [id], onDelete: Cascade)
+  skillInstallation         SkillInstallation @relation(fields: [skillInstallationId], references: [id], onDelete: Cascade)
+  grantedBy                 User              @relation(fields: [grantedByUserId], references: [id], onDelete: Restrict)
 
   @@unique([organizationId, pluginInstallationId, skillInstallationId])
   @@index([organizationId, skillInstallationId])
@@ -3527,37 +3847,37 @@ model EmployeeSkillGrant {
 /// (a durable multi-turn state lifecycle); this records a single execution with usage/billing/trace
 /// data and an idempotency key. Never stores raw documents or secrets — only safe summaries.
 model SkillRun {
-  id                   String             @id @default(uuid()) @db.Uuid
-  organizationId       String             @map("organization_id") @db.Uuid
-  skillInstallationId  String             @map("skill_installation_id") @db.Uuid
-  pluginInstallationId String?            @map("plugin_installation_id") @db.Uuid
-  agentExecutionId     String?            @map("agent_execution_id") @db.Uuid
-  workflowExecutionId  String?            @map("workflow_execution_id") @db.Uuid
-  conversationId       String?            @map("conversation_id") @db.Uuid
-  traceId              String?            @map("trace_id") @db.VarChar(64)
-  idempotencyKey       String             @map("idempotency_key") @db.VarChar(300)
-  skillKey             String             @map("skill_key") @db.VarChar(160)
-  skillVersion         String             @map("skill_version") @db.VarChar(50)
-  status               SkillRunStatus     @default(RUNNING)
-  inputSummaryJson     Json               @default("{}") @map("input_summary_json")
-  outputSummaryJson    Json?              @map("output_summary_json")
-  durationMs           Int                @default(0) @map("duration_ms")
-  inputTokens          Int                @default(0) @map("input_tokens")
-  outputTokens         Int                @default(0) @map("output_tokens")
-  totalTokens          Int                @default(0) @map("total_tokens")
-  creditsConsumed      Int                @default(0) @map("credits_consumed")
-  retryCount           Int                @default(0) @map("retry_count")
-  errorCode            String?            @map("error_code") @db.VarChar(100)
-  errorMessageSafe     String?            @map("error_message_safe") @db.VarChar(500)
-  startedAt            DateTime           @default(now()) @map("started_at")
-  completedAt          DateTime?          @map("completed_at")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  skillInstallation    SkillInstallation  @relation(fields: [skillInstallationId], references: [id], onDelete: Restrict)
-  pluginInstallation   Plugin?            @relation(fields: [pluginInstallationId], references: [id], onDelete: SetNull)
-  agentExecution       AgentExecution?    @relation(fields: [agentExecutionId], references: [id], onDelete: SetNull)
-  workflowExecution    WorkflowExecution? @relation(fields: [workflowExecutionId], references: [id], onDelete: SetNull)
-  conversation         Conversation?      @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  id                     String                       @id @default(uuid()) @db.Uuid
+  organizationId         String                       @map("organization_id") @db.Uuid
+  skillInstallationId    String                       @map("skill_installation_id") @db.Uuid
+  pluginInstallationId   String?                      @map("plugin_installation_id") @db.Uuid
+  agentExecutionId       String?                      @map("agent_execution_id") @db.Uuid
+  workflowExecutionId    String?                      @map("workflow_execution_id") @db.Uuid
+  conversationId         String?                      @map("conversation_id") @db.Uuid
+  traceId                String?                      @map("trace_id") @db.VarChar(64)
+  idempotencyKey         String                       @map("idempotency_key") @db.VarChar(300)
+  skillKey               String                       @map("skill_key") @db.VarChar(160)
+  skillVersion           String                       @map("skill_version") @db.VarChar(50)
+  status                 SkillRunStatus               @default(RUNNING)
+  inputSummaryJson       Json                         @default("{}") @map("input_summary_json")
+  outputSummaryJson      Json?                        @map("output_summary_json")
+  durationMs             Int                          @default(0) @map("duration_ms")
+  inputTokens            Int                          @default(0) @map("input_tokens")
+  outputTokens           Int                          @default(0) @map("output_tokens")
+  totalTokens            Int                          @default(0) @map("total_tokens")
+  creditsConsumed        Int                          @default(0) @map("credits_consumed")
+  retryCount             Int                          @default(0) @map("retry_count")
+  errorCode              String?                      @map("error_code") @db.VarChar(100)
+  errorMessageSafe       String?                      @map("error_message_safe") @db.VarChar(500)
+  startedAt              DateTime                     @default(now()) @map("started_at")
+  completedAt            DateTime?                    @map("completed_at")
+  createdAt              DateTime                     @default(now()) @map("created_at")
+  organization           Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  skillInstallation      SkillInstallation            @relation(fields: [skillInstallationId], references: [id], onDelete: Restrict)
+  pluginInstallation     Plugin?                      @relation(fields: [pluginInstallationId], references: [id], onDelete: SetNull)
+  agentExecution         AgentExecution?              @relation(fields: [agentExecutionId], references: [id], onDelete: SetNull)
+  workflowExecution      WorkflowExecution?           @relation(fields: [workflowExecutionId], references: [id], onDelete: SetNull)
+  conversation           Conversation?                @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   pipelineNodeExecutions SkillPipelineNodeExecution[]
 
   @@unique([organizationId, idempotencyKey])
@@ -3693,22 +4013,22 @@ model SkillPipelineExecution {
 /// (DAG) view renders (Feature 7). `skillRunId` links to the real SkillRun once the node actually
 /// executes; null while PENDING or when SKIPPED by a condition/prior STOP failure.
 model SkillPipelineNodeExecution {
-  id                       String                            @id @default(uuid()) @db.Uuid
-  skillPipelineExecutionId String                            @map("skill_pipeline_execution_id") @db.Uuid
-  skillPipelineNodeId      String                            @map("skill_pipeline_node_id") @db.Uuid
+  id                       String                           @id @default(uuid()) @db.Uuid
+  skillPipelineExecutionId String                           @map("skill_pipeline_execution_id") @db.Uuid
+  skillPipelineNodeId      String                           @map("skill_pipeline_node_id") @db.Uuid
   order                    Int
-  skillKey                 String                            @map("skill_key") @db.VarChar(160)
-  status                   SkillPipelineNodeExecutionStatus  @default(PENDING)
-  skillRunId               String?                           @map("skill_run_id") @db.Uuid
-  retryCount               Int                               @default(0) @map("retry_count")
-  errorCode                String?                           @map("error_code") @db.VarChar(100)
-  errorMessageSafe         String?                           @map("error_message_safe") @db.VarChar(500)
-  startedAt                DateTime?                         @map("started_at")
-  completedAt              DateTime?                         @map("completed_at")
-  durationMs               Int                               @default(0) @map("duration_ms")
-  createdAt                DateTime                          @default(now()) @map("created_at")
-  skillPipelineExecution   SkillPipelineExecution             @relation(fields: [skillPipelineExecutionId], references: [id], onDelete: Cascade)
-  skillRun                 SkillRun?                          @relation(fields: [skillRunId], references: [id], onDelete: SetNull)
+  skillKey                 String                           @map("skill_key") @db.VarChar(160)
+  status                   SkillPipelineNodeExecutionStatus @default(PENDING)
+  skillRunId               String?                          @map("skill_run_id") @db.Uuid
+  retryCount               Int                              @default(0) @map("retry_count")
+  errorCode                String?                          @map("error_code") @db.VarChar(100)
+  errorMessageSafe         String?                          @map("error_message_safe") @db.VarChar(500)
+  startedAt                DateTime?                        @map("started_at")
+  completedAt              DateTime?                        @map("completed_at")
+  durationMs               Int                              @default(0) @map("duration_ms")
+  createdAt                DateTime                         @default(now()) @map("created_at")
+  skillPipelineExecution   SkillPipelineExecution           @relation(fields: [skillPipelineExecutionId], references: [id], onDelete: Cascade)
+  skillRun                 SkillRun?                        @relation(fields: [skillRunId], references: [id], onDelete: SetNull)
 
   @@index([skillPipelineExecutionId, order])
   @@map("skill_pipeline_node_executions")
@@ -3718,20 +4038,20 @@ model SkillPipelineNodeExecution {
 /// listed skill that isn't already installed for the organization, via the existing
 /// SkillInstallationService.install — dependency order is resolved through the DependencyResolver.
 model SkillPack {
-  id            String                   @id @default(uuid()) @db.Uuid
-  key           String                   @unique @db.VarChar(160)
-  name          String                   @db.VarChar(200)
-  description   String                   @db.VarChar(2000)
-  category      String                   @db.VarChar(100)
-  industry      String?                  @db.VarChar(100)
-  author        String                   @db.VarChar(160)
-  icon          String?                  @db.VarChar(500)
-  version       String                   @db.VarChar(50)
-  isActive      Boolean                  @default(true) @map("is_active")
-  metadataJson  Json                     @default("{}") @map("metadata_json")
-  createdAt     DateTime                 @default(now()) @map("created_at")
-  updatedAt     DateTime                 @updatedAt @map("updated_at")
-  deletedAt     DateTime?                @map("deleted_at")
+  id            String                  @id @default(uuid()) @db.Uuid
+  key           String                  @unique @db.VarChar(160)
+  name          String                  @db.VarChar(200)
+  description   String                  @db.VarChar(2000)
+  category      String                  @db.VarChar(100)
+  industry      String?                 @db.VarChar(100)
+  author        String                  @db.VarChar(160)
+  icon          String?                 @db.VarChar(500)
+  version       String                  @db.VarChar(50)
+  isActive      Boolean                 @default(true) @map("is_active")
+  metadataJson  Json                    @default("{}") @map("metadata_json")
+  createdAt     DateTime                @default(now()) @map("created_at")
+  updatedAt     DateTime                @updatedAt @map("updated_at")
+  deletedAt     DateTime?               @map("deleted_at")
   items         SkillPackItem[]
   installations SkillPackInstallation[]
 

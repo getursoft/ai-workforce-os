@@ -6,10 +6,85 @@
   "description": "AI finance employee. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["finance.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "finance.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "finance.create_record", "description": "Persist a finance request after the requester consents and shares a contact number" },
-    { "name": "finance.escalate", "description": "Escalate the conversation to a human finance team member" }
-  ]
+    {
+      "name": "finance.create_record",
+      "description": "Persist a finance request after the requester consents and shares a contact number"
+    },
+    {
+      "name": "finance.escalate",
+      "description": "Escalate the conversation to a human finance team member"
+    }
+  ],
+  "routing": {
+    "employeeKey": "finance-employee",
+    "employeeType": "FINANCE",
+    "displayName": "Finance Employee",
+    "summary": "Handles invoices, expenses, budgets, reimbursements, and other finance/accounting questions.",
+    "domains": [
+      "finance",
+      "accounting",
+      "expenses"
+    ],
+    "capabilities": [
+      "finance.chat",
+      "finance.expense",
+      "finance.invoice",
+      "finance.budget"
+    ],
+    "intents": [
+      "EXPENSE_QUESTION",
+      "INVOICE_QUESTION",
+      "BUDGET_QUESTION",
+      "REIMBURSEMENT_REQUEST",
+      "PAYMENT_STATUS"
+    ],
+    "examples": [
+      "Check this invoice",
+      "I need to file an expense claim",
+      "What's my budget for this quarter?",
+      "Reimburse my travel expense"
+    ],
+    "aliases": [
+      "Finance",
+      "Accounts",
+      "Accounting team",
+      "Finance team"
+    ],
+    "keywords": [
+      "finance",
+      "invoice",
+      "invoice payment",
+      "expense",
+      "budget",
+      "reimburse",
+      "accounting",
+      "financial",
+      "payment status",
+      "payment reconciliation",
+      "tax",
+      "liability",
+      "payment",
+      "variance",
+      "approval threshold",
+      "purchase",
+      "reimbursement",
+      "bill",
+      "claim",
+      "client dinner",
+      "restaurant bill",
+      "food expense",
+      "meal expense"
+    ]
+  }
 }

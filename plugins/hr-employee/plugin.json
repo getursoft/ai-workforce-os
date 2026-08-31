@@ -6,10 +6,81 @@
   "description": "AI HR employee. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["hr.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "hr.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "hr.create_ticket", "description": "Persist an HR request after the employee consents and shares a contact number" },
-    { "name": "hr.escalate", "description": "Escalate the conversation to a human HR team member" }
-  ]
+    {
+      "name": "hr.create_ticket",
+      "description": "Persist an HR request after the employee consents and shares a contact number"
+    },
+    {
+      "name": "hr.escalate",
+      "description": "Escalate the conversation to a human HR team member"
+    }
+  ],
+  "routing": {
+    "employeeKey": "hr-employee",
+    "employeeType": "HR",
+    "displayName": "HR Employee",
+    "summary": "Handles leave, payroll, benefits, onboarding, hiring, and other employee-relations questions.",
+    "domains": [
+      "hr",
+      "human resources",
+      "people operations"
+    ],
+    "capabilities": [
+      "hr.chat",
+      "hr.leave",
+      "hr.payroll",
+      "hr.benefits",
+      "hr.onboarding"
+    ],
+    "intents": [
+      "LEAVE_REQUEST",
+      "LEAVE_POLICY",
+      "PAYROLL_QUESTION",
+      "BENEFITS_QUESTION",
+      "ONBOARDING_HELP",
+      "HIRING_QUESTION"
+    ],
+    "examples": [
+      "I want to apply for leave",
+      "What's my leave balance?",
+      "Question about my payroll",
+      "Help me with onboarding",
+      "It's about my salary"
+    ],
+    "aliases": [
+      "HR",
+      "Human Resources",
+      "People Ops",
+      "HR team"
+    ],
+    "keywords": [
+      "leave",
+      "maternity",
+      "paternity",
+      "payroll",
+      "salary",
+      "benefit",
+      "hiring",
+      "onboarding",
+      "employee",
+      "chhutti",
+      "attendance",
+      "appraisal",
+      "grievance",
+      "reimburse",
+      "joining",
+      "claim"
+    ]
+  }
 }

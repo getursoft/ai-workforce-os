@@ -130,6 +130,20 @@ export class WorkflowCoordinator {
       waiting = await this.migrateHistoricalContactState(scope, turnId, signals);
     }
 
+    // Fix (Travel Booking UAT correction pass): a TRIP_SUBMISSION workflow left WAITING_FOR_INPUT (e.g. a
+    // BELOW_MINIMUM-budget lead-capture offer the customer never answered) must never keep absolute
+    // per-turn priority once Travel Runtime's own booking flow has moved past it — otherwise a reply meant
+    // for Travel Runtime's newer pending question (an option number, passenger details, "skip" answering
+    // its own ticket-delivery ask) gets misread as an answer to this stale one. See
+    // TripSubmissionWorkflowService.supersedeIfOwnedByTravelRuntime.
+    if (waiting && waiting.workflowType === "TRIP_SUBMISSION") {
+      const superseded = await this.tripSubmission.supersedeIfOwnedByTravelRuntime(
+        waiting,
+        signals.tripSubmission.legacyPendingAction
+      );
+      if (superseded) waiting = null;
+    }
+
     if (waiting) {
       if (detectWorkflowCancellationPhrase(text)) return this.cancel(waiting);
       return this.resume(waiting, text, turnId, signals);

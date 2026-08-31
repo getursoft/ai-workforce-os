@@ -7,6 +7,7 @@ import {
 } from "../identity/infrastructure/security/security-config";
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { EntitlementModule } from "../entitlements/entitlement.module";
+import { AiConfigurationModule } from "../ai-configuration/ai-configuration.module";
 import { PluginController } from "./plugin.controller";
 import { PluginService } from "./plugin.service";
 import { PluginAiService } from "./plugin-ai.service";
@@ -23,7 +24,7 @@ import {
 } from "./plugin.runtime";
 
 @Module({
-  imports: [PrismaModule, IdentityModule, EntitlementModule],
+  imports: [PrismaModule, IdentityModule, EntitlementModule, AiConfigurationModule],
   controllers: [PluginController],
   providers: [
     ManifestValidator,

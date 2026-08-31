@@ -102,7 +102,7 @@ describe("PendingInputQuestionService", () => {
 
     it("should handle unknown field gracefully", () => {
       const prompt = service.generateBriefPrompt("UNKNOWN_FIELD" as unknown as PendingInputCode);
-      expect(prompt).toBe("Please provide more information.");
+      expect(prompt).toBe("Could you tell me a bit more?");
     });
   });
 

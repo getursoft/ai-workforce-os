@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Optional } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { PluginAiProviderType } from "@prisma/client";
 import {
@@ -8,6 +8,8 @@ import {
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { withTimeout } from "../agents/agent.runtime";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
+import { AiConfigurationResolverService } from "../ai-configuration/ai-configuration-resolver.service";
+import type { ResolvedAiConfiguration } from "../ai-configuration/ai-configuration.types";
 
 /**
  * Every embedding written to KnowledgeChunk.embedding shares this width, matching the pgvector
@@ -89,12 +91,14 @@ export class KnowledgeEmbeddingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: PluginSecretsEncryptionService,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() private readonly aiConfigResolver?: AiConfigurationResolverService
   ) {}
   /**
    * `employeeId` (a Plugin installation id) scopes which AI Employee's own AI-provider credentials
    * back the embedding call — never "whichever plugin in the org was configured most recently".
-   * Two employees in the same organization may use different embedding providers/models entirely.
+   * Two employees in the same organization may use different embedding providers/models entirely
+   * (via an EMBEDDING-purpose AiModelProfile, or their own legacy PluginAiConfiguration row).
    */
   async embed(
     organizationId: string,
@@ -115,6 +119,27 @@ export class KnowledgeEmbeddingService {
     return result;
   }
   private async provider(organizationId: string, employeeId: string): Promise<EmbeddingProvider> {
+    if (this.aiConfigResolver) {
+      try {
+        const { resolved, apiKey } = await this.aiConfigResolver.resolveCredential({
+          organizationId,
+          pluginInstallationId: employeeId,
+          purpose: "EMBEDDING"
+        });
+        // A LEGACY_PLUGIN_CONFIG resolutionSource means the resolver already fell all the way
+        // through to the exact same PluginAiConfiguration row the code below reads directly — fall
+        // through to that existing path rather than re-deriving its embedding-specific field
+        // mapping (Azure deployment vs OpenAI-compatible model, dev-provider gating) a second time.
+        if (resolved.resolutionSource !== "LEGACY_PLUGIN_CONFIG")
+          return this.buildProviderFromResolved(resolved, apiKey);
+      } catch (error) {
+        // Nothing resolved at all, shared or legacy — fall through to the existing code below,
+        // which independently arrives at the same "not configured" conclusion (including the
+        // dev-provider fallback), so the error code embeddings callers already handle is preserved.
+        if (!(error instanceof BadRequestException && error.message === "AI_PROVIDER_NOT_CONFIGURED"))
+          throw error;
+      }
+    }
     const stored = await this.prisma.pluginAiConfiguration.findFirst({
       where: { organizationId, pluginInstallationId: employeeId }
     });
@@ -155,6 +180,43 @@ export class KnowledgeEmbeddingService {
       `${base.replace(/\/$/, "")}/embeddings`,
       model,
       { Authorization: `Bearer ${secrets.apiKey}` },
+      timeoutMs
+    );
+  }
+
+  /** Mirrors the field mapping the legacy path above does, but sourced from a shared
+   *  AiProviderConnection + EMBEDDING-purpose AiModelProfile via AiConfigurationResolverService
+   *  instead of a raw PluginAiConfiguration.configuration blob. */
+  private buildProviderFromResolved(resolved: ResolvedAiConfiguration, apiKey: string | undefined): EmbeddingProvider {
+    if (resolved.providerType === PluginAiProviderType.DETERMINISTIC) {
+      if (!this.security.allowDevelopmentImplementations)
+        throw new BadRequestException("EMBEDDING_PROVIDER_NOT_CONFIGURED");
+      return new DeterministicEmbeddingProvider();
+    }
+    if (!apiKey) throw new BadRequestException("EMBEDDING_PROVIDER_NOT_CONFIGURED");
+    const timeoutMs = resolved.timeoutMs || 30_000;
+    if (resolved.providerType === PluginAiProviderType.AZURE_OPENAI) {
+      const endpoint = resolved.endpoint,
+        deployment = resolved.embeddingDeployment ?? resolved.deploymentName,
+        apiVersion = resolved.apiVersion;
+      if (!endpoint || !deployment || !apiVersion)
+        throw new BadRequestException("EMBEDDING_PROVIDER_NOT_CONFIGURED");
+      return new HttpEmbeddingProvider(
+        "AZURE_OPENAI",
+        `${endpoint.replace(/\/$/, "")}/openai/deployments/${encodeURIComponent(deployment)}/embeddings?api-version=${encodeURIComponent(apiVersion)}`,
+        deployment,
+        { "api-key": apiKey },
+        timeoutMs
+      );
+    }
+    const model = resolved.embeddingModel;
+    if (!model) throw new BadRequestException("EMBEDDING_PROVIDER_NOT_CONFIGURED");
+    const base = resolved.baseUrl || "https://api.openai.com/v1";
+    return new HttpEmbeddingProvider(
+      "OPENAI_COMPATIBLE",
+      `${base.replace(/\/$/, "")}/embeddings`,
+      model,
+      { Authorization: `Bearer ${apiKey}` },
       timeoutMs
     );
   }

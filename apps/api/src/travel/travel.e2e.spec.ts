@@ -157,7 +157,7 @@ suite("Travel Employee end-to-end", () => {
         .send({ pluginInstallationId: pluginId, conversationId, message: "Krishna" })
         .expect(201);
       expect(run.body.response).toMatch(/krishna/i);
-      expect(run.body.response).toMatch(/how may i help you today/i);
+      expect(run.body.response).toMatch(/what can i help you with/i);
       expect(run.body.response).toMatch(/plan a trip/i);
       expect(run.body.response).toMatch(/build an itinerary/i);
       expect(run.body.response).toMatch(/estimate costs/i);
@@ -315,7 +315,7 @@ suite("Travel Employee end-to-end", () => {
       requestId: "whatsapp-request-2"
     });
     expect(second.response).toMatch(/priya/i);
-    expect(second.response).toMatch(/how may i help you today/i);
+    expect(second.response).toMatch(/what can i help you with/i);
     expect(second.response).not.toMatch(/where would you like to travel/i);
 
     const third = await agents.execute({

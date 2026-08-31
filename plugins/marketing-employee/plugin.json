@@ -6,10 +6,72 @@
   "description": "AI marketing employee. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["marketing.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "marketing.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "marketing.create_campaign", "description": "Persist a campaign request after the requester consents and shares a contact number" },
-    { "name": "marketing.escalate", "description": "Escalate the conversation to a human marketing team member" }
-  ]
+    {
+      "name": "marketing.create_campaign",
+      "description": "Persist a campaign request after the requester consents and shares a contact number"
+    },
+    {
+      "name": "marketing.escalate",
+      "description": "Escalate the conversation to a human marketing team member"
+    }
+  ],
+  "routing": {
+    "employeeKey": "marketing-employee",
+    "employeeType": "MARKETING",
+    "displayName": "Marketing Employee",
+    "summary": "Handles campaign planning, content drafting, and performance summaries.",
+    "domains": [
+      "marketing",
+      "campaigns",
+      "content"
+    ],
+    "capabilities": [
+      "marketing.chat",
+      "marketing.campaign",
+      "marketing.content"
+    ],
+    "intents": [
+      "CAMPAIGN_QUESTION",
+      "CONTENT_REQUEST",
+      "PERFORMANCE_QUESTION",
+      "BRAND_QUESTION"
+    ],
+    "examples": [
+      "Help me plan a campaign",
+      "Draft social content for this launch",
+      "How did last month's campaign perform?"
+    ],
+    "aliases": [
+      "Marketing",
+      "Marketing team",
+      "Brand team"
+    ],
+    "keywords": [
+      "marketing",
+      "campaign",
+      "content",
+      "brand",
+      "social",
+      "advertising",
+      "promotion",
+      "seo",
+      "webinar",
+      "email marketing",
+      "ad",
+      "blog",
+      "video",
+      "performance"
+    ]
+  }
 }

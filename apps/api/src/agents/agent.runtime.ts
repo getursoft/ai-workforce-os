@@ -135,7 +135,10 @@ export interface AgentExecutionInput {
   actor: AgentActor;
   channelContact?: ChannelContact;
   text: string;
-  source: { type: "DASHBOARD" } | { type: "CHANNEL"; channelId: string; externalUserId: string };
+  source:
+    | { type: "DASHBOARD" }
+    | { type: "CHANNEL"; channelId: string; externalUserId: string }
+    | { type: "VOICE"; channelId: string; providerCallId: string };
   requestId: string;
   metadata?: Record<string, unknown>;
   /** Ids of uploaded conversation attachments whose extracted text should be injected into this turn's
@@ -144,6 +147,12 @@ export interface AgentExecutionInput {
   /** Sprint 4.7: an existing trace to continue (e.g. WorkforceOrchestratorService dispatching a delegated
    *  task) — when omitted, AgentService.execute() starts a brand-new trace and becomes its root. */
   traceContext?: TraceContext;
+  /** Sprint 6.4 — Part 4/5: an explicit channel override for response shaping (see
+   *  `resolveConversationChannel` in conversational-response-policy.ts), threaded from the public
+   *  `AgentRunDto.channel` field. Omitted by every real channel adapter (WhatsApp/Voice already convey
+   *  their channel through `source.type`) — this exists so a caller of the one public `/agents/run`
+   *  endpoint that has no real channel adapter behind it can still ask for WhatsApp/Voice-safe output. */
+  requestedChannel?: "WEB" | "WHATSAPP" | "VOICE";
 }
 export interface ToolHandler {
   definition: ToolDefinition;

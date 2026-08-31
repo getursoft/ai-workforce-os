@@ -8,6 +8,7 @@ import {
 import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginModule } from "../plugins/plugin.module";
+import { AiConfigurationModule } from "../ai-configuration/ai-configuration.module";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
 import { KnowledgeChunkingService } from "./knowledge.chunking";
 import { KnowledgeCollectionService } from "./knowledge.collection";
@@ -31,6 +32,7 @@ import { OBJECT_STORAGE, type ObjectStorageService } from "../storage/object-sto
     PrismaModule,
     IdentityModule,
     PluginModule,
+    AiConfigurationModule,
     MulterModule.registerAsync({
       imports: [IdentityModule],
       inject: [SECURITY_CONFIG],

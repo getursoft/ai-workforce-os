@@ -48,7 +48,7 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
     expect(result.content).toMatch(/Option 1 — Value/);
     expect(result.content).toMatch(/Option 2 — Recommended/);
     expect(result.content).toMatch(/Option 3 — Premium/);
-    expect(result.content).toMatch(/Please select Option 1, Option 2 or Option 3\./);
+    expect(result.content).toMatch(/Value, Recommended, or Premium/);
     expect(provider.lastMemory.pendingAction).toBe("AWAITING_OPTION_SELECTION");
     expect(provider.lastMemory.pendingRecommendations).toHaveLength(3);
     // No booking is ever started merely by showing options.
@@ -63,7 +63,7 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
     const result = await second.complete({
       messages: [NAME_MESSAGE, BOOKING_MESSAGE, { role: "assistant", content: "..." }, { role: "user", content: "Book my flight" }]
     });
-    expect(result.content).toMatch(/select option 1, option 2 or option 3/i);
+    expect(result.content).toMatch(/value, recommended, or premium/i);
     expect(second.lastMemory.pendingAction).toBe("AWAITING_OPTION_SELECTION");
     expect(second.lastWorkflowSignal).toBeNull();
   });
@@ -77,7 +77,8 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
       messages: [NAME_MESSAGE, BOOKING_MESSAGE, { role: "assistant", content: "..." }, { role: "user", content: "Option 2" }]
     });
 
-    expect(result.content).toMatch(/full name, age, and gender for each traveller \(3 total\)/);
+    expect(result.content).toMatch(/full name, age and gender/i);
+    expect(result.content).not.toMatch(/\(\d+ total\)/);
     expect(second.lastMemory.pendingAction).toBe("AWAITING_PASSENGER_DETAILS");
     expect(second.lastMemory.selectedRecommendationId).toBeTruthy();
     expect(second.lastWorkflowSignal).toBeNull();
@@ -103,7 +104,7 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
       ]
     });
 
-    expect(result.content).toMatch(/1 more traveller/);
+    expect(result.content).toMatch(/the last traveller/i);
     expect(result.content).toMatch(/Krishna Pandey, 34, MALE/);
     expect(result.content).toMatch(/Anita Pandey, 32, FEMALE/);
     expect(third.lastMemory.pendingAction).toBe("AWAITING_PASSENGER_DETAILS");
@@ -130,7 +131,10 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
       ]
     });
 
-    expect(result.content).toMatch(/Where should I send your ticket/);
+    // Fix (Travel Booking Closure Pass — Phase 17): natural phrasing — see
+    // buildTicketContactRequestMessage's own doc comment; email/WhatsApp/"skip"/chat-download replies all
+    // still parse exactly as before (Phase 3's broadened resolvesTicketDeliveryQuestion).
+    expect(result.content).toMatch(/would you like the ticket here in chat, by email, or on whatsapp/i);
     expect(third.lastMemory.pendingAction).toBe("AWAITING_TICKET_CONTACT");
     expect(third.lastMemory.passengerDetails).toHaveLength(3);
     expect(third.lastWorkflowSignal).toBeNull();
@@ -367,7 +371,10 @@ describe("TravelEmployeeProvider booking flow: options -> selection -> confirmat
       ]
     });
 
-    expect(result.content).toMatch(/Where should I send your ticket/);
+    // Fix (Travel Booking Closure Pass — Phase 17): natural phrasing — see
+    // buildTicketContactRequestMessage's own doc comment; email/WhatsApp/"skip"/chat-download replies all
+    // still parse exactly as before (Phase 3's broadened resolvesTicketDeliveryQuestion).
+    expect(result.content).toMatch(/would you like the ticket here in chat, by email, or on whatsapp/i);
     expect(fifth.lastMemory.pendingAction).toBe("AWAITING_TICKET_CONTACT");
     expect(fifth.lastMemory.passengerDetails).toHaveLength(3);
 

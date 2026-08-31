@@ -619,6 +619,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
       ? rootedContext(task.organizationId, task.traceId, true, { delegatedTaskId: task.id })
       : undefined;
 
+    const knownCustomerName = delegatedCustomerName(task.inputPayloadJson);
     try {
       const result = await this.agentService.execute({
         organizationId: task.organizationId,
@@ -628,7 +629,11 @@ export class WorkforceOrchestratorService implements OnModuleInit {
         text: task.instructions,
         source: { type: "DASHBOARD" },
         requestId: `workforce-${task.id}`,
-        metadata: { delegatedTaskId: task.id, correlationId: task.correlationId },
+        metadata: {
+          delegatedTaskId: task.id,
+          correlationId: task.correlationId,
+          ...(knownCustomerName ? { receptionistCustomerName: knownCustomerName } : {})
+        },
         ...(dispatchTraceContext ? { traceContext: dispatchTraceContext } : {})
       });
 
@@ -1055,4 +1060,17 @@ function summarizeResult(resultPayloadJson: unknown): string | null {
 
 function safeMessage(message: string): string {
   return message.slice(0, 500);
+}
+
+/** Generic, delegation-source-agnostic read of a known customer name out of a task's own persisted
+ *  contract input — the same `HandoffContext.customerIdentity.displayName` shape the Receptionist already
+ *  writes into `inputPayloadJson` for both single-target and parallel/multi-employee delegation, so a
+ *  multi-employee handoff passes the same safe identity to every delegated specialist without a bespoke
+ *  code path per caller. */
+function delegatedCustomerName(inputPayloadJson: unknown): string | null {
+  if (!inputPayloadJson || typeof inputPayloadJson !== "object") return null;
+  const identity = (inputPayloadJson as Record<string, unknown>).customerIdentity;
+  if (!identity || typeof identity !== "object") return null;
+  const displayName = (identity as Record<string, unknown>).displayName;
+  return typeof displayName === "string" && displayName.trim() ? displayName : null;
 }

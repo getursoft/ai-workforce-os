@@ -7,6 +7,7 @@ import {
   derivePlaceholder,
   employeePlaceholder,
   knowledgeSourceLabel,
+  receptionistFrontDoorError,
   toLocalMessages
 } from "./agent-pages";
 import type { ConversationMessage } from "./agent-api";
@@ -14,12 +15,25 @@ import type { ConversationMessage } from "./agent-api";
 describe("employeePlaceholder (per-employee composer hints)", () => {
   it("uses the domain-specific hint for each non-travel employee instead of the travel text", () => {
     expect(employeePlaceholder("legal-employee", null, false, false)).toMatch(/notice|deadline/i);
-    expect(employeePlaceholder("hr-employee", null, false, false)).toMatch(/leave|onboarding|benefits/i);
-    expect(employeePlaceholder("finance-employee", null, false, false)).toMatch(/expense|invoice|budget/i);
-    expect(employeePlaceholder("it-support-employee", null, false, false)).toMatch(/VPN|password|hardware/i);
-    expect(employeePlaceholder("sales-employee", null, false, false)).toMatch(/quote|demo|product/i);
-    expect(employeePlaceholder("marketing-employee", null, false, false)).toMatch(/campaign|content/i);
-    expect(employeePlaceholder("customer-support-employee", null, false, false)).toMatch(/order|refund/i);
+    expect(employeePlaceholder("hr-employee", null, false, false)).toMatch(
+      /leave|onboarding|benefits/i
+    );
+    expect(employeePlaceholder("finance-employee", null, false, false)).toMatch(
+      /expense|invoice|budget/i
+    );
+    expect(employeePlaceholder("it-support-employee", null, false, false)).toMatch(
+      /VPN|password|hardware/i
+    );
+    expect(employeePlaceholder("sales-employee", null, false, false)).toMatch(
+      /quote|demo|product/i
+    );
+    expect(employeePlaceholder("marketing-employee", null, false, false)).toMatch(
+      /campaign|content/i
+    );
+    expect(employeePlaceholder("customer-support-employee", null, false, false)).toMatch(
+      /order|refund/i
+    );
+    expect(employeePlaceholder("receptionist-employee", null, false, false)).toMatch(/connect/i);
   });
 
   it("keeps the travel employee stage-aware once a conversation exists, and uses its default before", () => {
@@ -47,6 +61,44 @@ describe("AI Employees runtime errors", () => {
     expect(
       agentRunErrorMessage(new ApiError({ kind: "server", code, message: "Unsafe backend detail" }))
     ).toContain(expected);
+  });
+});
+
+describe("AI Receptionist bootstrap errors", () => {
+  it("identifies an unregistered live endpoint without exposing backend details", () => {
+    const result = receptionistFrontDoorError(
+      new ApiError({
+        kind: "not_found",
+        status: 404,
+        code: "USER_NOT_FOUND",
+        message: "unsafe detail",
+        requestId: "request-1"
+      })
+    );
+    expect(result).toEqual({
+      title: "AI Receptionist service is not available",
+      message: "The workforce front-door API is not registered on the running server.",
+      safeCode: "RECEPTIONIST_ENDPOINT_UNAVAILABLE",
+      requestId: "request-1"
+    });
+  });
+
+  it("distinguishes forbidden and unavailable API states", () => {
+    expect(
+      receptionistFrontDoorError(
+        new ApiError({
+          kind: "authorization",
+          status: 403,
+          code: "AUTHORIZATION_FAILED",
+          message: ""
+        })
+      ).title
+    ).toMatch(/restricted/i);
+    expect(
+      receptionistFrontDoorError(
+        new ApiError({ kind: "network", code: "NETWORK_ERROR", message: "" })
+      ).safeCode
+    ).toBe("API_UNAVAILABLE");
   });
 });
 
@@ -119,12 +171,37 @@ describe("toLocalMessages (hydrating a reopened conversation)", () => {
       row("ASSISTANT", "Hi 👋, I am your travel companion. May I know your name, please?")
     ];
     expect(toLocalMessages(rows)).toEqual([
-      { role: "ASSISTANT", content: "Hi 👋, I am your travel companion. May I know your name, please?" }
+      {
+        role: "ASSISTANT",
+        content: "Hi 👋, I am your travel companion. May I know your name, please?"
+      }
     ]);
   });
 
   it("returns an empty array for an empty transcript", () => {
     expect(toLocalMessages([])).toEqual([]);
+  });
+
+  it("restores durable receptionist handoff state for the connected-specialist banner", () => {
+    const assistant = row("ASSISTANT", "Where would you like to travel?");
+    assistant.contentJson = {
+      receptionist: {
+        routeType: "CONTINUE_HANDOFF",
+        decisionSource: "ACTIVE_HANDOFF",
+        confidence: 1,
+        reasonCode: "ACTIVE_HANDOFF_PRECEDENCE",
+        handoff: {
+          id: "handoff-1",
+          status: "HANDOFF_ACTIVE",
+          targetEmployeeInstallationId: "travel-1",
+          targetDisplayName: "Travel Employee",
+          displayMode: "TRANSPARENT_HANDOFF"
+        }
+      }
+    };
+    expect(toLocalMessages([assistant])[0]?.receptionist?.handoff?.targetDisplayName).toBe(
+      "Travel Employee"
+    );
   });
 });
 

@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { displayName, toggleSidebar } from "./dashboard-shell.logic";
 import { adminNavigationItemsFor, DashboardShell } from "./dashboard-shell";
 
@@ -11,6 +11,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams("")
 }));
 
+// Mutable so individual tests can render as the platform owner vs a normal Owner/Admin without a second
+// vi.mock — see the "Sales Leads navigation visibility" tests below (Platform Owner Sales Leads feature).
+let mockIsPlatformOwner = false;
+let mockRole: "OWNER" | "ADMIN" | "MEMBER" = "OWNER";
+
 vi.mock("../../features/auth/auth-provider", () => ({
   useAuth: () => ({
     state: {
@@ -20,8 +25,9 @@ vi.mock("../../features/auth/auth-provider", () => ({
         firstName: "Krishna",
         lastName: "Pandey",
         email: "admin@getursoft.com",
-        role: "OWNER",
-        status: "ACTIVE"
+        role: mockRole,
+        status: "ACTIVE",
+        isPlatformOwner: mockIsPlatformOwner
       },
       organization: { id: "1", name: "Getursoft", slug: "getursoft", status: "ACTIVE" },
       accessToken: "token",
@@ -46,6 +52,11 @@ vi.mock("../../features/admin/authorization", () => ({
 }));
 
 describe("DashboardShell", () => {
+  afterEach(() => {
+    mockIsPlatformOwner = false;
+    mockRole = "OWNER";
+  });
+
   it("renders the authenticated dashboard shell", () => {
     const html = renderToStaticMarkup(
       <DashboardShell title="Dashboard" description="Overview">
@@ -78,5 +89,41 @@ describe("DashboardShell", () => {
       "Permissions",
       "Invitations"
     ]);
+  });
+
+  // Platform Owner Sales Leads feature: navigation visibility must be role/permission-based
+  // (state.user?.isPlatformOwner, the same flag PlatformOwnerGuard/PlatformOwnerGate already rely on),
+  // never a hardcoded email — see dashboard-shell.tsx's nav block right after the Organizations link.
+  it("shows Sales Leads navigation only for the platform owner", () => {
+    mockIsPlatformOwner = true;
+    const html = renderToStaticMarkup(
+      <DashboardShell title="Dashboard" description="Overview">
+        <div>content</div>
+      </DashboardShell>
+    );
+    expect(html).toContain("Sales Leads");
+    expect(html).toContain("/dashboard/sales-leads");
+  });
+
+  it("hides Sales Leads navigation for a normal organization Owner", () => {
+    mockIsPlatformOwner = false;
+    mockRole = "OWNER";
+    const html = renderToStaticMarkup(
+      <DashboardShell title="Dashboard" description="Overview">
+        <div>content</div>
+      </DashboardShell>
+    );
+    expect(html).not.toContain("Sales Leads");
+  });
+
+  it("hides Sales Leads navigation for a normal organization Admin", () => {
+    mockIsPlatformOwner = false;
+    mockRole = "ADMIN";
+    const html = renderToStaticMarkup(
+      <DashboardShell title="Dashboard" description="Overview">
+        <div>content</div>
+      </DashboardShell>
+    );
+    expect(html).not.toContain("Sales Leads");
   });
 });

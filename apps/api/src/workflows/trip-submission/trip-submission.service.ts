@@ -18,6 +18,7 @@ import {
 } from "../workflow-execution.service";
 import type { WorkflowExecutionScope, WorkflowTurnResult } from "../workflow-runtime.contracts";
 import {
+  TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS,
   TRIP_SUBMISSION_STEP_AWAITING_CONTACT,
   TRIP_SUBMISSION_STEP_COMPLETED,
   TRIP_SUBMISSION_STEP_CONFIRM_CONTACT_USE,
@@ -30,17 +31,6 @@ import {
 
 const SAFE_RETRY_MESSAGE =
   "Something went wrong saving your travel request just now. Please try again in a moment — you don't need to repeat your trip details.";
-
-/** Travel Runtime pendingAction values that own their own reply format (an option number, a passenger
- *  list, or an email/phone volunteered specifically for ticket delivery/resend) — `shouldStart` must never
- *  treat a reply to one of these as a standalone volunteered contact. See `legacyPendingAction` above. */
-const TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS = new Set([
-  "AWAITING_OPTION_SELECTION",
-  "AWAITING_PASSENGER_DETAILS",
-  "AWAITING_TICKET_CONTACT",
-  "AWAITING_BOOKING_CONFIRMATION",
-  "AWAITING_RESEND_TICKET_DETAILS"
-]);
 
 type WorkflowStatusLiteral = WorkflowTurnResult<TripSubmissionState>["status"];
 
@@ -231,6 +221,52 @@ export class TripSubmissionWorkflowService {
       });
       this.logger.log({
         event: "TRIP_SUBMISSION_SUPERSEDED_BY_CORRECTION",
+        workflowId: execution.id
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof WorkflowExecutionRevisionConflictError) return false;
+      this.logger.warn({
+        event: "TRIP_SUBMISSION_SUPERSEDE_FAILED",
+        workflowId: execution.id,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Fix (Travel Booking UAT correction pass): supersedes an active, still-`WAITING_FOR_INPUT`
+   * TRIP_SUBMISSION workflow the instant Travel Runtime's own booking flow (option selection, passenger
+   * details, ticket-contact, booking confirmation, resend-ticket) has taken over the conversation —
+   * regardless of what originally triggered this workflow. `shouldStart` already refuses to START a new
+   * TRIP_SUBMISSION while Travel Runtime owns the turn (see `TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS`); this
+   * is the matching guard for one that is ALREADY active. Without this, `WorkflowCoordinator.dispatchTurn`
+   * gives a `WAITING_FOR_INPUT` workflow absolute per-turn priority, so a reply meant for Travel Runtime's
+   * own newer pending question (e.g. "skip" answering "reply skip to download from chat instead") would
+   * instead be consumed by THIS workflow's stale contact question via `resume()`'s `resolveTravelInput`
+   * call — "skip" matches the shared negative-response vocabulary, producing a false decline and an
+   * unwanted farewell/cancellation. Never creates a lead. Best-effort: a revision conflict from a
+   * concurrent turn is swallowed, not retried.
+   */
+  async supersedeIfOwnedByTravelRuntime(
+    execution: WorkflowExecution,
+    legacyPendingAction: string | null
+  ): Promise<boolean> {
+    if (execution.status !== "WAITING_FOR_INPUT") return false;
+    if (legacyPendingAction === null || !TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS.has(legacyPendingAction))
+      return false;
+    const state = execution.state as unknown as TripSubmissionState;
+    try {
+      await this.workflows.markCancelled({
+        organizationId: execution.organizationId,
+        id: execution.id,
+        expectedRevision: execution.revision,
+        state: state as unknown as Record<string, unknown>,
+        currentStep: "SUPERSEDED_BOOKING_PROGRESSED"
+      });
+      this.logger.log({
+        event: "TRIP_SUBMISSION_SUPERSEDED_BY_BOOKING_PROGRESS",
         workflowId: execution.id
       });
       return true;

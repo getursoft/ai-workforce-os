@@ -127,6 +127,28 @@ export interface PluginTool extends PluginToolDefinition {
   execute(input: unknown, context: PluginContext): Promise<PluginResponse>;
 }
 
+/** Safe, public routing metadata declared by an employee plugin. It deliberately contains no prompts,
+ * credentials, memory, or tenant configuration. The installed EmployeeRoutingProfile remains the
+ * runtime authority; this manifest block seeds that profile when the employee is installed. */
+export interface EmployeeRoutingManifest {
+  employeeKey: string;
+  employeeType?: string;
+  displayName?: string;
+  summary?: string;
+  domains: string[];
+  capabilities: string[];
+  intents: string[];
+  examples: string[];
+  aliases: string[];
+  keywords: string[];
+  negativeCapabilities?: string[];
+  supportedActions?: string[];
+  channelEligibility?: Array<"WEB" | "WHATSAPP" | "VOICE">;
+  delegationEnabled?: boolean;
+  priority?: number;
+  enabled?: boolean;
+}
+
 export interface PluginManifest {
   id: string;
   name: string;
@@ -137,6 +159,7 @@ export interface PluginManifest {
   entryPoint: string;
   permissions: PluginPermission[];
   capabilities?: PluginCapability[];
+  routing?: EmployeeRoutingManifest;
   tools: PluginToolDefinition[];
   configSchema?: Record<string, unknown>;
 }

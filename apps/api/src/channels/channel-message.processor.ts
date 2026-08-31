@@ -1,4 +1,11 @@
-import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional
+} from "@nestjs/common";
 import {
   ChannelConnectionStatus,
   ChannelMessageDirection,
@@ -64,12 +71,24 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
    *  traceId column, same async-continuity pattern as EmployeeDelegatedTask.traceId — see trace-context.ts).
    *  Runs `fn` inside a BACKGROUND_TASK span when a traceId exists and observability is available;
    *  otherwise degrades to a plain passthrough (e.g. a message with no traceId, or observability disabled). */
-  private async tracedBackground<T>(message: ChannelMessage, name: string, fn: (span: TraceContext | undefined) => Promise<T>): Promise<T> {
+  private async tracedBackground<T>(
+    message: ChannelMessage,
+    name: string,
+    fn: (span: TraceContext | undefined) => Promise<T>
+  ): Promise<T> {
     if (!message.traceId || !this.observability) return fn(undefined);
     const context = rootedContext(message.organizationId, message.traceId, true, {});
     return this.observability.withSpan(
       context,
-      { name, spanType: "BACKGROUND_TASK", component: "ChannelMessageProcessor", inputSummary: { channelConnectionId: message.channelConnectionId, direction: message.direction } },
+      {
+        name,
+        spanType: "BACKGROUND_TASK",
+        component: "ChannelMessageProcessor",
+        inputSummary: {
+          channelConnectionId: message.channelConnectionId,
+          direction: message.direction
+        }
+      },
       fn
     );
   }
@@ -167,14 +186,20 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleInbound(message: ChannelMessage): Promise<void> {
-    return this.tracedBackground(message, "CHANNEL_INBOUND_PROCESSING", (span) => this.handleInboundTraced(message, span));
+    return this.tracedBackground(message, "CHANNEL_INBOUND_PROCESSING", (span) =>
+      this.handleInboundTraced(message, span)
+    );
   }
 
   private async handleInboundTraced(message: ChannelMessage, span?: TraceContext): Promise<void> {
     const processingStartedAt = Date.now();
     try {
       const channel = await this.prisma.channelConnection.findFirst({
-        where: { id: message.channelConnectionId, organizationId: message.organizationId, deletedAt: null },
+        where: {
+          id: message.channelConnectionId,
+          organizationId: message.organizationId,
+          deletedAt: null
+        },
         include: { pluginInstallation: true }
       });
       if (
@@ -195,18 +220,33 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
       let agentId = channel.pluginInstallationId;
       let conversationId = message.conversationId ?? undefined;
       let routingResponseText: string | null = null;
+      const isReceptionist = manifestCapabilities(channel.pluginInstallation.manifest).includes(
+        "workforce.intake"
+      );
 
       if (!conversationId) {
         const prevConvo = await this.prisma.conversation.findFirst({
-          where: { organizationId: message.organizationId, channelConnectionId: channel.id, externalUserId, status: "ACTIVE", deletedAt: null },
+          where: {
+            organizationId: message.organizationId,
+            channelConnectionId: channel.id,
+            externalUserId,
+            status: "ACTIVE",
+            deletedAt: null
+          },
           orderBy: { updatedAt: "desc" }
         });
         if (prevConvo) conversationId = prevConvo.id;
       }
 
-      if (channel.routingMode === "INTENT_ROUTER" && this.employeeRouter) {
+      if (channel.routingMode === "INTENT_ROUTER" && this.employeeRouter && !isReceptionist) {
         let conversation = await this.prisma.conversation.findFirst({
-          where: { organizationId: message.organizationId, channelConnectionId: channel.id, externalUserId, status: "ACTIVE", deletedAt: null },
+          where: {
+            organizationId: message.organizationId,
+            channelConnectionId: channel.id,
+            externalUserId,
+            status: "ACTIVE",
+            deletedAt: null
+          },
           orderBy: { updatedAt: "desc" }
         });
         const convMeta = conversation?.metadata as Record<string, unknown> | undefined;
@@ -215,20 +255,57 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         if (!conversation || routingState?.routingStatus === "AWAITING_INTENT") {
           if (!conversation) {
             conversation = await this.prisma.conversation.create({
-              data: { organizationId: message.organizationId, pluginInstallationId: channel.pluginInstallationId, channelConnectionId: channel.id, externalUserId, title: externalUserId, metadata: { routingState: { routingStatus: "AWAITING_INTENT", selectedEmployeeId: null, detectedIntent: null, routingConfidence: 0, routedAt: null, lastRoutedAt: null, clarificationCount: 0 } } }
+              data: {
+                organizationId: message.organizationId,
+                pluginInstallationId: channel.pluginInstallationId,
+                channelConnectionId: channel.id,
+                externalUserId,
+                title: externalUserId,
+                metadata: {
+                  routingState: {
+                    routingStatus: "AWAITING_INTENT",
+                    selectedEmployeeId: null,
+                    detectedIntent: null,
+                    routingConfidence: 0,
+                    routedAt: null,
+                    lastRoutedAt: null,
+                    clarificationCount: 0
+                  }
+                }
+              }
             });
           }
           if (this.employeeRouter.isGreeting(message.body)) {
             routingResponseText = this.employeeRouter.buildReceptionistGreeting(channel);
             conversationId = conversation.id;
           } else {
-            const routeResult = await this.employeeRouter.route(message.body, message.organizationId, channel, routingState ?? null);
-            if (routeResult.decision.status === "ROUTED" && routeResult.decision.employeeInstallationId) {
+            const routeResult = await this.employeeRouter.route(
+              message.body,
+              message.organizationId,
+              channel,
+              routingState ?? null
+            );
+            if (
+              routeResult.decision.status === "ROUTED" &&
+              routeResult.decision.employeeInstallationId
+            ) {
               agentId = routeResult.decision.employeeInstallationId;
               conversationId = conversation.id;
               await this.prisma.conversation.update({
                 where: { id: conversation.id },
-                data: { metadata: { routingState: { routingStatus: "ROUTED", selectedEmployeeId: agentId, detectedIntent: routeResult.decision.detectedIntent ?? null, routingConfidence: routeResult.decision.confidence, routedAt: new Date().toISOString(), lastRoutedAt: new Date().toISOString(), clarificationCount: (routingState?.clarificationCount ?? 0) } } }
+                data: {
+                  metadata: {
+                    routingState: {
+                      routingStatus: "ROUTED",
+                      selectedEmployeeId: agentId,
+                      detectedIntent: routeResult.decision.detectedIntent ?? null,
+                      routingConfidence: routeResult.decision.confidence,
+                      routedAt: new Date().toISOString(),
+                      lastRoutedAt: new Date().toISOString(),
+                      clarificationCount: routingState?.clarificationCount ?? 0
+                    }
+                  }
+                }
               });
             } else {
               routingResponseText = routeResult.responseText;
@@ -241,24 +318,75 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      const channelContact = channel.provider === "META_CLOUD_API" ? {
-        channel: "WHATSAPP" as const, provider: "META_CLOUD_API",
-        senderPhoneNumber: externalUserId, senderWhatsAppId: externalUserId,
-        verificationSource: "PROVIDER" as const, verified: true as const,
-        channelConnectionId: channel.id, organizationId: message.organizationId
-      } as ChannelContact : undefined;
+      const channelContact =
+        channel.provider === "META_CLOUD_API"
+          ? ({
+              channel: "WHATSAPP" as const,
+              provider: "META_CLOUD_API",
+              senderPhoneNumber: externalUserId,
+              senderWhatsAppId: externalUserId,
+              verificationSource: "PROVIDER" as const,
+              verified: true as const,
+              channelConnectionId: channel.id,
+              organizationId: message.organizationId
+            } as ChannelContact)
+          : undefined;
 
       let result: { conversationId: string; executionId: string; response: string } | null = null;
       let responseText = routingResponseText ?? "";
       if (!routingResponseText) {
-        const ackEnabled = channel.routingMode === "INTENT_ROUTER" && channel.processingAcknowledgementEnabled !== false && channel.processingAcknowledgementMode !== "DISABLED";
+        const ackEnabled =
+          !isReceptionist &&
+          channel.routingMode === "INTENT_ROUTER" &&
+          channel.processingAcknowledgementEnabled !== false &&
+          channel.processingAcknowledgementMode !== "DISABLED";
         if (ackEnabled) {
-          const ackMsg = channel.processingAcknowledgementMessage ?? DEFAULT_ACKNOWLEDGEMENT_MESSAGE;
-          await this.prisma.channelMessage.create({ data: { organizationId: message.organizationId, channelConnectionId: channel.id, conversationId: conversationId ?? null, provider: channel.provider, direction: ChannelMessageDirection.OUTBOUND, status: ChannelMessageStatus.SENT, fromAddress: channel.displayPhoneNumber ?? channel.phoneNumberId ?? "", toAddress: message.fromAddress, body: ackMsg } as unknown as Prisma.ChannelMessageCreateInput });
-          await this.sendOutbound(channel as Parameters<typeof this.sendOutbound>[0], { id: `ack-${message.id}`, toAddress: message.fromAddress, body: ackMsg, provider: channel.provider } as Parameters<typeof this.sendOutbound>[1]);
+          const ackMsg =
+            channel.processingAcknowledgementMessage ?? DEFAULT_ACKNOWLEDGEMENT_MESSAGE;
+          await this.prisma.channelMessage.create({
+            data: {
+              organizationId: message.organizationId,
+              channelConnectionId: channel.id,
+              conversationId: conversationId ?? null,
+              provider: channel.provider,
+              direction: ChannelMessageDirection.OUTBOUND,
+              status: ChannelMessageStatus.SENT,
+              fromAddress: channel.displayPhoneNumber ?? channel.phoneNumberId ?? "",
+              toAddress: message.fromAddress,
+              body: ackMsg
+            } as unknown as Prisma.ChannelMessageCreateInput
+          });
+          await this.sendOutbound(
+            channel as Parameters<typeof this.sendOutbound>[0],
+            {
+              id: `ack-${message.id}`,
+              toAddress: message.fromAddress,
+              body: ackMsg,
+              provider: channel.provider
+            } as Parameters<typeof this.sendOutbound>[1]
+          );
         }
         try {
-          result = await this.agents.execute(Object.assign({ organizationId: message.organizationId, agentId, actor: { type: "CHANNEL" as const, channelConnectionId: channel.id, externalUserId }, text: message.body, source: { type: "CHANNEL" as const, channelId: channel.id, externalUserId }, requestId: message.id, metadata: { channelMessageId: message.id } }, conversationId ? { conversationId } : {}, channelContact ? { channelContact } : {}, span ? { traceContext: span } : {}) as AgentExecutionInput);
+          result = await this.agents.execute(
+            Object.assign(
+              {
+                organizationId: message.organizationId,
+                agentId,
+                actor: {
+                  type: "CHANNEL" as const,
+                  channelConnectionId: channel.id,
+                  externalUserId
+                },
+                text: message.body,
+                source: { type: "CHANNEL" as const, channelId: channel.id, externalUserId },
+                requestId: message.id,
+                metadata: { channelMessageId: message.id }
+              },
+              conversationId ? { conversationId } : {},
+              channelContact ? { channelContact } : {},
+              span ? { traceContext: span } : {}
+            ) as AgentExecutionInput
+          );
           responseText = result?.response ?? "";
         } catch {
           responseText = DEFAULT_FAILURE_MESSAGE;
@@ -272,7 +400,10 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
       if (resolvedConversationId) updateData.conversationId = resolvedConversationId;
       if (agentExecutionId) updateData.agentExecutionId = agentExecutionId;
       if (Object.keys(updateData).length > 0) {
-        await this.prisma.channelMessage.update({ where: { id: message.id }, data: updateData as unknown as Prisma.ChannelMessageUpdateInput });
+        await this.prisma.channelMessage.update({
+          where: { id: message.id },
+          data: updateData as unknown as Prisma.ChannelMessageUpdateInput
+        });
       }
       const isMeta = channel.provider === "META_CLOUD_API";
       const outboundData: Prisma.ChannelMessageCreateInput = {
@@ -281,7 +412,11 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         provider: isMeta ? "META_CLOUD_API" : "TWILIO",
         direction: ChannelMessageDirection.OUTBOUND,
         status: ChannelMessageStatus.PROCESSING,
-        fromAddress: isMeta ? (channel.displayPhoneNumber ?? channel.phoneNumberId ?? "") : normalizeWhatsAppAddress((channel.configuration as Record<string, unknown>)?.fromNumber as string ?? "").address,
+        fromAddress: isMeta
+          ? (channel.displayPhoneNumber ?? channel.phoneNumberId ?? "")
+          : normalizeWhatsAppAddress(
+              ((channel.configuration as Record<string, unknown>)?.fromNumber as string) ?? ""
+            ).address,
         toAddress: message.fromAddress,
         body: responseText,
         ...(resolvedConversationId ? { conversationId: resolvedConversationId } : {}),
@@ -291,17 +426,27 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
       const outbound = await this.prisma.channelMessage.create({ data: outboundData });
       const deliveryStartedAt = Date.now();
       const observability = this.observability;
-      const delivered = span && observability
-        ? await observability.withSpan(
-            span,
-            { name: "CHANNEL_OUTBOUND_DELIVERY", spanType: "MESSAGE_DELIVERY", component: "ChannelMessageProcessor", inputSummary: { provider: outboundData.provider } },
-            async (deliverySpan) => {
-              const sent = await this.sendOutbound(channel, outbound);
-              await observability.addAttribute(deliverySpan, "delivery", { deliveryMs: Date.now() - deliveryStartedAt, delivered: sent, provider: outboundData.provider });
-              return sent;
-            }
-          )
-        : await this.sendOutbound(channel, outbound);
+      const delivered =
+        span && observability
+          ? await observability.withSpan(
+              span,
+              {
+                name: "CHANNEL_OUTBOUND_DELIVERY",
+                spanType: "MESSAGE_DELIVERY",
+                component: "ChannelMessageProcessor",
+                inputSummary: { provider: outboundData.provider }
+              },
+              async (deliverySpan) => {
+                const sent = await this.sendOutbound(channel, outbound);
+                await observability.addAttribute(deliverySpan, "delivery", {
+                  deliveryMs: Date.now() - deliveryStartedAt,
+                  delivered: sent,
+                  provider: outboundData.provider
+                });
+                return sent;
+              }
+            )
+          : await this.sendOutbound(channel, outbound);
       await this.prisma.channelMessage.update({
         where: { id: message.id },
         data: { status: ChannelMessageStatus.SENT }
@@ -329,12 +474,20 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
 
   private async handleOutboundRetry(message: ChannelMessage): Promise<void> {
     const channel = await this.prisma.channelConnection.findFirst({
-      where: { id: message.channelConnectionId, organizationId: message.organizationId, deletedAt: null }
+      where: {
+        id: message.channelConnectionId,
+        organizationId: message.organizationId,
+        deletedAt: null
+      }
     });
     if (!channel) {
       await this.prisma.channelMessage.update({
         where: { id: message.id },
-        data: { status: ChannelMessageStatus.FAILED, errorCode: "CHANNEL_UNAVAILABLE", nextAttemptAt: null }
+        data: {
+          status: ChannelMessageStatus.FAILED,
+          errorCode: "CHANNEL_UNAVAILABLE",
+          nextAttemptAt: null
+        }
       });
       return;
     }
@@ -344,7 +497,14 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   /** Sends (or resends) an outbound row and persists the delivery/failure outcome. Supports both Twilio
    *  and Meta Cloud API providers. */
   private async sendOutbound(
-    channel: { id: string; configuration: unknown; encryptedSecrets: unknown; provider?: string; phoneNumberId?: string | null; displayPhoneNumber?: string | null },
+    channel: {
+      id: string;
+      configuration: unknown;
+      encryptedSecrets: unknown;
+      provider?: string;
+      phoneNumberId?: string | null;
+      displayPhoneNumber?: string | null;
+    },
     outbound: ChannelMessage
   ): Promise<boolean> {
     const provider = channel.provider ?? "TWILIO";
@@ -356,7 +516,10 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     channel: { id: string; configuration: unknown; encryptedSecrets: unknown },
     outbound: ChannelMessage
   ): Promise<boolean> {
-    const configuration = (channel.configuration ?? {}) as { accountSid?: string; fromNumber?: string };
+    const configuration = (channel.configuration ?? {}) as {
+      accountSid?: string;
+      fromNumber?: string;
+    };
     const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
     if (!configuration.accountSid || !configuration.fromNumber || !secrets.authToken) {
       await this.failOutbound(outbound, "CHANNEL_CREDENTIALS_REQUIRED");
@@ -364,13 +527,17 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const sent = await this.twilio.sendWhatsAppMessage({
-        accountSid: configuration.accountSid, authToken: secrets.authToken,
-        from: configuration.fromNumber, to: outbound.toAddress, body: outbound.body ?? ""
+        accountSid: configuration.accountSid,
+        authToken: secrets.authToken,
+        from: configuration.fromNumber,
+        to: outbound.toAddress,
+        body: outbound.body ?? ""
       });
       await this.markSent(outbound, sent.providerMessageSid);
       return true;
     } catch (error) {
-      const code = error instanceof TwilioProviderError ? error.code : "CHANNEL_PROVIDER_UNAVAILABLE";
+      const code =
+        error instanceof TwilioProviderError ? error.code : "CHANNEL_PROVIDER_UNAVAILABLE";
       await this.failOrRetry(outbound, code);
       return false;
     }
@@ -389,7 +556,10 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     }
     try {
       const result = await sendMetaWhatsAppText({
-        phoneNumberId, accessToken, to: outbound.toAddress, text: outbound.body ?? ""
+        phoneNumberId,
+        accessToken,
+        to: outbound.toAddress,
+        text: outbound.body ?? ""
       });
       await this.markSent(outbound, result.providerMessageId);
       return true;
@@ -419,7 +589,8 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     await this.prisma.channelMessage.update({
       where: { id: outbound.id },
       data: {
-        status: ChannelMessageStatus.FAILED, errorCode,
+        status: ChannelMessageStatus.FAILED,
+        errorCode,
         errorMessage: "Outbound WhatsApp delivery failed",
         nextAttemptAt: retryable ? backoff(attempts) : null
       }
@@ -453,7 +624,10 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private audit(organizationId: string, channelConnectionId: string, event: string) {
-    this.auditLogger.record(event, "channel-processor", { organizationId, targetId: channelConnectionId });
+    this.auditLogger.record(event, "channel-processor", {
+      organizationId,
+      targetId: channelConnectionId
+    });
   }
 }
 
@@ -465,4 +639,12 @@ function safeCode(error: unknown): string {
   return error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)
     ? error.message
     : "CHANNEL_MESSAGE_PROCESSING_FAILED";
+}
+
+function manifestCapabilities(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const capabilities = (value as { capabilities?: unknown }).capabilities;
+  return Array.isArray(capabilities)
+    ? capabilities.filter((item): item is string => typeof item === "string")
+    : [];
 }

@@ -120,7 +120,9 @@ describe("formatPackageOptionsMessage", () => {
     expect(message).toMatch(/Option 1 — Value/);
     expect(message).toMatch(/Option 2 — Recommended/);
     expect(message).toMatch(/Option 3 — Premium/);
-    expect(message).toMatch(/Please select Option 1, Option 2 or Option 3\./);
+    // Fix (Travel Booking Closure Pass — Phase 17): natural phrasing over a numbered-menu prompt — see
+    // formatPackageOptionsMessage's own doc comment for why "Option 1"/bare "1"/"value" etc. still parse.
+    expect(message).toMatch(/Value, Recommended, or Premium/);
   });
 });
 
@@ -284,16 +286,31 @@ describe("parsePassengerDetailsReply", () => {
 });
 
 describe("buildPassengerDetailsRequestMessage", () => {
+  // Fix (Travel Booking Closure Pass — Phase 11/17): natural phrasing over an exposed-counter prompt
+  // ("2 more traveller(s) (3 total)") — see the function's own doc comment. Authoritative facts (total
+  // travellers, how many collected) are asserted via the SAME numbers still appearing naturally in text,
+  // not by requiring one exact sentence.
   it("asks for all travellers when none are recorded yet", () => {
     const message = buildPassengerDetailsRequestMessage(3, []);
-    expect(message).toMatch(/full name, age, and gender for each traveller \(3 total\)/);
+    expect(message).toMatch(/full name, age and gender/i);
     expect(message).not.toMatch(/Already recorded/);
+    expect(message).not.toMatch(/\(\d+ total\)/);
   });
 
   it("asks for the remaining count and lists what's already recorded", () => {
     const message = buildPassengerDetailsRequestMessage(3, [{ name: "Krishna Pandey", age: 34, gender: "MALE" }]);
-    expect(message).toMatch(/2 more traveller/);
+    expect(message).toMatch(/remaining 2 travellers/i);
     expect(message).toMatch(/Already recorded:/);
     expect(message).toMatch(/1\. Krishna Pandey, 34, MALE/);
+  });
+
+  it("uses singular phrasing for exactly one remaining traveller", () => {
+    const message = buildPassengerDetailsRequestMessage(2, [{ name: "Krishna Pandey", age: 34, gender: "MALE" }]);
+    expect(message).toMatch(/the last traveller/i);
+  });
+
+  it("uses singular phrasing for a single-traveller trip on the first ask", () => {
+    const message = buildPassengerDetailsRequestMessage(1, []);
+    expect(message).toMatch(/the traveller's full name/i);
   });
 });

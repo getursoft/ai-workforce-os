@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildAttachmentReadMessage,
   buildEmployeeIntentDiscoveryMessage,
+  buildEmployeeIntentDiscoveryMessageForVoice,
   buildOutOfScopeRoutingMessage,
   detectOutOfScopeEmployee,
+  detectRoutingConfirmation,
   employeeScopeProfile,
   looksLikeAQuestion,
   parseAttachmentBlocks,
@@ -17,12 +19,14 @@ import { FINANCE_DOMAIN_SPEC } from "../finance/finance.runtime";
 /** Minimal Travel spec for cross-employee routing tests — only `slug` is consulted. */
 
 describe("buildEmployeeIntentDiscoveryMessage", () => {
-  it("uses the same time-of-day greeting + name + help menu template as the Travel employee", () => {
+  it("uses a natural time-of-day greeting + name + help menu, asked once (Sprint 6.3 — Part 4)", () => {
     const message = buildEmployeeIntentDiscoveryMessage(HR_DOMAIN_SPEC, "Krishna", new Date(2026, 6, 31, 9, 0));
-    expect(message).toMatch(/^Good morning, Krishna!/);
-    expect(message).toMatch(/Nice to meet you\./);
-    expect(message).toMatch(/How may I help you today\?/);
-    expect(message).toMatch(/I can help you:/);
+    expect(message).toMatch(/^Good morning, Krishna! .*What can I help you with\?/);
+    // The old version asked "how may I help you today" and then separately said "I can help you:" —
+    // the same question twice. Never regress back to that redundant double-ask.
+    expect(message).not.toMatch(/Nice to meet you\./);
+    expect(message).not.toMatch(/How may I help you today\?/);
+    expect(message).not.toMatch(/I can help you:/);
     expect(message).toMatch(/Ask about leave policy/);
   });
 
@@ -33,6 +37,22 @@ describe("buildEmployeeIntentDiscoveryMessage", () => {
     expect(morning).toBe("Good morning");
     expect(afternoon).toBe("Good afternoon");
     expect(evening).toBe("Good evening");
+  });
+});
+
+describe("buildEmployeeIntentDiscoveryMessageForVoice (Sprint 6.3 — Part 5 voice-readiness)", () => {
+  it("uses the SAME opening actions as the WEB/WHATSAPP version, as a short spoken sentence with no bullets", () => {
+    const voice = buildEmployeeIntentDiscoveryMessageForVoice(HR_DOMAIN_SPEC, "Krishna", new Date(2026, 6, 31, 9, 0));
+    expect(voice).not.toMatch(/[•\n]/);
+    expect(voice).toMatch(/^Good morning, Krishna!/);
+    // Names a couple of the SAME opening actions the WEB menu shows, inline — never a bulleted list.
+    expect(voice).toMatch(/ask about leave policy/i);
+  });
+
+  it("falls back to a bare greeting when a domain has no opening actions", () => {
+    const noActionsSpec = { ...HR_DOMAIN_SPEC, openingActions: undefined } as typeof HR_DOMAIN_SPEC;
+    const voice = buildEmployeeIntentDiscoveryMessageForVoice(noActionsSpec, "Krishna", new Date(2026, 6, 31, 9, 0));
+    expect(voice).toBe("Good morning, Krishna! What can I help you with?");
   });
 });
 const TRAVEL_DOMAIN_SPEC = {
@@ -123,6 +143,11 @@ describe("detectOutOfScopeEmployee", () => {
     expect(target?.displayName).toBe("Finance Employee");
   });
 
+  it("does NOT route a plain travel meal preference away from the Travel employee to Finance", () => {
+    const target = detectOutOfScopeEmployee(TRAVEL_DOMAIN_SPEC, "I prefer veg food");
+    expect(target).toBeNull();
+  });
+
   it("does NOT route an in-domain legal question away from the Legal employee", () => {
     const target = detectOutOfScopeEmployee(LEGAL_DOMAIN_SPEC, "how do I draft a reply to a GST notice?");
     expect(target).toBeNull();
@@ -137,6 +162,60 @@ describe("detectOutOfScopeEmployee", () => {
     expect(detectOutOfScopeEmployee(HR_DOMAIN_SPEC, "yes")).toBeNull();
     expect(detectOutOfScopeEmployee(FINANCE_DOMAIN_SPEC, "no")).toBeNull();
     expect(detectOutOfScopeEmployee(LEGAL_DOMAIN_SPEC, "thanks")).toBeNull();
+  });
+});
+
+describe("detectRoutingConfirmation", () => {
+  const offerMessage = buildOutOfScopeRoutingMessage(TRAVEL_DOMAIN_SPEC, {
+    slug: "hr-employee",
+    displayName: "HR Employee",
+    keywords: []
+  });
+
+  it("confirms a routing offer accepted with 'yes', carrying over the ORIGINAL out-of-scope message", () => {
+    const result = detectRoutingConfirmation(TRAVEL_DOMAIN_SPEC, [
+      { role: "assistant", content: "Hi! May I know your name?" },
+      { role: "user", content: "need to apply leave" },
+      { role: "assistant", content: offerMessage },
+      { role: "user", content: "yes" }
+    ]);
+    expect(result?.target.displayName).toBe("HR Employee");
+    expect(result?.originalText).toBe("need to apply leave");
+  });
+
+  it("confirms a routing offer accepted with 'route it'", () => {
+    const result = detectRoutingConfirmation(TRAVEL_DOMAIN_SPEC, [
+      { role: "user", content: "need to apply leave" },
+      { role: "assistant", content: offerMessage },
+      { role: "user", content: "route it" }
+    ]);
+    expect(result?.target.displayName).toBe("HR Employee");
+    expect(result?.originalText).toBe("need to apply leave");
+  });
+
+  it("returns null when the user declines the offer", () => {
+    const result = detectRoutingConfirmation(TRAVEL_DOMAIN_SPEC, [
+      { role: "user", content: "need to apply leave" },
+      { role: "assistant", content: offerMessage },
+      { role: "user", content: "no thanks" }
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null when the prior assistant turn was not a routing offer", () => {
+    const result = detectRoutingConfirmation(TRAVEL_DOMAIN_SPEC, [
+      { role: "assistant", content: "How may I help you today?" },
+      { role: "user", content: "yes" }
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("returns null for an ordinary affirmative reply mid-conversation (no offer preceded it)", () => {
+    const result = detectRoutingConfirmation(TRAVEL_DOMAIN_SPEC, [
+      { role: "assistant", content: "Would you like a window seat?" },
+      { role: "user", content: "yes" }
+    ]);
+    expect(result).toBeNull();
   });
 });
 

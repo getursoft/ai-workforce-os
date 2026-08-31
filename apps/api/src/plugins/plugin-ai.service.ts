@@ -1,5 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger } from "@nestjs/common";
-import { PluginAiProviderType, PluginStatus, Prisma } from "@prisma/client";
+import { BadRequestException, Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { AiProfilePurpose, PluginAiProviderType, PluginStatus, Prisma } from "@prisma/client";
 import type { AiMessage, AiToolDefinition } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
@@ -15,6 +15,7 @@ import {
   SafeHttpTool,
   type ProviderSettings
 } from "./plugin-ai.runtime";
+import { AiConfigurationResolverService } from "../ai-configuration/ai-configuration-resolver.service";
 
 type StoredSettings = Omit<ProviderSettings, "providerType">;
 
@@ -25,7 +26,8 @@ export class PluginAiService {
     private readonly prisma: PrismaService,
     private readonly encryption: PluginSecretsEncryptionService,
     private readonly http: SafeHttpTool,
-    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig
+    @Inject(SECURITY_CONFIG) private readonly security: SecurityConfig,
+    @Optional() private readonly aiConfigResolver?: AiConfigurationResolverService
   ) {}
 
   async get(organizationId: string, pluginId: string) {
@@ -245,8 +247,40 @@ export class PluginAiService {
     throw new BadRequestException("AI_EXECUTION_LIMIT_REACHED");
   }
 
-  async resolveProvider(organizationId: string, pluginId: string) {
+  /** The single call site every AI execution path (AgentService, Receptionist, Skills, embeddings)
+   *  goes through to get a ready-to-call provider. When AiConfigurationResolverService is injected
+   *  (always true in real DI — see PluginModule/AiConfigurationModule; only absent for isolated
+   *  unit construction), it becomes the source of truth: shared connections/profiles/assignments
+   *  first, falling back to this plugin's own legacy PluginAiConfiguration automatically (see
+   *  AiConfigurationResolverService's precedence). `purpose` lets a caller ask for something more
+   *  specific than the employee's DEFAULT profile (e.g. Receptionist asking for ROUTING). */
+  async resolveProvider(organizationId: string, pluginId: string, purpose?: AiProfilePurpose) {
     await this.plugin(organizationId, pluginId);
+    if (this.aiConfigResolver) {
+      const { provider, resolved } = await this.aiConfigResolver.resolveExecutable({
+        organizationId,
+        pluginInstallationId: pluginId,
+        ...(purpose ? { purpose } : {})
+      });
+      const settings: ProviderSettings = {
+        providerType: resolved.providerType,
+        timeoutMs: resolved.timeoutMs,
+        ...(resolved.model ? { model: resolved.model } : {}),
+        ...(resolved.embeddingModel ? { embeddingModel: resolved.embeddingModel } : {}),
+        ...(resolved.baseUrl ? { baseUrl: resolved.baseUrl } : {}),
+        ...(resolved.endpoint ? { endpoint: resolved.endpoint } : {}),
+        ...(resolved.deploymentName ? { deploymentName: resolved.deploymentName } : {}),
+        ...(resolved.embeddingDeployment ? { embeddingDeployment: resolved.embeddingDeployment } : {}),
+        ...(resolved.apiVersion ? { apiVersion: resolved.apiVersion } : {})
+      };
+      return {
+        provider,
+        settings,
+        resolutionSource: resolved.resolutionSource,
+        providerConnectionId: resolved.providerConnectionId,
+        modelProfileId: resolved.modelProfileId
+      };
+    }
     const stored = await this.prisma.pluginAiConfiguration.findUnique({
       where: { pluginInstallationId: pluginId }
     });

@@ -299,6 +299,12 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  plugins/receptionist-employee:
+    dependencies:
+      '@ai-workforce-os/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/sales-employee:
     dependencies:
       '@ai-workforce-os/plugin-sdk':

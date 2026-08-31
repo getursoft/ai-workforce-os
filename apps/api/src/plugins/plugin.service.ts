@@ -75,14 +75,15 @@ export class PluginService implements OnModuleInit {
     await this.checkRoutingProfilesAtStartup();
   }
 
+  /** Runs on every boot for every installation (not just new ones) — `ensureRoutingProfile` itself now
+   *  branches into create-if-missing or reconcile-if-present (Part 3), so an org that installed HR before
+   *  "salary" was added to its manifest picks the new keyword up automatically the next time the API
+   *  restarts, with no separate migration step required. */
   private async checkRoutingProfilesAtStartup(): Promise<void> {
     try {
       const plugins = await this.prisma.plugin.findMany({ where: { deletedAt: null } });
       for (const plugin of plugins) {
-        const existing = await this.prisma.employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
-        if (!existing) {
-          await this.ensureRoutingProfile(plugin, "STARTUP");
-        }
+        await this.ensureRoutingProfile(plugin, "STARTUP");
       }
     } catch (error) {
       this.logger.warn({ event: "RoutingProfileStartupCheckFailed", error: String(error) });
@@ -561,165 +562,192 @@ export class PluginService implements OnModuleInit {
   // ---- EmployeeRoutingProfile lifecycle ----
 
   private async ensureRoutingProfile(
-    plugin: { id: string; organizationId: string; slug: string; displayName: string; description: string; manifest: unknown },
+    plugin: {
+      id: string;
+      organizationId: string;
+      slug: string;
+      displayName: string;
+      description: string;
+      manifest: unknown;
+    },
     source: "INSTALLATION" | "STARTUP" | "BACKFILL",
     tx?: Prisma.TransactionClient
   ): Promise<void> {
     const prisma = tx ?? this.prisma;
-    const existing = await (prisma as typeof this.prisma).employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
-    if (existing) {
-      this.logger.log({ event: "RoutingProfileAlreadyExists", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source });
+    const existing = await (prisma as typeof this.prisma).employeeRoutingProfile.findUnique({
+      where: { pluginInstallationId: plugin.id }
+    });
+    // Sprint 6.4 — Part 3: "current system defaults" must come from the live, on-disk plugin.json (what
+    // PluginDiscovery just read at boot into `this.catalog`), not from `plugin.manifest` — that column is
+    // a permanent snapshot taken at install time and never rewritten, so it can only ever describe what
+    // the manifest looked like the day the tenant installed it. Falls back to the installed snapshot for
+    // a plugin that isn't in the live catalog (e.g. installed from a raw dto.manifest rather than the
+    // marketplace catalog).
+    const liveManifest = this.catalog.get(plugin.slug)?.manifest as
+      | Record<string, unknown>
+      | undefined;
+    const manifest = liveManifest ?? ((plugin.manifest as Record<string, unknown>) ?? {});
+    const fields = this.computeRoutingProfileFields(plugin, manifest);
+    if (!existing) {
+      try {
+        await (prisma as typeof this.prisma).employeeRoutingProfile.create({
+          data: { organizationId: plugin.organizationId, pluginInstallationId: plugin.id, ...fields }
+        });
+        this.logger.log({
+          event: "RoutingProfileCreated",
+          employeeInstallationId: plugin.id,
+          organizationId: plugin.organizationId,
+          source,
+          profileSource: manifest.routing ? "MANIFEST" : "DEFAULTS"
+        });
+      } catch (error: unknown) {
+        if ((error as { code?: string }).code === "P2002") return;
+        this.logger.error({
+          event: "RoutingProfileCreationFailed",
+          employeeInstallationId: plugin.id,
+          organizationId: plugin.organizationId,
+          source,
+          error: String(error)
+        });
+        throw error;
+      }
       return;
     }
-    const manifest = (plugin.manifest as Record<string, unknown>) ?? {};
-    const routing = manifest.routing as Record<string, unknown> | undefined;
-    const defaults = this.defaultRoutingProfile(plugin);
-    try {
-      await (prisma as typeof this.prisma).employeeRoutingProfile.create({
-        data: {
-          organizationId: plugin.organizationId,
-          pluginInstallationId: plugin.id,
-          displayName: (routing?.displayName as string) ?? defaults.displayName,
-          employeeType: (routing?.employeeType as string) ?? defaults.employeeType,
-          summary: (routing?.summary as string) ?? defaults.summary,
-          supportedDomains: (routing?.supportedDomains ?? defaults.supportedDomains) as unknown as Prisma.InputJsonValue,
-          supportedIntents: (routing?.supportedIntents ?? defaults.supportedIntents) as unknown as Prisma.InputJsonValue,
-          exampleQueries: (routing?.exampleQueries ?? defaults.exampleQueries) as unknown as Prisma.InputJsonValue,
-          excludedIntents: (routing?.excludedIntents ?? defaults.excludedIntents) as unknown as Prisma.InputJsonValue,
-          routingKeywords: (routing?.routingKeywords ?? defaults.routingKeywords) as unknown as Prisma.InputJsonValue,
-          enabledForChannelRouting: true,
-          routingPriority: (routing?.routingPriority as number) ?? defaults.routingPriority,
-          supportedTaskTypes: (routing?.supportedTaskTypes ?? defaults.supportedTaskTypes) as unknown as Prisma.InputJsonValue,
-          requiredCapabilities: (routing?.requiredCapabilities ?? defaults.requiredCapabilities) as unknown as Prisma.InputJsonValue
-        }
-      });
-      this.logger.log({ event: "RoutingProfileCreated", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source, profileSource: routing ? "MANIFEST" : "DEFAULTS" });
-    } catch (error: unknown) {
-      if ((error as { code?: string }).code === "P2002") return;
-      this.logger.error({ event: "RoutingProfileCreationFailed", employeeInstallationId: plugin.id, organizationId: plugin.organizationId, source, error: String(error) });
-      throw error;
-    }
+    // Reconciliation: SYSTEM DEFAULT (`fields`, just recomputed from the live manifest) + TENANT
+    // CUSTOMIZATION (whatever already lives on `existing`) = EFFECTIVE PROFILE. Union-only — a keyword
+    // present on `existing` today might be an older system default OR (once a tenant-facing customization
+    // UI exists) something a tenant intentionally added; either way, silently deleting it on a routine
+    // boot could break routing a tenant already depends on. A deprecated/renamed default is therefore left
+    // in place rather than removed — retiring a keyword is an explicit admin action, never a startup side
+    // effect.
+    await this.reconcileRoutingProfile(
+      prisma as typeof this.prisma,
+      plugin,
+      existing,
+      fields,
+      source
+    );
   }
 
-  /**
-   * Ordered category table for `defaultRoutingProfile()`. Each category owns a `slugPattern` (matched
-   * against the plugin's precise, curated slug, e.g. "finance-employee") and a looser `descPattern`
-   * (matched against free-text manifest description prose). Order matters only as a same-pass tie-break —
-   * see the two-pass matching in `defaultRoutingProfile` below for why that keeps categories from
-   * stealing each other's plugins via incidental keyword overlap in prose.
-   */
-  private static readonly ROUTING_CATEGORIES: ReadonlyArray<{
-    employeeType: string;
-    slugPattern: RegExp;
-    descPattern: RegExp;
+  private computeRoutingProfileFields(
+    plugin: { slug: string; displayName: string; description: string },
+    manifest: Record<string, unknown>
+  ) {
+    const routing = manifest.routing as Record<string, unknown> | undefined;
+    const defaults = this.defaultRoutingProfile(plugin);
+    return {
+      employeeKey: (routing?.employeeKey as string) ?? plugin.slug,
+      displayName: (routing?.displayName as string) ?? defaults.displayName,
+      employeeType: (routing?.employeeType as string) ?? defaults.employeeType,
+      summary: (routing?.summary as string) ?? defaults.summary,
+      supportedDomains: (routing?.domains ??
+        routing?.supportedDomains ??
+        defaults.supportedDomains) as unknown as Prisma.InputJsonValue,
+      capabilities: (routing?.capabilities ??
+        manifest.capabilities ??
+        []) as unknown as Prisma.InputJsonValue,
+      supportedIntents: (routing?.intents ??
+        routing?.supportedIntents ??
+        defaults.supportedIntents) as unknown as Prisma.InputJsonValue,
+      exampleQueries: (routing?.examples ??
+        routing?.exampleQueries ??
+        defaults.exampleQueries) as unknown as Prisma.InputJsonValue,
+      excludedIntents: (routing?.negativeCapabilities ??
+        routing?.excludedIntents ??
+        defaults.excludedIntents) as unknown as Prisma.InputJsonValue,
+      routingKeywords: routingKeywords(
+        routing,
+        defaults.routingKeywords
+      ) as unknown as Prisma.InputJsonValue,
+      channelEligibility: (routing?.channelEligibility ?? [
+        "WEB",
+        "WHATSAPP",
+        "VOICE"
+      ]) as unknown as Prisma.InputJsonValue,
+      currentAvailability: "AVAILABLE" as const,
+      enabledForChannelRouting: routing?.enabled !== false,
+      routingPriority:
+        (routing?.priority as number) ??
+        (routing?.routingPriority as number) ??
+        defaults.routingPriority,
+      supportedTaskTypes: (routing?.supportedActions ??
+        routing?.supportedTaskTypes ??
+        defaults.supportedTaskTypes) as unknown as Prisma.InputJsonValue,
+      requiredCapabilities: (routing?.requiredCapabilities ??
+        defaults.requiredCapabilities) as unknown as Prisma.InputJsonValue,
+      enabledForDelegation: routing?.delegationEnabled !== false
+    };
+  }
+
+  /** Sprint 6.4 — Part 3: additive-only reconciliation for an ALREADY-installed employee. Only the
+   *  array-shaped routing fields that actually drive routing/scope-detection quality are reconciled
+   *  (keywords plus the domains/capabilities/intents/examples that feed Receptionist's routing score) —
+   *  scalar fields (displayName, priority, channel eligibility, ...) are left untouched on an existing
+   *  row, since overwriting those on every boot could clobber a real tenant customization once one exists,
+   *  whereas adding a missing keyword never can. A no-op (no `.update()` call at all) when nothing new was
+   *  introduced upstream, so a routine boot doesn't churn `updatedAt` for every installation every time. */
+  private async reconcileRoutingProfile(
+    prisma: typeof this.prisma,
+    plugin: { id: string; organizationId: string },
+    existing: {
+      routingKeywords: unknown;
+      supportedDomains: unknown;
+      capabilities: unknown;
+      supportedIntents: unknown;
+      exampleQueries: unknown;
+    },
+    computed: ReturnType<PluginService["computeRoutingProfileFields"]>,
+    source: string
+  ): Promise<void> {
+    const RECONCILED_ARRAY_FIELDS = [
+      "routingKeywords",
+      "supportedDomains",
+      "capabilities",
+      "supportedIntents",
+      "exampleQueries"
+    ] as const;
+    const update: Record<string, Prisma.InputJsonValue> = {};
+    const added: Record<string, string[]> = {};
+    for (const field of RECONCILED_ARRAY_FIELDS) {
+      const current = asStrings(existing[field]);
+      const incoming = asStrings(computed[field] as unknown);
+      const newEntries = incoming.filter((entry) => !current.includes(entry));
+      if (newEntries.length > 0) {
+        update[field] = [...current, ...newEntries] as unknown as Prisma.InputJsonValue;
+        added[field] = newEntries;
+      }
+    }
+    if (Object.keys(update).length === 0) return;
+    await (prisma as typeof this.prisma).employeeRoutingProfile.update({
+      where: { pluginInstallationId: plugin.id },
+      data: update
+    });
+    this.logger.log({
+      event: "RoutingProfileReconciled",
+      employeeInstallationId: plugin.id,
+      organizationId: plugin.organizationId,
+      source,
+      added
+    });
+  }
+
+  private defaultRoutingProfile(plugin: {
+    slug: string;
+    displayName: string;
+    description: string;
+  }): {
+    displayName: string;
+    employeeType: string | null;
     summary: string;
     supportedDomains: string[];
     supportedIntents: string[];
     exampleQueries: string[];
     excludedIntents: string[];
     routingKeywords: string[];
-  }> = [
-    {
-      employeeType: "TRAVEL",
-      slugPattern: /travel|trip|holiday|booking|flight|hotel|vacation|tour/i,
-      descPattern: /travel|trip|booking|holiday|vacation/i,
-      summary: "Helps customers with: trip planning, hotels, visas, itinerary, travel budget.",
-      supportedDomains: ["Travel"],
-      supportedIntents: ["Trip Planning", "Hotel Booking", "Visa", "Budget", "Itinerary"],
-      exampleQueries: ["Plan my Dubai trip", "Suggest hotels", "Estimate travel budget"],
-      excludedIntents: ["HR", "Payroll", "IT Support", "Finance", "Legal"],
-      routingKeywords: ["travel", "hotel", "visa", "flight", "holiday", "trip", "booking", "vacation", "tour"]
-    },
-    {
-      employeeType: "IT_SUPPORT",
-      // Deliberately does NOT match bare "it" or bare "support" — those are common English substrings
-      // ("w-IT-h", "sen-sit-ive", "cus-tomer-SUPPORT-employee", "Support-s") that previously misclassified
-      // Marketing/HR/Finance/Customer Support as IT_SUPPORT.
-      slugPattern: /\bit[\s-]?support\b|\btech(?:nical)?[\s-]?support\b|\bhelpdesk\b|\bvpn\b|\bnetwork\b|\bcomputer\b|\bsoftware\b|\bhardware\b/i,
-      descPattern: /\bit[\s-]?support\b|\btech(?:nical)?[\s-]?support\b|\bhelpdesk\b|\bvpn\b|\bnetwork\b/i,
-      summary: "Helps customers with: IT support, VPN, network, software, hardware, password reset.",
-      supportedDomains: ["IT"],
-      supportedIntents: ["VPN Troubleshooting", "Password Reset", "Software Installation", "Network Issue", "Hardware Support"],
-      exampleQueries: ["My VPN is not working", "I forgot my password", "My laptop is slow"],
-      excludedIntents: ["HR", "Payroll", "Travel", "Finance", "Legal"],
-      routingKeywords: ["vpn", "computer", "laptop", "password", "network", "software", "it support", "tech support", "helpdesk"]
-    },
-    {
-      employeeType: "HR_POLICY",
-      slugPattern: /hr|human.?resource|policy|leave|payroll|benefit|hiring|recruit/i,
-      descPattern: /human.?resource|\bleave\b|\bpayroll\b|\bbenefit/i,
-      summary: "Helps customers with: HR policies, leave, payroll, benefits, hiring.",
-      supportedDomains: ["HR"],
-      supportedIntents: ["Leave Policy", "Payroll Inquiry", "Benefits", "Hiring Process", "Employee Relations"],
-      exampleQueries: ["What is the maternity leave policy?", "How do I apply for leave?", "What are my benefits?"],
-      excludedIntents: ["Travel", "IT Support", "Finance", "Legal", "Sales"],
-      routingKeywords: ["hr", "human resource", "leave", "maternity", "paternity", "policy", "payroll", "benefit", "hiring"]
-    },
-    {
-      employeeType: "SALES",
-      slugPattern: /sales|crm|sell|purchase|product|pricing|quote|order/i,
-      descPattern: /\bsales\b|\bcrm\b|\bsell\b|\bpurchase\b|\bpricing\b|\bquote\b|\border\b/i,
-      summary: "Helps customers with: product information, pricing, quotes, orders, invoices.",
-      supportedDomains: ["Sales"],
-      supportedIntents: ["Product Inquiry", "Pricing", "Quote Request", "Order Status", "Invoice"],
-      exampleQueries: ["What products do you offer?", "I need a quote", "Where is my order?"],
-      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Legal"],
-      routingKeywords: ["sales", "product", "pricing", "quote", "order", "invoice", "purchase"]
-    },
-    {
-      employeeType: "FINANCE",
-      slugPattern: /finance|expense|invoice|budget|reimburse|accounting/i,
-      descPattern: /\bfinance\b|\bexpense\b|\binvoice\b|\bbudget\b|\breimburse/i,
-      summary: "Helps customers with: reports, invoices, expense classification, budgets, reimbursements.",
-      supportedDomains: ["Finance"],
-      supportedIntents: ["Expense Classification", "Invoice Support", "Budget Summary", "Report", "Approval Threshold"],
-      exampleQueries: ["Classify this expense", "What is our budget?", "Check an invoice status"],
-      excludedIntents: ["HR", "IT Support", "Travel", "Sales", "Legal"],
-      routingKeywords: ["finance", "expense", "invoice", "budget", "report", "reimburse", "spend", "tax"]
-    },
-    {
-      employeeType: "MARKETING",
-      slugPattern: /marketing|campaign|content|brand|social|advert/i,
-      descPattern: /\bmarketing\b|\bcampaign\b|\bbrand\b|\bsocial\b/i,
-      summary: "Helps customers with: campaign planning, content, brand, social, performance.",
-      supportedDomains: ["Marketing"],
-      supportedIntents: ["Campaign Planning", "Content", "Social", "Performance Summary"],
-      exampleQueries: ["Plan an email campaign", "Draft social content", "Summarise performance"],
-      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal"],
-      routingKeywords: ["marketing", "campaign", "content", "brand", "social", "email marketing", "webinar"]
-    },
-    {
-      employeeType: "LEGAL",
-      slugPattern: /legal|notice|compliance|regulatory|gst|income.?tax|advocat|\bca\b/i,
-      descPattern: /\blegal\b|\bnotice\b|\bcompliance\b|\bregulatory\b|\bgst\b/i,
-      summary: "Helps customers with: legal and regulatory notices, reply drafting, deadlines.",
-      supportedDomains: ["Legal"],
-      supportedIntents: ["Notice Summarisation", "Reply Drafting", "Deadline Tracking"],
-      exampleQueries: ["Summarise this GST notice", "Draft a reply to a show-cause notice", "When is the deadline?"],
-      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Marketing"],
-      routingKeywords: ["legal", "notice", "gst", "income tax", "scrutiny", "compliance", "regulatory", "advocate", "ca"]
-    },
-    {
-      employeeType: "CUSTOMER_SUPPORT",
-      slugPattern: /customer.?support|helpdesk|ticket/i,
-      descPattern: /customer.?support|helpdesk|\bticket/i,
-      summary: "Helps customers with: order status, refunds, returns, billing, accounts, troubleshooting.",
-      supportedDomains: ["Customer Support"],
-      supportedIntents: ["Order Status", "Refund", "Return", "Billing", "Account", "Troubleshooting"],
-      exampleQueries: ["Where is my order?", "Request a refund", "Reset my password"],
-      excludedIntents: ["HR", "IT Support", "Travel", "Finance", "Sales", "Legal", "Marketing"],
-      routingKeywords: ["customer support", "support", "help", "refund", "order status", "billing", "ticket", "complaint"]
-    }
-  ];
-
-  private defaultRoutingProfile(plugin: { slug: string; displayName: string; description: string }): {
-    displayName: string; employeeType: string | null; summary: string;
-    supportedDomains: string[]; supportedIntents: string[]; exampleQueries: string[];
-    excludedIntents: string[]; routingKeywords: string[]; routingPriority: number;
-    supportedTaskTypes: string[]; requiredCapabilities: string[];
+    routingPriority: number;
+    supportedTaskTypes: string[];
+    requiredCapabilities: string[];
   } {
-    const slug = plugin.slug.toLowerCase();
-    const desc = (plugin.description ?? "").toLowerCase();
     const displayName = plugin.displayName;
 
     // Every employee that can reason at all needs LLM — this is the one capability requirement that's
@@ -727,37 +755,18 @@ export class PluginService implements OnModuleInit {
     // hardcoded per category.
     const requiredCapabilities = ["LLM"];
 
-    // Two-pass matching: the slug is a precise, curated identifier ("finance-employee") while the
-    // description is free-text marketing prose that legitimately contains other categories' keywords in
-    // passing (a Finance employee's description mentions "invoices", which is also a Sales keyword). Every
-    // category's slug is checked before ANY category's description, so the authoritative signal always
-    // wins over an incidental one — this is what actually fixes cross-category misclassification, not just
-    // moving which single collision happens to occur first.
-    for (const category of PluginService.ROUTING_CATEGORIES) {
-      if (category.slugPattern.test(slug)) {
-        const profile = pickCategoryProfile(category);
-        return {
-          displayName, routingPriority: 100, ...profile,
-          supportedTaskTypes: taskTypesFromIntents(profile.supportedIntents), requiredCapabilities
-        };
-      }
-    }
-    for (const category of PluginService.ROUTING_CATEGORIES) {
-      if (category.descPattern.test(desc)) {
-        const profile = pickCategoryProfile(category);
-        return {
-          displayName, routingPriority: 100, ...profile,
-          supportedTaskTypes: taskTypesFromIntents(profile.supportedIntents), requiredCapabilities
-        };
-      }
-    }
-    // Conservative default
+    // Unknown third-party employees are intentionally not guessed from names or descriptions. Their
+    // manifest-supplied routing profile becomes authoritative as soon as they are installed.
     return {
-      displayName, employeeType: null,
+      displayName,
+      employeeType: null,
       summary: `Helps customers with requests related to ${displayName}.`,
-      supportedDomains: [], supportedIntents: [], exampleQueries: [],
+      supportedDomains: [],
+      supportedIntents: [],
+      exampleQueries: [],
       excludedIntents: [],
-      supportedTaskTypes: ["GENERAL_QUERY"], requiredCapabilities,
+      supportedTaskTypes: ["GENERAL_QUERY"],
+      requiredCapabilities,
       routingKeywords: plugin.slug ? [plugin.slug.toLowerCase()] : [],
       routingPriority: 100
     };
@@ -767,7 +776,9 @@ export class PluginService implements OnModuleInit {
     const plugins = await this.prisma.plugin.findMany({ where: { deletedAt: null } });
     let count = 0;
     for (const plugin of plugins) {
-      const existing = await this.prisma.employeeRoutingProfile.findUnique({ where: { pluginInstallationId: plugin.id } });
+      const existing = await this.prisma.employeeRoutingProfile.findUnique({
+        where: { pluginInstallationId: plugin.id }
+      });
       if (!existing) {
         await this.ensureRoutingProfile(plugin, "BACKFILL");
         count++;
@@ -803,7 +814,8 @@ export class PluginService implements OnModuleInit {
         JSON.stringify(existing.routingKeywords) !== JSON.stringify(fresh.routingKeywords) ||
         JSON.stringify(existing.excludedIntents) !== JSON.stringify(fresh.excludedIntents) ||
         JSON.stringify(existing.supportedTaskTypes) !== JSON.stringify(fresh.supportedTaskTypes) ||
-        JSON.stringify(existing.requiredCapabilities) !== JSON.stringify(fresh.requiredCapabilities) ||
+        JSON.stringify(existing.requiredCapabilities) !==
+          JSON.stringify(fresh.requiredCapabilities) ||
         existing.summary !== fresh.summary;
       if (!changed) continue;
       await this.prisma.employeeRoutingProfile.update({
@@ -836,34 +848,16 @@ export class PluginService implements OnModuleInit {
   // Note: onModuleInit already calls synchronizeRegistry. The check below is separate.
 }
 
-interface RoutingCategoryProfile {
-  employeeType: string; summary: string; supportedDomains: string[]; supportedIntents: string[];
-  exampleQueries: string[]; excludedIntents: string[]; routingKeywords: string[];
+function routingKeywords(
+  routing: Record<string, unknown> | undefined,
+  fallback: string[]
+): string[] {
+  const values = [...asStrings(routing?.aliases), ...asStrings(routing?.keywords)];
+  return values.length ? [...new Set(values)] : fallback;
 }
 
-/** Strips the regex-matching fields off a ROUTING_CATEGORIES entry, leaving only the storable profile
- *  data — explicit field selection instead of destructure-and-discard so unused-var lint stays clean. */
-function pickCategoryProfile(category: RoutingCategoryProfile & { slugPattern: RegExp; descPattern: RegExp }): RoutingCategoryProfile {
-  return {
-    employeeType: category.employeeType,
-    summary: category.summary,
-    supportedDomains: category.supportedDomains,
-    supportedIntents: category.supportedIntents,
-    exampleQueries: category.exampleQueries,
-    excludedIntents: category.excludedIntents,
-    routingKeywords: category.routingKeywords
-  };
-}
-
-/** "Leave Policy" -> "LEAVE_POLICY". Derives collaboration task-type identifiers from an employee's own
- *  declared intents rather than inventing a separate, hardcoded task-type taxonomy per category. */
-function taskTypesFromIntents(intents: readonly string[]): string[] {
-  const derived = intents.map((intent) =>
-    intent
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "")
-  );
-  return [...new Set([...derived, "GENERAL_QUERY"])];
+function asStrings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }

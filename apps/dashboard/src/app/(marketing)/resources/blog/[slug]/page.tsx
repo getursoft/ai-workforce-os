@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { defaultMetadata } from "@/lib/seo";
+import { defaultMetadata, JsonLd } from "@/lib/seo";
+import { siteConfig } from "@/content/site";
 import { Breadcrumb } from "@/components/shared/breadcrumb";
 import { ButtonLink } from "@/components/shared/button-link";
 import { blogPosts, getBlogPost } from "@/content/blog";
@@ -13,7 +14,12 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const post = getBlogPost(slug);
   if (!post) return defaultMetadata({ title: "Blog", description: "Krevia.ai blog.", path: "/resources/blog" });
-  return defaultMetadata({ title: post.title, description: post.excerpt, path: `/resources/blog/${post.slug}` });
+  return defaultMetadata({
+    title: post.title,
+    description: post.excerpt,
+    path: `/resources/blog/${post.slug}`,
+    article: { publishedTime: new Date(post.publishedAt).toISOString(), author: siteConfig.name },
+  });
 }
 
 export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -21,8 +27,20 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
   const post = getBlogPost(slug);
   if (!post) notFound();
 
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: post.title,
+    description: post.excerpt,
+    datePublished: new Date(post.publishedAt).toISOString(),
+    author: { "@type": "Organization", name: siteConfig.name },
+    publisher: { "@type": "Organization", name: siteConfig.name },
+    mainEntityOfPage: `https://${siteConfig.domain}/resources/blog/${post.slug}`,
+  };
+
   return (
     <>
+      <JsonLd data={articleJsonLd} />
       <section className="relative overflow-hidden bg-royal pb-7 pt-6">
         <div className="absolute inset-0 watermark-mandala opacity-[0.05]" aria-hidden="true" />
         <Breadcrumb items={[{ label: "Blog", href: "/resources/blog" }, { label: post.title }]} />

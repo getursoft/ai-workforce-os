@@ -108,3 +108,16 @@ export interface TripSubmissionTripContext {
   journeyId: string | null;
   customerName: string | null;
 }
+
+/** Travel Runtime pendingAction values that own their own reply format (an option number, a passenger
+ *  list, or an email/phone volunteered specifically for ticket delivery/resend) — resuming an already-
+ *  active TRIP_SUBMISSION workflow must never interpret such a reply as answering ITS OWN stale contact
+ *  question. See `TripSubmissionWorkflowService.supersedeIfOwnedByTravelRuntime`. */
+export const TRAVEL_RUNTIME_OWNED_PENDING_ACTIONS = new Set([
+  "AWAITING_OPTION_SELECTION",
+  "AWAITING_PASSENGER_DETAILS",
+  "AWAITING_TICKET_CONTACT",
+  "AWAITING_BOOKING_CONFIRMATION",
+  "AWAITING_RESEND_TICKET_DETAILS",
+  "AWAITING_BUDGET_OVERRIDE_CONFIRMATION"
+]);

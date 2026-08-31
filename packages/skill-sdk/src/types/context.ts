@@ -6,10 +6,25 @@ export interface ObjectReadInput {
   maxBytes?: number;
 }
 
+/** Matches the platform's AiProfilePurpose enum (apps/api's Prisma schema) by string value — kept
+ *  as a plain literal union here rather than importing it, since the SDK package must not depend on
+ *  Prisma. Lets a skill hint which reusable model profile the runtime's shared AI configuration
+ *  resolver should prefer (e.g. a summarization skill asking for "SUMMARIZATION" instead of
+ *  whichever profile happens to be the invoking employee's plain DEFAULT). Omit to use DEFAULT. */
+export type AiCapabilityPurpose =
+  | "DEFAULT"
+  | "ROUTING"
+  | "CONVERSATION"
+  | "REASONING"
+  | "EXTRACTION"
+  | "SUMMARIZATION"
+  | "EMBEDDING";
+
 export interface AiCapabilityInput {
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
   temperature?: number;
   maxOutputTokens?: number;
+  purpose?: AiCapabilityPurpose;
 }
 
 export interface AiCapabilityResult {

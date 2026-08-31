@@ -142,7 +142,13 @@ function bookingHandoffSignalProvider(bookingHandoff: BookingHandoffWorkflowServ
         workflowType: "BOOKING_HANDOFF",
         decision: result.decision,
         responseText: result.responseText,
-        leadCreated: null
+        leadCreated: null,
+        // Fix (Travel Booking UAT correction pass): a customer-confirmation booking that starts AND
+        // completes synchronously within this same signal dispatch (see `start()`'s own doc comment above)
+        // never went through `WorkflowCoordinator.resume()` — which is the only place this was previously
+        // populated — so the PDF ticket attachment AgentService builds from `bookingId` was silently never
+        // attached to chat for this path. Mirrors `resume()`'s own `ticketReady && bookingId` guard exactly.
+        ...(result.state.ticketReady && result.state.bookingId ? { bookingId: result.state.bookingId } : {})
       };
     }
   };

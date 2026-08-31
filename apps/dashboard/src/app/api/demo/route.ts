@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isValidEmail, isRequired } from "@/lib/validation";
+import { API_BASE_URL } from "../../../lib/auth-constants";
 
 interface DemoPayload {
   fullName: string;
@@ -17,8 +18,11 @@ interface DemoPayload {
 }
 
 /**
- * Mock submission endpoint. Swap the body of this handler for a real CRM
- * connection later — the request/response contract stays the same.
+ * Forwards a validated "Book a Demo" submission to the NestJS API's public, unauthenticated platform-lead
+ * endpoint (`POST /public/leads`, source WEBSITE_DEMO) — this is the only thing that changed from the
+ * previous mock handler; the request/response contract this route exposes to the client is unchanged.
+ * Server-to-server only: the browser never talks to the NestJS API directly for this, and never supplies
+ * (or could supply) tenant ownership — see PlatformLeadsPublicController's own doc comment.
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as Partial<DemoPayload>;
@@ -36,7 +40,40 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, errors }, { status: 400 });
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  try {
+    const response = await fetch(`${API_BASE_URL}/public/leads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        source: "WEBSITE_DEMO",
+        name: body.fullName,
+        email: body.email,
+        phone: body.phone || undefined,
+        company: body.company,
+        requirement: body.message || body.useCase || undefined,
+        preferredDemoDate: body.preferredDate || undefined,
+        metadata: {
+          jobTitle: body.jobTitle,
+          companySize: body.companySize,
+          department: body.department,
+          useCase: body.useCase,
+          employeeCount: body.employeeCount,
+          integrationNeeds: body.integrationNeeds
+        }
+      })
+    });
+    if (!response.ok) {
+      return NextResponse.json(
+        { success: false, errors: { form: "Something went wrong submitting your request. Please try again." } },
+        { status: 502 }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { success: false, errors: { form: "Something went wrong submitting your request. Please try again." } },
+      { status: 502 }
+    );
+  }
 
   return NextResponse.json({ success: true });
 }

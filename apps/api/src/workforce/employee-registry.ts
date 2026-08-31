@@ -66,12 +66,19 @@ export class EmployeeRegistry {
       set.add(row.workflowType);
       workflowTypesByPlugin.set(row.pluginInstallationId, set);
     }
-    const knowledgeByPlugin = new Map(knowledgeCounts.map((row) => [row.pluginInstallationId, row._count.id]));
+    const knowledgeByPlugin = new Map(
+      knowledgeCounts.map((row) => [row.pluginInstallationId, row._count.id])
+    );
 
-    return plugins.map((plugin) => this.toWorkforceEmployee(plugin, workflowTypesByPlugin, knowledgeByPlugin));
+    return plugins.map((plugin) =>
+      this.toWorkforceEmployee(plugin, workflowTypesByPlugin, knowledgeByPlugin)
+    );
   }
 
-  async getInstalled(organizationId: string, installationId: string): Promise<WorkforceEmployee | null> {
+  async getInstalled(
+    organizationId: string,
+    installationId: string
+  ): Promise<WorkforceEmployee | null> {
     const plugin = await this.prisma.plugin.findFirst({
       where: { id: installationId, organizationId, deletedAt: null },
       include: { employeeRoutingProfile: true }
@@ -85,7 +92,9 @@ export class EmployeeRegistry {
       }),
       this.prisma.knowledgeCollection.count({ where: { pluginInstallationId: plugin.id } })
     ]);
-    const workflowTypesByPlugin = new Map([[plugin.id, new Set(workflowRows.map((r) => r.workflowType))]]);
+    const workflowTypesByPlugin = new Map([
+      [plugin.id, new Set(workflowRows.map((r) => r.workflowType))]
+    ]);
     const knowledgeByPlugin = new Map([[plugin.id, knowledgeCount]]);
     return this.toWorkforceEmployee(plugin, workflowTypesByPlugin, knowledgeByPlugin);
   }
@@ -101,6 +110,7 @@ export class EmployeeRegistry {
       employeeRoutingProfile: {
         employeeType: string | null;
         supportedDomains: unknown;
+        capabilities: unknown;
         routingKeywords: unknown;
         enabledForDelegation: boolean;
         delegationPriority: number;
@@ -117,13 +127,15 @@ export class EmployeeRegistry {
     knowledgeByPlugin: Map<string, number>
   ): WorkforceEmployee {
     const manifest = (plugin.manifest as Record<string, unknown>) ?? {};
-    const capabilities = asStringArray(manifest.capabilities);
+    const profile = plugin.employeeRoutingProfile;
+    const capabilities = [
+      ...new Set([...asStringArray(manifest.capabilities), ...asStringArray(profile?.capabilities)])
+    ];
     const tools = Array.isArray(manifest.tools)
       ? (manifest.tools as Array<{ name?: unknown }>)
           .map((tool) => (typeof tool?.name === "string" ? tool.name : null))
           .filter((name): name is string => name !== null)
       : [];
-    const profile = plugin.employeeRoutingProfile;
     const collections = knowledgeByPlugin.get(plugin.id) ?? 0;
     return {
       installationId: plugin.id,
@@ -154,5 +166,7 @@ export class EmployeeRegistry {
 }
 
 function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
 }

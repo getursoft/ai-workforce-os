@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import type {
   AiCompletionRequest,
   AiCompletionResult,
@@ -66,7 +68,7 @@ export interface EmployeeConversationMemory {
   artifactOfferShown: boolean;
   /** Whether the user declined the artifact offer — never offered again. */
   declinedArtifact: boolean;
-  /** Whether the "Good morning, <name>! How may I help you today?" intent-discovery menu has been shown
+  /** Whether the "Good morning, <name>! What can I help you with?" intent-discovery menu has been shown
    *  after the customer's name was captured (mirrors the Travel employee's intent-discovery step). */
   intentDiscovered: boolean;
 }
@@ -150,48 +152,57 @@ export interface EmployeeScopeProfile {
   keywords: readonly string[];
 }
 
-export const EMPLOYEE_SCOPE_PROFILES: readonly EmployeeScopeProfile[] = [
-  {
-    slug: "hr-employee",
-    displayName: "HR Employee",
-    keywords: ["leave", "onboarding", "benefit", "payroll", "attendance", "appraisal", "grievance", "reimburse", "hiring", "maternity", "paternity", "joining", "claim"]
-  },
-  {
-    slug: "finance-employee",
-    displayName: "Finance Employee",
-    keywords: ["expense", "invoice", "payment", "tax", "variance", "approval threshold", "purchase", "accounting", "reimbursement", "reimburse", "bill", "claim", "restaurant", "food", "meal", "dinner", "lunch", "client dinner"]
-  },
-  {
-    slug: "it-support-employee",
-    displayName: "IT Support Employee",
-    keywords: ["vpn", "network", "password reset", "login", "access", "software", "hardware", "laptop", "printer", "outage", "wifi", "install", "device"]
-  },
-  {
-    slug: "sales-employee",
-    displayName: "Sales Employee",
-    keywords: ["product", "pricing", "quote", "order", "demo", "trial", "subscription", "proposal", "purchase", "buy"]
-  },
-  {
-    slug: "marketing-employee",
-    displayName: "Marketing Employee",
-    keywords: ["campaign", "content", "social", "brand", "email marketing", "webinar", "seo", "ad", "blog", "video", "performance"]
-  },
-  {
-    slug: "legal-employee",
-    displayName: "Legal Employee",
-    keywords: ["gst notice", "income tax", "scrutiny", "show cause", "notice", "demand", "compliance", "regulatory", "assessment", "summon", "filing", "advocate", "legal"]
-  },
-  {
-    slug: "customer-support-employee",
-    displayName: "Customer Support Employee",
-    keywords: ["refund", "return", "billing", "delivery", "shipping", "order status", "complaint", "cancel", "account", "subscription", "order", "status", "track"]
-  },
-  {
-    slug: "travel-employee",
-    displayName: "Travel Employee",
-    keywords: ["travel", "trip", "hotel", "flight", "visa", "itinerary", "booking", "vacation", "tour", "holiday"]
+/** Sprint 6.4 — Part 2: `plugins/<slug>/plugin.json`'s `routing.keywords` is the single authoritative
+ *  source for both Receptionist routing (seeded into the tenant-scoped `EmployeeRoutingProfile` DB row by
+ *  `PluginService.ensureRoutingProfile`) and this specialist-side out-of-scope detector — adding a keyword
+ *  to one manifest's `routing.keywords` is enough for both consumers to see it, with no second file to
+ *  edit. Read synchronously, once, at module load: `detectOutOfScopeEmployee` runs on every specialist
+ *  turn and must stay a plain synchronous function (no DI, no per-turn I/O), and the manifests themselves
+ *  are static repo files, not tenant data, so a one-time read at startup is safe and correct — a tenant's
+ *  own customized keywords (Part 3's reconciliation) live only in the DB-backed `EmployeeRoutingProfile`
+ *  and are consumed by Receptionist routing, never by this in-process specialist check. Mirrors the same
+ *  `plugins/` directory resolution `PluginDiscovery` uses (see plugin.module.ts). */
+function loadEmployeeScopeProfilesFromManifests(): readonly EmployeeScopeProfile[] {
+  const baseDirectory = resolve(__dirname, "../../../../plugins");
+  try {
+    const profiles: EmployeeScopeProfile[] = [];
+    for (const entry of readdirSync(baseDirectory, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      try {
+        const manifest = JSON.parse(
+          readFileSync(resolve(baseDirectory, entry.name, "plugin.json"), "utf8")
+        ) as {
+          id?: string;
+          displayName?: string;
+          routing?: { keywords?: unknown };
+        };
+        const keywords = manifest.routing?.keywords;
+        if (
+          !manifest.id ||
+          !manifest.displayName ||
+          !Array.isArray(keywords) ||
+          keywords.length === 0
+        )
+          continue;
+        profiles.push({
+          slug: manifest.id,
+          displayName: manifest.displayName,
+          keywords: keywords.filter((k): k is string => typeof k === "string")
+        });
+      } catch {
+        // A plugin without a manifest, or without a routing block, simply doesn't participate in
+        // cross-employee scope detection — the same graceful degradation PluginDiscovery applies to
+        // individually broken plugin directories.
+      }
+    }
+    return profiles;
+  } catch {
+    return [];
   }
-];
+}
+
+export const EMPLOYEE_SCOPE_PROFILES: readonly EmployeeScopeProfile[] =
+  loadEmployeeScopeProfilesFromManifests();
 
 /** Returns the profile for a plugin slug, or null. */
 export function employeeScopeProfile(slug: string): EmployeeScopeProfile | null {
@@ -208,7 +219,10 @@ const QUESTION_LIKE_PATTERN =
  *  refund, invoice, leave, ...) count toward the owning employee. */
 export function detectOutOfScopeEmployee(
   spec: EmployeeDomainSpec,
-  text: string
+  text: string,
+  /** Sprint 6.4 — Part 10: this employee's own most recent reply, if any (null/omitted when it hasn't
+   *  spoken yet). See the `contextEcho` check below. */
+  recentOwnMessage?: string | null
 ): EmployeeScopeProfile | null {
   const lower = text.toLowerCase();
   if (!text.trim() || /^\s*(yes|no|ok|sure|thanks|thank you|ji|haan|nahi)\b/i.test(lower)) return null;
@@ -233,8 +247,19 @@ export function detectOutOfScopeEmployee(
   // Route only when another domain's signal is strictly stronger than this employee's own — so an
   // in-scope question that merely mentions a foreign word (e.g. a legal notice mentioning "tax") never
   // gets misrouted away.
-  if (best && bestHits > 0 && bestHits > ownHits) return best;
-  return null;
+  if (!best || bestHits === 0 || bestHits <= ownHits) return null;
+  // Fix (Sprint 6.4 — Part 10): a bare single-keyword match ("budget", "invoice") scores identically
+  // whether it's a genuine cross-domain request or an ordinary in-context reply to something THIS employee
+  // itself just asked about ("...your approximate budget?" -> "budget 10000 AED") — live-verified: Travel
+  // asks about budget, the traveler answers, and without this check the answer alone outscores Travel's
+  // own (budget-free) keyword list and gets bounced to Finance. Mirrors the Receptionist layer's own
+  // `contextEcho` guard (receptionist-routing.service.ts): if the candidate target's vocabulary ALSO
+  // matches what this employee's own last message said, the word is almost certainly explained by the
+  // ongoing conversation, not a pivot, so the bounce is suppressed.
+  const contextEcho =
+    recentOwnMessage != null &&
+    best.keywords.some((keyword) => scopeKeywordMatches(keyword, recentOwnMessage.toLowerCase()));
+  return contextEcho ? null : best;
 }
 
 /** Word-boundary-aware keyword match: a keyword matches only when it appears as a whole word (or a whole
@@ -291,6 +316,49 @@ export function buildOutOfScopeRoutingMessage(
     `It looks like this belongs to the ${target.displayName}.`,
     "I'll route your request to the correct employee so you get the right help."
   ].join("\n");
+}
+
+/** The "belongs to the X." line from {@link buildOutOfScopeRoutingMessage} — matched back out of the
+ *  prior assistant turn by {@link detectRoutingConfirmation} to recover which employee was offered. */
+const ROUTING_OFFER_TARGET_PATTERN = /belongs to the (.+?)\./;
+
+const ROUTING_CONFIRMATION_PATTERN = /\broute\s*(it|this|me|to)?\b/i;
+
+/** What a confirmed cross-employee routing handoff needs: which employee to hand off to, and the
+ *  ORIGINAL out-of-scope message (never the "yes" itself) to carry over as that conversation's opener. */
+export interface RoutingHandoffSignal {
+  targetSlug: string;
+  originalText: string;
+}
+
+/** Detects a user's confirmation of a routing offer made by {@link buildOutOfScopeRoutingMessage} on the
+ *  immediately preceding assistant turn ("yes", "sure", "route it", ...). Returns the target employee and
+ *  the message from BEFORE the offer — the thing that actually needs to be handed off — so the caller
+ *  (AgentService, which owns Prisma/conversation creation) can act on it. Returns null for an ordinary
+ *  reply, a routing offer that was never made, or a decline. */
+export function detectRoutingConfirmation(
+  spec: EmployeeDomainSpec,
+  messages: ReadonlyArray<{ role: string; content: string }>
+): { target: EmployeeScopeProfile; originalText: string } | null {
+  const last = messages.at(-1);
+  if (!last || last.role !== "user") return null;
+  const text = last.content.trim();
+  if (!text || isNegativeResponse(text)) return null;
+  if (!isAffirmativeResponse(text) && !ROUTING_CONFIRMATION_PATTERN.test(text)) return null;
+
+  const priorAssistant = messages.at(-2);
+  if (!priorAssistant || priorAssistant.role !== "assistant") return null;
+  if (!priorAssistant.content.includes("I'll route your request to the correct employee")) return null;
+  const displayName = priorAssistant.content.match(ROUTING_OFFER_TARGET_PATTERN)?.[1]?.trim();
+  if (!displayName) return null;
+  const target = EMPLOYEE_SCOPE_PROFILES.find(
+    (profile) => profile.displayName === displayName && profile.slug !== spec.slug
+  );
+  if (!target) return null;
+
+  const priorUser = messages.at(-3);
+  const originalText = priorUser && priorUser.role === "user" ? priorUser.content : text;
+  return { target, originalText };
 }
 
 /** Whether the message reads like a real question (used to gate direct info answers so a bare field
@@ -413,28 +481,47 @@ export function timeOfDayGreeting(now: Date = new Date()): "Good morning" | "Goo
   return "Good evening";
 }
 
-/** Builds the intent-discovery menu shown right after the customer's name is captured — the exact same
- *  template as the Travel employee ("Good morning, <name>! Nice to meet you. How may I help you today? I
- *  can help you: • ..."), personalised with this employee's domain options. */
+/** Builds the intent-discovery message shown right after the customer's name is captured, personalised
+ *  with this employee's domain options.
+ *
+ *  Sprint 6.3 — Part 4: the previous version ("Good morning, X! Nice to meet you. How may I help you
+ *  today? I can help you: • ... Tell me what you'd like to do and I'll take it from there.") read like a
+ *  form — a redundant "Nice to meet you" filler line, the same question asked twice in different words
+ *  ("How may I help you today?" immediately followed by "I can help you:"), and a closing line that
+ *  restates the opening question again. This keeps the SAME information (a short greeting plus a genuine
+ *  menu of concrete starting points, which Part 10 explicitly allows for — a real menu of distinct
+ *  actionable choices is useful, not "excessive") in one pass, asked once. */
 export function buildEmployeeIntentDiscoveryMessage(spec: EmployeeDomainSpec, name: string, now: Date = new Date()): string {
   const greeting = timeOfDayGreeting(now);
   const actions = spec.openingActions?.() ?? [];
   const firstName = name.split(" ")[0] ?? name;
-  const lines = [
-    `${greeting}, ${firstName}! \u{1F44B}`,
-    "",
-    "Nice to meet you.",
-    "",
-    "How may I help you today?",
-    ""
-  ];
+  const lines = [`${greeting}, ${firstName}! \u{1F44B} What can I help you with?`];
   if (actions.length) {
-    lines.push("I can help you:");
-    for (const action of actions) lines.push(`• ${action.label}`);
     lines.push("");
+    for (const action of actions) lines.push(`• ${action.label}`);
   }
-  lines.push("Tell me what you'd like to do and I'll take it from there.");
   return lines.join("\n");
+}
+
+/** Sprint 6.3 — Part 5/15: a VOICE-channel presentation of the SAME intent-discovery data
+ *  `buildEmployeeIntentDiscoveryMessage` renders for WEB/WHATSAPP — same underlying options, never a
+ *  different or invented set — only the presentation differs: no bullet list, one short spoken sentence
+ *  naming a couple of examples and inviting the customer to say what they need, rather than reciting every
+ *  option up front. Mirrors Travel's `formatPackageOptionsMessageForVoice` for the same reason. */
+export function buildEmployeeIntentDiscoveryMessageForVoice(
+  spec: EmployeeDomainSpec,
+  name: string,
+  now: Date = new Date()
+): string {
+  const greeting = timeOfDayGreeting(now);
+  const actions = spec.openingActions?.() ?? [];
+  const firstName = name.split(" ")[0] ?? name;
+  if (!actions.length) return `${greeting}, ${firstName}! What can I help you with?`;
+  const examples = actions
+    .slice(0, 2)
+    .map((action) => action.label.replace(/[.?!]$/, "").toLowerCase())
+    .join(" or ");
+  return `${greeting}, ${firstName}! I can help with things like ${examples}, or whatever else you need — what would you like to do?`;
 }
 
 /** Builds the escalation handoff message. */
@@ -479,6 +566,11 @@ export class EmployeeDomainProvider implements AiProvider {
    *  routing, escalation, or direct info answer) rather than an ordinary conversational reply — used by the
    *  LLM orchestrator to avoid rewriting such replies through the real provider and losing their intent. */
   private structuredReply = false;
+  /** Non-null only the turn a routing offer (see {@link buildOutOfScopeRoutingMessage}) was just confirmed.
+   *  This pure engine has no Prisma access to actually create the handoff conversation — AgentService reads
+   *  this once per turn (mirrors the Travel Runtime `lastWorkflowSignal` convention) and does the real work,
+   *  rewriting this turn's already-persisted response once it knows the outcome. Reset every `complete()`. */
+  private routingHandoffSignal: RoutingHandoffSignal | null = null;
 
   constructor(
     spec: EmployeeDomainSpec,
@@ -512,8 +604,13 @@ export class EmployeeDomainProvider implements AiProvider {
     return this.structuredReply;
   }
 
+  get lastRoutingHandoffSignal(): RoutingHandoffSignal | null {
+    return this.routingHandoffSignal;
+  }
+
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
     this.structuredReply = false;
+    this.routingHandoffSignal = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const userMessages = messages
@@ -548,6 +645,21 @@ export class EmployeeDomainProvider implements AiProvider {
       return this.textResult(buildAttachmentReadMessage(this.spec, attachmentBlocks));
     }
 
+    // Cross-employee routing confirmation: the immediately preceding turn offered to route an out-of-scope
+    // message elsewhere, and this reply accepts it ("yes", "route it", ...). See lastRoutingHandoffSignal.
+    if (!isCapturingContact) {
+      const confirmation = detectRoutingConfirmation(this.spec, messages);
+      if (confirmation) {
+        this.structuredReply = true;
+        this.memory = { ...this.memory, lastAskedField: null };
+        this.routingHandoffSignal = {
+          targetSlug: confirmation.target.slug,
+          originalText: confirmation.originalText
+        };
+        return this.textResult(`Connecting you to ${confirmation.target.displayName}…`);
+      }
+    }
+
     // Cross-employee routing: a message clearly belonging to a different employee's domain (and not this
     // one's) is answered with an out-of-scope + routing reply instead of being collected into this
     // employee's own artifact flow. Never interrupts an active contact-capture (awaiting phone/email) or a
@@ -556,8 +668,10 @@ export class EmployeeDomainProvider implements AiProvider {
       // Both routing and info answers only fire when we are NOT mid-field-collection: once a field has
       // been asked, the user's reply is a field answer, not a new out-of-scope or informational ask.
       const notMidCollection = this.memory.lastAskedField === null;
+      const recentOwnMessage =
+        [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null;
       const outOfScopeTarget = notMidCollection
-        ? detectOutOfScopeEmployee(this.spec, currentText)
+        ? detectOutOfScopeEmployee(this.spec, currentText, recentOwnMessage)
         : null;
       if (outOfScopeTarget) {
         this.structuredReply = true;
@@ -926,6 +1040,10 @@ export class EmployeeDomainLlmOrchestrator implements AiProvider {
 
   get lastMemory(): EmployeeConversationMemory {
     return this.inner.lastMemory;
+  }
+
+  get lastRoutingHandoffSignal(): RoutingHandoffSignal | null {
+    return this.inner.lastRoutingHandoffSignal;
   }
 
   /** Merges any newly extracted entity values into the persisted entity bag. */

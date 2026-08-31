@@ -2304,10 +2304,49 @@ button {
 .chat-panel__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
   padding: 20px 26px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--background-2), transparent);
+}
+
+.chat-panel__header > .chat-panel__avatar,
+.chat-panel__header > .chat-panel__title {
+  flex-shrink: 0;
+}
+
+/* "AI Receptionist → Travel Employee" style indicator, shown only while a handoff is active — driven
+   entirely by the backend's own handoff payload, never inferred from message text. */
+.chat-panel__active-employee {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  margin-left: auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  max-width: 220px;
+  text-align: right;
+}
+
+.chat-panel__active-employee-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.chat-panel__active-employee-name {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: var(--primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .chat-panel__avatar {
@@ -2358,6 +2397,97 @@ button {
   background:
     radial-gradient(circle at 15% 0%, rgba(6, 43, 115, 0.05), transparent 45%),
     var(--background);
+}
+
+/* Receptionist front-door welcome screen — replaces the plain greeting bubble + empty grey space with a
+   deliberate, vertically-balanced hero. Shown only until the customer sends their first message (see
+   `showReceptionistWelcome` in agent-pages.tsx); a fixed min-height gives it presence without stretching
+   to fill an arbitrarily tall viewport. */
+.chat-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 48px 26px;
+  min-height: min(56vh, 460px);
+  max-width: 640px;
+  margin: 0 auto;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(6, 43, 115, 0.06), transparent 55%),
+    var(--background);
+}
+
+.chat-welcome__icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 6px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+  color: white;
+  box-shadow: 0 14px 34px rgba(6, 43, 115, 0.28);
+}
+
+.chat-welcome__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  color: var(--foreground);
+}
+
+.chat-welcome__subtitle {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.chat-welcome__hint {
+  margin: 4px 0 18px;
+  max-width: 440px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.chat-welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.chat-quick-action {
+  appearance: none;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-strong);
+  color: var(--foreground);
+  font-size: 0.86rem;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 999px;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.chat-quick-action:hover:not(:disabled) {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.chat-quick-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .chat-bubble {
@@ -2567,6 +2697,111 @@ button {
 .chat-composer .ui-button {
   border-radius: 999px;
   min-width: 96px;
+}
+
+/* Receptionist composer: a visually prominent, centered "main entry point" treatment (larger field,
+   capped width matching the welcome content above it) instead of the plain edge-to-edge composer every
+   other employee's chat keeps unchanged. */
+.chat-composer--receptionist {
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 18px 26px 26px;
+}
+
+.chat-composer--receptionist .ui-input {
+  min-height: 54px;
+  font-size: 0.98rem;
+}
+
+/* "Connected to X" handoff indicator — a system divider, not a second customer-facing message. Renders
+   inline within the specialist's own reply bubble (one backend turn still produces one rendered bubble). */
+.chat-handoff-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 2px;
+}
+
+.chat-handoff-indicator::before,
+.chat-handoff-indicator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.chat-handoff-indicator__label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.chat-handoff-indicator__name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .chat-panel__header {
+    flex-wrap: wrap;
+    padding: 16px 18px;
+  }
+
+  .chat-panel__active-employee {
+    max-width: none;
+    align-items: flex-start;
+    text-align: left;
+    margin-left: 0;
+  }
+
+  .chat-welcome {
+    padding: 32px 18px;
+    min-height: min(50vh, 380px);
+  }
+
+  .chat-welcome__title {
+    font-size: 1.4rem;
+  }
+
+  .chat-welcome__actions {
+    gap: 8px;
+  }
+
+  .chat-quick-action {
+    font-size: 0.82rem;
+    padding: 8px 14px;
+  }
+
+  .chat-thread {
+    padding: 16px 18px;
+  }
+
+  .chat-composer,
+  .chat-composer--receptionist {
+    padding: 12px 18px;
+    gap: 8px;
+  }
+
+  .chat-handoff-indicator {
+    flex-wrap: wrap;
+  }
+
+  .chat-handoff-indicator__label,
+  .chat-handoff-indicator__name {
+    white-space: normal;
+  }
+
+  .chat-handoff-indicator::before,
+  .chat-handoff-indicator::after {
+    flex-basis: 12px;
+    flex-grow: 0;
+  }
 }
 
 .sr-only {

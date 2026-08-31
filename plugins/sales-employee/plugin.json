@@ -6,10 +6,80 @@
   "description": "AI sales employee. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["sales.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "sales.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "sales.create_lead", "description": "Persist a sales lead after the prospect consents and shares a contact number" },
-    { "name": "sales.escalate", "description": "Escalate the conversation to a human sales team member" }
-  ]
+    {
+      "name": "sales.create_lead",
+      "description": "Persist a sales lead after the prospect consents and shares a contact number"
+    },
+    {
+      "name": "sales.escalate",
+      "description": "Escalate the conversation to a human sales team member"
+    }
+  ],
+  "routing": {
+    "employeeKey": "sales-employee",
+    "employeeType": "SALES",
+    "displayName": "Sales Employee",
+    "summary": "Handles product questions, pricing, quotes, demos, and lead qualification.",
+    "domains": [
+      "sales",
+      "crm",
+      "pipeline"
+    ],
+    "capabilities": [
+      "sales.chat",
+      "sales.lead",
+      "sales.quote",
+      "sales.demo"
+    ],
+    "intents": [
+      "PRODUCT_QUESTION",
+      "PRICING_QUESTION",
+      "DEMO_REQUEST",
+      "QUOTE_REQUEST",
+      "LEAD_QUALIFICATION"
+    ],
+    "examples": [
+      "I'd like a demo",
+      "What's the pricing for this?",
+      "Can I get a quote?",
+      "I'm interested in your product"
+    ],
+    "aliases": [
+      "Sales",
+      "Sales team",
+      "CRM team"
+    ],
+    "keywords": [
+      "sales",
+      "product",
+      "pricing",
+      "quote",
+      "demo",
+      "buy",
+      "purchase",
+      "lead",
+      "customer lead",
+      "sales follow-up",
+      "prospect",
+      "pipeline",
+      "opportunity",
+      "crm follow-up",
+      "deal",
+      "order",
+      "trial",
+      "subscription",
+      "proposal"
+    ]
+  }
 }

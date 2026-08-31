@@ -6,10 +6,80 @@
   "description": "AI customer support employee. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["support.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "support.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "support.create_ticket", "description": "Persist a customer support request after the customer consents and shares a contact number" },
-    { "name": "support.escalate", "description": "Escalate the conversation to a human support agent" }
-  ]
+    {
+      "name": "support.create_ticket",
+      "description": "Persist a customer support request after the customer consents and shares a contact number"
+    },
+    {
+      "name": "support.escalate",
+      "description": "Escalate the conversation to a human support agent"
+    }
+  ],
+  "routing": {
+    "employeeKey": "customer-support-employee",
+    "employeeType": "CUSTOMER_SUPPORT",
+    "displayName": "Customer Support Employee",
+    "summary": "Handles customer questions, refunds, returns, order status, and support tickets.",
+    "domains": [
+      "customer support",
+      "support",
+      "service"
+    ],
+    "capabilities": [
+      "support.chat",
+      "support.ticket",
+      "support.refund"
+    ],
+    "intents": [
+      "REFUND_REQUEST",
+      "ORDER_STATUS",
+      "COMPLAINT",
+      "DELIVERY_ISSUE",
+      "BILLING_ISSUE"
+    ],
+    "examples": [
+      "I want a refund",
+      "Where's my order?",
+      "I have a complaint about my delivery",
+      "There's a billing issue on my account"
+    ],
+    "aliases": [
+      "Customer Support",
+      "Support",
+      "Support team"
+    ],
+    "keywords": [
+      "support",
+      "customer service",
+      "refund",
+      "return",
+      "order status",
+      "delivery problem",
+      "billing issue",
+      "payment problem with my order",
+      "order payment issue",
+      "complaint",
+      "support ticket",
+      "billing",
+      "delivery",
+      "shipping",
+      "cancel",
+      "account",
+      "subscription",
+      "order",
+      "status",
+      "track"
+    ]
+  }
 }

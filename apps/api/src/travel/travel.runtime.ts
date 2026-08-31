@@ -22,6 +22,8 @@ import {
   type ConversationCompletionStage,
   type SuggestedAction
 } from "../conversation/conversation-completion";
+import { classifyIdentityCandidate } from "../conversation/identity-capture";
+import { classifyUserInput } from "../conversation/input-semantics";
 import {
   mergeEntitiesWithPriorState,
   detectSprintIntent,
@@ -48,9 +50,12 @@ import {
 } from "./travel-package-options";
 import {
   buildAttachmentReadMessage,
+  buildOutOfScopeRoutingMessage,
   detectOutOfScopeEmployee,
+  detectRoutingConfirmation,
   parseAttachmentBlocks,
-  type EmployeeDomainSpec
+  type EmployeeDomainSpec,
+  type RoutingHandoffSignal
 } from "../employees/employee-runtime";
 
 export const TRAVEL_EMPLOYEE_PLUGIN_SLUG = "travel-employee";
@@ -288,6 +293,12 @@ export type TravelPendingAction =
    *  waiting for the booking email (required) and, ideally, the travel date. See
    *  `pendingResendLookup`/`isResendTicketRequest`. */
   | "AWAITING_RESEND_TICKET_DETAILS"
+  /** BELOW_MINIMUM budget feasibility has been explained and the lowest available simulated option's
+   *  price has been shown; waiting for an explicit yes/no before ANY above-budget option is actually
+   *  listed. Only an affirmative reply to this exact question sets `budgetOverrideAccepted = true` — see
+   *  `handleBelowMinimumFeasibility`/`offerBudgetOverride`. A decline (or a fresh phone number) falls
+   *  back to the existing lead-capture offer, unchanged. */
+  | "AWAITING_BUDGET_OVERRIDE_CONFIRMATION"
   | null;
 
 /**
@@ -905,6 +916,12 @@ export interface TravelConversationMemory {
    *  either field alone is enough; both null only if the traveler explicitly skipped this step. Carried
    *  through to `TravelBooking.customerEmail`/`customerPhone`. */
   ticketContact: { email: string | null; phone: string | null } | null;
+  /** True once the traveler has given an explicit affirmative reply to "would you like to continue with
+   *  options above your budget?" (see `AWAITING_BUDGET_OVERRIDE_CONFIRMATION`) — the ONLY way this is ever
+   *  set. Persists for the rest of the conversation so a later re-evaluation of the same BELOW_MINIMUM
+   *  budget never re-asks; a decline (or simply never being asked) leaves this false and above-budget
+   *  options are never shown. */
+  budgetOverrideAccepted: boolean;
 }
 
 /**
@@ -1058,7 +1075,8 @@ export const EMPTY_TRAVEL_CONVERSATION_MEMORY: TravelConversationMemory = {
   selectedRecommendationId: null,
   passengerDetails: null,
   pendingResendLookup: null,
-  ticketContact: null
+  ticketContact: null,
+  budgetOverrideAccepted: false
 };
 
 export interface TravelEmployeeRuntimeConfig {
@@ -1261,208 +1279,25 @@ export function isDomesticTrip(originCity: string | null, destinationCity: strin
   return originCountry !== null && destinationCountry !== null && originCountry === destinationCountry;
 }
 
-// Words a bare short reply must never be read as a name — trip vocabulary, months, days, common
-// acknowledgements — so a standalone answer like "August" (replying to a dates question) or "Yes" is never
-// misread as a self-introduction. Known destination cities are excluded separately, via KNOWN_DESTINATIONS.
-const NAME_STOPWORDS = new Set([
-  "yes",
-  "no",
-  "ok",
-  "okay",
-  "sure",
-  "fine",
-  "done",
-  "later",
-  "hi",
-  "hello",
-  "hey",
-  "thanks",
-  "thank",
-  "you",
-  ...MONTHS,
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday",
-  "morning",
-  "evening",
-  "afternoon",
-  "night",
-  "noon",
-  "usd",
-  "inr",
-  "eur",
-  "gbp",
-  "aed",
-  "dollars",
-  "rupees",
-  "euros",
-  "pounds",
-  "dirhams",
-  "business",
-  "economy",
-  "first",
-  "premium",
-  "flight",
-  "flights",
-  "hotel",
-  "hotels",
-  "budget",
-  "adult",
-  "adults",
-  "child",
-  "children",
-  "infant",
-  "infants",
-  "domestic",
-  "international",
-  "solo",
-  "couple",
-  "family",
-  "friends",
-  "group",
-  "confirm",
-  "confirmed",
-  "cancel",
-  "book",
-  "proceed",
-  "continue",
-  "start",
-  "stop",
-  "help",
-  "wait",
-  "maybe",
-  "please",
-  "yeah",
-  "yep",
-  "nope",
-  "correct",
-  "right",
-  "wrong",
-  "skip",
-  "next",
-  "back",
-  "menu"
-]);
-
-/** Explicit self-introduction phrasing — the strongest, least ambiguous signal, checked first. */
-const NAME_INTRO_PATTERN =
-  /\b(?:my name is|i am called|call me|this is|naam)\s+([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,2})/i;
-// "I'm X" / "I am X" is only a name when X isn't a verb/adjective continuing the sentence
-// ("I'm planning...", "I'm interested...") — filtered by NAME_IM_NON_MATCHES below.
-const NAME_IM_PATTERN = /\bi\s*(?:'m|am)\s+([A-Za-z][A-Za-z'-]*)\b/i;
-const NAME_IM_NON_MATCHES = new Set([
-  "planning",
-  "looking",
-  "trying",
-  "going",
-  "interested",
-  "not",
-  "sure",
-  "happy",
-  "excited",
-  "travelling",
-  "traveling",
-  "here",
-  "back",
-  "new",
-  "done",
-  "ready",
-  "thinking",
-  "wondering",
-  "flexible",
-  "open",
-  "still"
-]);
-
-// Words that end a name capture even mid-match — "My name is Krishna and I want to visit Delhi" must
-// yield "Krishna", not "Krishna and I" (the regex alone has no notion of where the name phrase ends).
-const NAME_CAPTURE_STOP_WORDS = new Set([
-  ...NAME_STOPWORDS,
-  "and",
-  "but",
-  "or",
-  "so",
-  "because",
-  "who",
-  "which",
-  "that",
-  "to",
-  "for",
-  "from",
-  "is",
-  "am",
-  "are",
-  "was",
-  "i",
-  "my",
-  "want",
-  "wants",
-  "wanting",
-  "need",
-  "needs",
-  "needing",
-  "looking",
-  "travelling",
-  "traveling",
-  "here",
-  "planning"
-]);
-
-/** Truncates a raw regex name capture at the first word that isn't actually part of the name. */
-function trimNameCapture(raw: string): string {
-  const words = raw.trim().split(/\s+/);
-  const kept: string[] = [];
-  for (const word of words) {
-    if (NAME_CAPTURE_STOP_WORDS.has(word.toLowerCase())) break;
-    kept.push(word);
-  }
-  return (kept.length ? kept : words.slice(0, 1)).join(" ");
-}
-
-/**
- * A bare 1-3 word alphabetic reply (no digits, no trip/date/currency vocabulary, not a known destination
- * city) is read as a direct answer to "may I know your name?" — the only context this heuristic is ever
- * applied in (see `extractCustomerName`), so it stays deliberately narrow rather than a general free-text
- * name detector.
- */
-function looksLikeBareNameReply(message: string): string | null {
-  const trimmed = message.trim();
-  if (!trimmed || trimmed.length > 40) return null;
-  if (!/^[A-Za-z][A-Za-z'-]*(\s+[A-Za-z][A-Za-z'-]*){0,2}$/.test(trimmed)) return null;
-  const words = trimmed.split(/\s+/);
-  if (words.some((word) => NAME_STOPWORDS.has(word.toLowerCase()))) return null;
-  if (words.some((word) => KNOWN_DESTINATIONS.includes(word.toLowerCase()))) return null;
-  return titleCase(trimmed);
-}
-
 /**
  * Scans every user message for the traveler's own name — explicit self-introductions first ("my name is
- * X", "I'm X"), then a bare short reply anywhere in the transcript (the direct answer to the greeting's
- * "may I know your name?"). Never infers a name from a city, month, or other trip detail. Returns null
- * (never guesses) until a real signal is found.
+ * X", "I'm X", "X here"), then a bare short reply anywhere in the transcript (the direct answer to the
+ * greeting's "may I know your name?"). Never infers a name from a city, month, or other trip detail.
+ * Returns null (never guesses) until a real signal is found.
+ *
+ * Sprint 6.5 — Part 6: delegates to the shared, platform-level `classifyIdentityCandidate` (identity is a
+ * conversation/customer concept, not a Travel concept) instead of Travel's own, previously independently
+ * maintained stopword list/patterns — see identity-capture.ts for the full rationale and the shared
+ * vocabulary (which now also excludes "Great"/"Got it", a gap this file's own narrower list had).
  */
 export function extractCustomerName(userMessages: readonly string[]): string | null {
   for (const message of userMessages) {
-    const explicit = NAME_INTRO_PATTERN.exec(message);
-    if (explicit?.[1]) return titleCase(trimNameCapture(explicit[1]));
+    const candidate = classifyIdentityCandidate(message, { knownValueWords: KNOWN_DESTINATIONS });
+    if (candidate?.confidence === "HIGH") return candidate.name;
   }
   for (const message of userMessages) {
-    const im = NAME_IM_PATTERN.exec(message);
-    const candidate = im?.[1]?.trim();
-    if (
-      candidate &&
-      !NAME_IM_NON_MATCHES.has(candidate.toLowerCase()) &&
-      !KNOWN_DESTINATIONS.includes(candidate.toLowerCase())
-    )
-      return titleCase(candidate);
-  }
-  for (const message of userMessages) {
-    const bare = looksLikeBareNameReply(message);
-    if (bare) return bare;
+    const candidate = classifyIdentityCandidate(message, { knownValueWords: KNOWN_DESTINATIONS });
+    if (candidate) return candidate.name;
   }
   return null;
 }
@@ -1520,6 +1355,40 @@ export function extractDestination(text: string): string | null {
   return match?.[1] ? match[1].trim() : null;
 }
 
+/**
+ * Sprint 6.5 — Part 7/29: a deterministic (no-LLM) origin extractor for an explicit "from <City>" phrase
+ * — unambiguous by construction ("from" is a strong, dedicated origin signal), unlike a bare city name
+ * which needs the pending-question context to disambiguate from a destination (see
+ * `resolveOriginReplyDeterministically` below, used only when the assistant explicitly asked "where are
+ * you traveling FROM?"). Stops at "to"/a comma/period/end so "from Delhi to Dubai" still yields "Delhi",
+ * not "Delhi to Dubai" — connected route pairs are otherwise handled by `reconcileRouteFromMessage`.
+ */
+export function extractOriginCity(text: string): string | null {
+  const match = /\bfrom\s+([A-Za-z][A-Za-z\s]{1,30}?)(?:\s+to\b|[,.]|$)/i.exec(text);
+  if (!match?.[1]) return null;
+  const captured = match[1].trim();
+  const capturedLower = captured.toLowerCase();
+  // Prefer an exact known-destination match within the captured span (handles "from delhi" lowercase)
+  // before falling back to a bare proper-noun run — the lazy capture above has no stopping boundary other
+  // than "to"/a comma/period/end, so an unknown city followed by trailing filler ("from Mumbai please")
+  // would otherwise swallow the filler word too.
+  for (const destination of KNOWN_DESTINATIONS)
+    if (new RegExp(`\\b${escapeRegExp(destination)}\\b`).test(capturedLower)) return titleCase(destination);
+  const properNoun = /^[A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*){0,2}/.exec(captured);
+  return properNoun ? normalizeCityName(properNoun[0]) : null;
+}
+
+/**
+ * Resolves a reply to a DEDICATED "where are you traveling from?" question deterministically: an
+ * explicit "from <City>" phrase, or — since the pending question itself disambiguates a bare reply that
+ * would otherwise be indistinguishable from a destination — any known city name via the same catalog
+ * `extractDestination` already scans, reinterpreted as origin in this specific context. Never called
+ * outside that context, so it can never misfile an ordinary destination-bearing message as origin.
+ */
+export function resolveOriginReplyDeterministically(text: string): string | null {
+  return extractOriginCity(text) ?? normalizeCityName(extractDestination(text));
+}
+
 // Longest names first so "new delhi" wins over "delhi" when both could match at the same position —
 // regex alternation tries left-to-right and stops at the first alternative that matches. Multi-word names
 // use `\s*` (not a literal space) between words so a real, common typing pattern — "newyork", "hongkong",
@@ -1544,7 +1413,7 @@ interface CityMention {
   length: number;
 }
 
-function findKnownCityMentions(text: string): CityMention[] {
+export function findKnownCityMentions(text: string): CityMention[] {
   return [...text.matchAll(KNOWN_CITY_MENTION_PATTERN)].map((match) => {
     const raw = (match[1] ?? "").toLowerCase();
     const name = KNOWN_DESTINATION_BY_COMPRESSED.get(raw.replace(/\s+/g, "")) ?? titleCase(raw);
@@ -1895,15 +1764,40 @@ export function isResendTicketRequest(text: string): boolean {
   return RESEND_TICKET_PATTERN.test(text);
 }
 
-const SKIP_TICKET_CONTACT_PATTERN = /\b(skip|no\s+thanks?|none|not\s+now|later|don'?t\s+have)\b/i;
-/** An explicit decline of the ticket-contact ask — proceeds to booking confirmation with no email/WhatsApp
- *  captured (the ticket then only ever reachable via the chat attachment or dashboard). */
+// Fix (Travel Booking Closure Pass — Phase 3): broadened from a handful of decline words to cover the
+// natural ways a customer answers "where should I send your ticket?" by asking for chat delivery, without
+// needing to know the magic word "skip" — see the correction-pass spec's CHAT_DOWNLOAD examples ("share it
+// here", "send it here", "download here", "put it in the chat", "chat please", "chat only", "no email",
+// "no WhatsApp", "I'll download it here", ...). Deliberately phrase-based (not a bare "chat"/"here"
+// single-word match) so it never fires on unrelated text that merely mentions "chat" or "here".
+const SKIP_TICKET_CONTACT_PATTERN =
+  /\b(?:skip|no\s+thanks?|none|not\s+now|later|don'?t\s+have|no\s+email|no\s+whats\s*app)\b|\b(?:share|send|put|leave|download)\s+it\s+(?:here|in\s+(?:this|the)\s+chat)\b|\bhere\s+is\s+fine\b|\bchat\s+(?:please|only|is\s+fine)\b|\bdownload\s+(?:it\s+)?(?:here|from\s+(?:the\s+)?chat|in\s+(?:the\s+)?chat)\b/i;
+/** An explicit (now natural-language-tolerant) decline of the ticket-contact ask — proceeds to booking
+ *  confirmation with no email/WhatsApp captured (the ticket then only ever reachable via the chat
+ *  attachment or dashboard). Callers should extract email/phone FIRST (see `resolvesTicketDeliveryQuestion`)
+ *  — an actual contact value volunteered alongside an incidental "chat"/"no email" word (e.g. "no email,
+ *  WhatsApp me at +91...") must still be honored, never discarded. */
 export function isSkipTicketContactRequest(text: string): boolean {
   return SKIP_TICKET_CONTACT_PATTERN.test(text);
 }
 
+/**
+ * Fix (Travel Booking Closure Pass — Phase 2/3): the single authoritative answer to "does this message
+ * resolve Travel's currently-pending AWAITING_TICKET_CONTACT question?" — reused both by the dispatch
+ * chain below (which branch to take) and by the Receptionist's pending-input-ownership check (whether an
+ * active Travel handoff should keep this turn instead of letting domain-switch scoring run at all, see
+ * `receptionist/specialist-pending-input.ts`). One definition, so the two can never drift apart.
+ */
+export function resolvesTicketDeliveryQuestion(text: string): boolean {
+  return Boolean(extractEmailAddress(text)) || Boolean(extractPhoneNumber(text)) || isSkipTicketContactRequest(text);
+}
+
+// Fix (Travel Booking Closure Pass — Phase 17): natural phrasing over a form-field prompt. Every reply
+// this used to explicitly enumerate ("email and/or WhatsApp number", "reply 'skip'") still works exactly
+// as before — see `resolvesTicketDeliveryQuestion`'s own broadened natural-language matching (Phase 3) —
+// this only changes how the question is ASKED, never what answers are accepted.
 export function buildTicketContactRequestMessage(): string {
-  return "Where should I send your ticket once it's confirmed? Please share your email and/or WhatsApp number (or reply 'skip' to download it from chat instead).";
+  return "Once it's confirmed, would you like the ticket here in chat, by email, or on WhatsApp?";
 }
 
 // A deliberately NARROWER subset of sprint-4.4b-integration.ts's own `bookingPatterns` — used only by
@@ -2042,9 +1936,9 @@ export function extractCapturedLeadReference(messages: readonly AiMessage[]): st
 }
 
 // Matches the Intent Discovery menu in all three languages (see `buildIntentDiscoveryMessage`) — the
-// English "how may I help you today", Hinglish "kaise madad kar", and Hindi "कैसे मदद कर सकता" lines are
-// each distinctive enough on their own not to collide with any other reply.
-const INTENT_DISCOVERY_MARKER = /how may i help you today|kaise madad kar|कैसे मदद कर सकता/i;
+// English "what can I help you with", Hinglish "kis cheez mein madad", and Hindi "किस चीज़ में मदद" lines
+// are each distinctive enough on their own not to collide with any other reply.
+const INTENT_DISCOVERY_MARKER = /what can i help you with|kis cheez mein madad|किस चीज़ में मदद/i;
 /**
  * True only when the Intent Discovery menu is the very last message in the transcript — i.e. it was
  * just shown and the traveler has not replied to it yet. Deliberately checks only the last message
@@ -2528,15 +2422,16 @@ export function buildIntentDiscoveryMessage(
   now: Date = new Date()
 ): string {
   const greeting = timeOfDayGreeting(now);
+  // Fix (Sprint 6.4 — Part 9): the previous version asked "Aaj main aapki kaise madad kar sakta/sakti
+  // hoon?" and then separately said "Main in cheezon mein madad kar sakta/sakti hoon:" — the same question
+  // twice in different words, plus a redundant "Aapse milkar accha laga" (nice to meet you) filler line —
+  // literally the same double-ask pattern the English branch below was already fixed for in Sprint 6.3,
+  // left untouched in Hindi/Hinglish until now. Merged into one natural, spoken-style greeting+menu line
+  // (not a literal translation of the English fix — see the module-level guidance on natural Hinglish).
   if (language === "HINGLISH")
     return [
-      `${greeting}, ${name}! \u{1F44B}`,
+      `${greeting}, ${name}! \u{1F44B} Aaj kis cheez mein madad karoon?`,
       "",
-      "Aapse milkar accha laga.",
-      "",
-      "Aaj main aapki kaise madad kar sakta/sakti hoon?",
-      "",
-      "Main in cheezon mein madad kar sakta/sakti hoon:",
       ...INTENT_MENU_ITEMS_HINGLISH.map((item) => `• ${item}`),
       "",
       "Aur, ye trip leisure ke liye hai ya business ke liye?"
@@ -2545,26 +2440,20 @@ export function buildIntentDiscoveryMessage(
     const hindiGreeting =
       greeting === "Good morning" ? "सुप्रभात" : greeting === "Good afternoon" ? "शुभ दोपहर" : "शुभ संध्या";
     return [
-      `${hindiGreeting}, ${name} जी! \u{1F44B}`,
+      `${hindiGreeting}, ${name} जी! \u{1F44B} आज किस चीज़ में मदद करूँ?`,
       "",
-      "आपसे मिलकर अच्छा लगा।",
-      "",
-      "मैं आज आपकी कैसे मदद कर सकता/सकती हूँ?",
-      "",
-      "मैं इनमें मदद कर सकता/सकती हूँ:",
       ...INTENT_MENU_ITEMS_HINDI.map((item) => `• ${item}`),
       "",
       "और, क्या यह यात्रा छुट्टियों के लिए है या व्यावसायिक (business) है?"
     ].join("\n");
   }
+  // Fix (Sprint 6.3 — Part 4): the previous version asked "How may I help you today?" and then separately
+  // said "I can help you:" — the same question twice in different words, plus a redundant "Nice to meet
+  // you" filler line. Merged into one greeting+menu pass, matching the same simplification applied
+  // generically to every other AI Employee's intent-discovery message in employee-runtime.ts.
   return [
-    `${greeting}, ${name}! \u{1F44B}`,
+    `${greeting}, ${name}! \u{1F44B} What can I help you with?`,
     "",
-    "Nice to meet you.",
-    "",
-    "How may I help you today?",
-    "",
-    "I can help you:",
     ...INTENT_MENU_ITEMS_EN.map((item) => `• ${item}`),
     "",
     "Also, is this trip for leisure or business?"
@@ -2754,10 +2643,15 @@ export function buildConfirmPrompt(language: TravelResponseLanguage = "ENGLISH")
  * and the orchestrator parks `pendingAction: "SEARCH_OPTIONS"` so the traveler's next go-ahead resumes it.
  */
 export function buildReadyToSearchPromptMessage(language: TravelResponseLanguage = "ENGLISH"): string {
+  // Fix (Sprint 6.4 — Part 9): "Mere paas aapki trip ki saari details hain" / "मेरे पास आपकी यात्रा की सारी
+  // जानकारी है" reads exactly like the English "I have everything I need" form-confirmation pattern
+  // Sprint 6.3 already rephrased below — left untouched in Hindi/Hinglish until now.
   if (language === "HINGLISH")
-    return "Mere paas aapki trip ki saari details hain — kya main abhi flight aur hotel options dhoondh loon?";
-  if (language === "HINDI") return "मेरे पास आपकी यात्रा की सारी जानकारी है — क्या मैं अभी फ्लाइट और होटल विकल्प खोजूँ?";
-  return "I have everything I need for your trip — would you like me to look up flight and hotel options now?";
+    return "Ho gaya — kya main abhi aapki trip ke liye flight aur hotel options dhoondh loon?";
+  if (language === "HINDI") return "हो गया — क्या मैं अभी आपकी यात्रा के लिए फ्लाइट और होटल विकल्प खोजूँ?";
+  // Fix (Sprint 6.3 — Part 4): "I have everything I need" reads like a form confirming its own fields are
+  // filled, not a person talking — rephrased as a natural offer instead.
+  return "Got it — want me to look up flight and hotel options for your trip now?";
 }
 
 export function buildBookingConfirmedMessage(
@@ -3135,6 +3029,7 @@ export class TravelEmployeeProvider implements AiProvider {
   private memory: TravelConversationMemory;
   private priorEntities: TravelEntities;
   private pendingWorkflowSignal: TravelWorkflowSignalDraft | null = null;
+  private routingHandoffSignal: RoutingHandoffSignal | null = null;
 
   constructor(
     private readonly config: TravelEmployeeRuntimeConfig,
@@ -3168,8 +3063,16 @@ export class TravelEmployeeProvider implements AiProvider {
     return this.pendingWorkflowSignal;
   }
 
+  /** Non-null only the turn a routing offer (see `buildOutOfScopeRoutingMessage`) was just confirmed. This
+   *  provider has no Prisma access to actually create the handoff conversation — AgentService reads this
+   *  once per turn and does the real work, rewriting this turn's response once it knows the outcome. */
+  get lastRoutingHandoffSignal(): RoutingHandoffSignal | null {
+    return this.routingHandoffSignal;
+  }
+
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
     this.pendingWorkflowSignal = null;
+    this.routingHandoffSignal = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const userMessages = messages.filter((message) => message.role === "user").map((message) => message.content);
@@ -3182,6 +3085,8 @@ export class TravelEmployeeProvider implements AiProvider {
     if (attachmentBlocks.length > 0) {
       return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, attachmentBlocks));
     }
+    const lastAssistantMessage =
+      [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null;
     // Out-of-scope routing for ordinary messages: a reimbursement/expense/HR/legal request that has nothing
     // to do with trip planning is answered with a polite "not my area — I can route you" reply instead of
     // forcing the traveler through trip-detail questions. Never interrupts an active pending action or
@@ -3191,16 +3096,33 @@ export class TravelEmployeeProvider implements AiProvider {
       this.memory.completionStage !== "AWAITING_CONTACT" &&
       this.memory.completionStage !== "CAPTURED"
     ) {
-      const travelOutOfScope = detectOutOfScopeEmployee(TRAVEL_ATTACHMENT_SPEC, currentText);
+      // Confirming a previously offered routing handoff ("yes", "route it", ...) — checked before a fresh
+      // out-of-scope detection, since the confirmation reply itself ("yes") never carries any domain signal.
+      const confirmation = detectRoutingConfirmation(TRAVEL_ATTACHMENT_SPEC, messages);
+      if (confirmation) {
+        this.routingHandoffSignal = {
+          targetSlug: confirmation.target.slug,
+          originalText: confirmation.originalText
+        };
+        return textResult(`Connecting you to ${confirmation.target.displayName}…`);
+      }
+      // Sprint 6.4 — Part 10: pass Travel's own last reply so a bare "budget"/"invoice"-style word that
+      // merely echoes a question TRAVEL itself just asked ("...your approximate budget?" -> "budget 10000
+      // AED") never gets bounced to Finance — see the `contextEcho` check inside detectOutOfScopeEmployee.
+      const travelOutOfScope = detectOutOfScopeEmployee(
+        TRAVEL_ATTACHMENT_SPEC,
+        currentText,
+        lastAssistantMessage
+      );
       if (travelOutOfScope) {
-        return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, [
-          { filename: "your request", mimeType: "text/plain", content: currentText }
-        ]));
+        return textResult(buildOutOfScopeRoutingMessage(TRAVEL_ATTACHMENT_SPEC, travelOutOfScope));
       }
     }
 
-    const lastAssistantMessage =
-      [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null;
+    // Captured before the merge below reassigns `this.priorEntities` — used only to tell whether the
+    // name was known BEFORE this turn started (e.g. seeded by a Receptionist handoff, or captured on a
+    // prior turn), independent of whatever this turn's raw transcript scan would find.
+    const nameKnownBeforeThisTurn = Boolean(this.priorEntities.customerName);
 
     const mergedEntities = mergeEntitiesWithPriorState(
       this.priorEntities,
@@ -3210,6 +3132,42 @@ export class TravelEmployeeProvider implements AiProvider {
       this.config.defaultCurrency || "USD"
     );
     this.priorEntities = mergedEntities;
+
+    // Sprint 6.3 — Part 7: "I want another trip"/"start a new trip" after a trip is already in progress
+    // (or already booked) must start completely fresh — not be read as still talking about the OLD trip,
+    // which is what happened before this check existed: `mergeEntitiesWithPriorState` carries the prior
+    // destination/dates/budget forward untouched (correctly, for an ordinary follow-up), so a message that
+    // states no NEW destination looked, to the rest of this dispatch chain, exactly like "everything's
+    // still known, ready to confirm" — producing a confusing "book this or adjust it?" reply instead of
+    // asking where the new trip should go. Resets trip DETAILS only, never the customer's name (already
+    // introduced, never re-asked just because they're planning a different trip) and never the completed
+    // booking itself (a real `TravelBooking` row, untouched in Postgres — this only clears this Runtime's
+    // own in-memory/persisted trip-planning entities for the NEXT trip).
+    if (
+      NEW_INDEPENDENT_TRIP_PATTERN.test(currentText) &&
+      (mergedEntities.destinationCity || mergedEntities.departureDate || mergedEntities.travelMonth || mergedEntities.budget)
+    ) {
+      this.priorEntities = { ...EMPTY_TRAVEL_ENTITIES, customerName: mergedEntities.customerName };
+      this.memory = {
+        ...this.memory,
+        pendingAction: null,
+        pendingInputAction: null,
+        completionStage: "NOT_OFFERED",
+        conversationClosed: false,
+        providerFailure: null,
+        pendingRecommendations: null,
+        selectedRecommendationId: null,
+        passengerDetails: null,
+        ticketContact: null,
+        pendingContactValue: null,
+        pendingPassengerConflict: null
+      };
+      return textResult(
+        mergedEntities.customerName
+          ? `Of course, ${mergedEntities.customerName}! Where would you like to go this time?`
+          : "Of course! Where would you like to go this time?"
+      );
+    }
 
     const rawSlots = extractTravelSlots(userMessages, this.config.defaultCurrency);
     const slots: TravelSlots = {
@@ -3261,7 +3219,9 @@ export class TravelEmployeeProvider implements AiProvider {
       return toolResult("travel.resend_ticket", {
         email,
         travelDate,
-        customerName: extractCustomerName(userMessages)
+        // Fix (Sprint 6.3 — Part 1/7): prefer the already-confirmed name over a fresh transcript scan —
+        // see `mergeEntitiesWithPriorState`'s own fix for why a raw re-scan can misfire on a later turn.
+        customerName: mergedEntities.customerName ?? extractCustomerName(userMessages)
       });
     }
 
@@ -3287,6 +3247,20 @@ export class TravelEmployeeProvider implements AiProvider {
         this.memory = { ...this.memory, pendingAction: "AWAITING_OPTION_SELECTION" as TravelPendingAction, selectedRecommendationId: null };
         return textResult(formatPackageOptionsMessage(pendingOptions));
       }
+      // Fix (Travel Booking Closure Pass — Phase 3): extract an actual contact value FIRST — a customer
+      // who volunteers a real email/phone must always be honored, even if their message also happens to
+      // contain an incidental "chat"/"no email"-shaped word (e.g. "no email, WhatsApp me at +91..."). Only
+      // when no contact value is present does the broadened natural-language CHAT_DOWNLOAD check apply.
+      const contactEmail = extractEmailAddress(currentText);
+      const contactPhone = extractPhoneNumber(currentText);
+      if (contactEmail || contactPhone) {
+        this.memory = {
+          ...this.memory,
+          ticketContact: { email: contactEmail, phone: contactPhone },
+          pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction
+        };
+        return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, confirmedPassengers));
+      }
       if (isSkipTicketContactRequest(currentText)) {
         this.memory = {
           ...this.memory,
@@ -3295,15 +3269,7 @@ export class TravelEmployeeProvider implements AiProvider {
         };
         return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, confirmedPassengers));
       }
-      const contactEmail = extractEmailAddress(currentText);
-      const contactPhone = extractPhoneNumber(currentText);
-      if (!contactEmail && !contactPhone) return textResult(buildTicketContactRequestMessage());
-      this.memory = {
-        ...this.memory,
-        ticketContact: { email: contactEmail, phone: contactPhone },
-        pendingAction: "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction
-      };
-      return textResult(buildBookingConfirmationSummary(this.priorEntities, selected, confirmedPassengers));
+      return textResult(buildTicketContactRequestMessage());
     }
 
     const resolvedInput = resolveTravelInput(currentText, {
@@ -3338,7 +3304,7 @@ export class TravelEmployeeProvider implements AiProvider {
         "travel.create_lead",
         this.buildDeterministicLeadPayload(
           slots,
-          extractCustomerName(userMessages),
+          mergedEntities.customerName ?? extractCustomerName(userMessages),
           resolvedInput.contact,
           currentText
         )
@@ -3354,7 +3320,10 @@ export class TravelEmployeeProvider implements AiProvider {
         pendingContactValue: null
       };
       return textResult(
-        buildFarewellMessage(extractCustomerName(userMessages), detectResponseLanguage(currentText))
+        buildFarewellMessage(
+          mergedEntities.customerName ?? extractCustomerName(userMessages),
+          detectResponseLanguage(currentText)
+        )
       );
     }
     if (resolvedInput.kind === "INVALID_CONTACT_ATTEMPT")
@@ -3384,7 +3353,7 @@ export class TravelEmployeeProvider implements AiProvider {
         "travel.create_lead",
         this.buildDeterministicLeadPayload(
           slots,
-          extractCustomerName(userMessages),
+          mergedEntities.customerName ?? extractCustomerName(userMessages),
           resolvedInput.contact,
           currentText
         )
@@ -3400,7 +3369,10 @@ export class TravelEmployeeProvider implements AiProvider {
         pendingPassengerConflict: null
       };
       return textResult(
-        buildFarewellMessage(extractCustomerName(userMessages), detectResponseLanguage(currentText))
+        buildFarewellMessage(
+          mergedEntities.customerName ?? extractCustomerName(userMessages),
+          detectResponseLanguage(currentText)
+        )
       );
     }
 
@@ -3414,8 +3386,13 @@ export class TravelEmployeeProvider implements AiProvider {
     // GREETING -> COLLECT_NAME -> trip-discovery workflow. A message that only states trip content
     // ("Delhi jana hai") is acknowledged but still routed back to asking for the name; a message that
     // introduces the traveler (with or without trip content in the same message) is never re-asked.
-    const nameKnownBefore = extractCustomerName(userMessages.slice(0, -1));
-    const customerName = extractCustomerName(userMessages);
+    // Prefer the already-merged entity state (which itself already prefers a name found in the current
+    // message, falling back to whatever was already known — see `mergeEntitiesWithPriorState`) over a
+    // fresh full-transcript scan. This is what lets a name seeded from a Receptionist handoff (present in
+    // `this.priorEntities` from turn one, never itself a message in this transcript) actually suppress
+    // the name gate — a raw `extractCustomerName(userMessages)` rescan would never find it there.
+    const nameKnownBefore = nameKnownBeforeThisTurn || Boolean(extractCustomerName(userMessages.slice(0, -1)));
+    const customerName = mergedEntities.customerName ?? extractCustomerName(userMessages);
     if (!customerName) return textResult(buildNameRequestMessage(currentText));
     const justLearnedName = !nameKnownBefore;
 
@@ -3532,7 +3509,7 @@ export class TravelEmployeeProvider implements AiProvider {
           return textResult(buildPassengerDetailsRequestMessage(selected.travellers, alreadyCollected));
         }
       }
-      return textResult("Please select Option 1, Option 2 or Option 3.");
+      return textResult("Sorry, I didn't catch which one you'd like — Value, Recommended, or Premium?");
     }
 
     // Routing priority 2a-bis: PASSENGER DETAILS — an option is selected; the traveler must supply every
@@ -3735,7 +3712,10 @@ export class TravelEmployeeProvider implements AiProvider {
     // drives) is deliberately about "no assistant turn has happened yet at all", not "this is the
     // traveler's first reply", to avoid a duplicate greeting on the very first substantive answer.
     const hasAssistantHistory = messages.some((message) => message.role === "assistant");
-    const isFirstTurn = userMessages.length <= 1 && !hasAssistantHistory;
+    // Also false when the traveler's name was already known BEFORE this turn (e.g. seeded from a
+    // Receptionist handoff) — the canned welcome text this flag drives ends with its own "may I know
+    // your name?" question, which would be a wrong, redundant re-ask of something already answered.
+    const isFirstTurn = userMessages.length <= 1 && !hasAssistantHistory && !nameKnownBeforeThisTurn;
     // Destination is discovered on its own first — a human consultant asks "where would you like to go?"
     // before drilling into dates/travellers/budget; only once destination is known do the remaining gaps
     // combine into one natural bulleted ask (see "Clarification strategy").
@@ -4536,16 +4516,24 @@ function buildGenerationSystemPrompt(
   // welcome message's built-in question (e.g. "Where would you like to travel to?") over a value the
   // user just supplied in this same message.
   const firstTurnCapturedSomething = isFirstTurn && changed.length > 0;
+  // The configured welcome message has the "may I know your name?" question baked into its literal text
+  // — reciting it verbatim is only correct when the name is genuinely unknown. When `entities.customerName`
+  // is already set and wasn't just captured this turn (that case is `firstTurnCapturedSomething`, handled
+  // separately below), the name arrived from elsewhere — a Receptionist handoff seed, most commonly — and
+  // the model must greet by name instead of reciting a message that re-asks for something already known.
+  const nameAlreadyKnown = isFirstTurn && !firstTurnCapturedSomething && Boolean(entities.customerName);
   return [
     `You are ${config.persona}`,
     `Tone: ${config.brandTone}. Speak like an experienced, warm human travel consultant — concise and conversational, never like a form. Vary your opening words turn to turn — do not start every reply with "Great!", "Sure!", or "Got it!"; use natural, diverse phrasing a real consultant would use. Reply in under 60 words, plain text, no markdown, no lists.`,
-    isFirstTurn && !startingNewTrip && !firstTurnCapturedSomething
+    isFirstTurn && !startingNewTrip && !firstTurnCapturedSomething && !nameAlreadyKnown
       ? `This is the first message of the conversation — begin the reply with: "${config.welcomeMessage}"`
-      : isFirstTurn && !startingNewTrip && firstTurnCapturedSomething
-        ? "This is the first message of the conversation, and it already stated trip details — do not recite the welcome message or ask about anything already captured (see below); briefly greet the traveler in a few words, then go straight to the next required question."
-        : startingNewTrip
-          ? "The traveler wants to start planning a new, separate trip — briefly acknowledge the fresh start before asking about it."
-          : "Do not repeat the welcome message; continue the conversation naturally.",
+      : isFirstTurn && !startingNewTrip && nameAlreadyKnown
+        ? `This is the first message of the conversation, and the traveler's name is already known (see "Already known" below) — greet them warmly by name in a few words, then go straight to the next required question below. Do NOT use the generic welcome message and do NOT ask for their name — it is already known.`
+        : isFirstTurn && !startingNewTrip && firstTurnCapturedSomething
+          ? "This is the first message of the conversation, and it already stated trip details — do not recite the welcome message or ask about anything already captured (see below); briefly greet the traveler in a few words, then go straight to the next required question."
+          : startingNewTrip
+            ? "The traveler wants to start planning a new, separate trip — briefly acknowledge the fresh start before asking about it."
+            : "Do not repeat the welcome message; continue the conversation naturally.",
     changed.length
       ? `Newly captured or updated this turn: ${changed.join(", ")}. Briefly and naturally acknowledge ONLY these — do not acknowledge, restate, or confirm any other number, name, or detail the traveler mentioned in their message unless it is listed here; the workflow may have been unable to store it, so treating it as confirmed would be false.`
       : "No new trip details were captured this turn — even if the traveler's message mentioned numbers or details, do not acknowledge or confirm any of them as captured unless they appear above.",
@@ -5152,6 +5140,77 @@ export function isHotelBudgetModificationRequest(text: string): boolean {
   return HOTEL_BUDGET_MODIFICATION_PATTERN.test(text) || FIT_BUDGET_PATTERN.test(text);
 }
 
+// Sprint 6.5 — Part 13: every scalar field a bare, literal restatement in the traveler's own text can
+// deterministically correct — the generalized form of Stage 9F's budget-only rule (see
+// `detectExplicitFieldCorrection` below).
+const EXPLICIT_CORRECTION_FIELDS = [
+  "budget",
+  "adults",
+  "totalTravellers",
+  "nights",
+  "days",
+  "travelMonth",
+  "departureDate"
+] as const satisfies readonly (keyof TravelEntities)[];
+
+// Sprint 6.5 — Part 15/28: fields that, if they change AFTER package options were already generated,
+// make those options stale (priced/curated for the OLD requirements) — destination, dates, travellers,
+// trip length, and budget. Cabin class/hotel stars/preferences intentionally excluded: those refine an
+// existing search rather than invalidate its premise.
+const MATERIAL_PACKAGE_FIELDS = [
+  "destinationCity",
+  "departureDate",
+  "travelMonth",
+  "adults",
+  "totalTravellers",
+  "children",
+  "infants",
+  "nights",
+  "days",
+  "budget"
+] as const satisfies readonly (keyof TravelEntities)[];
+
+// The pendingAction values that only make sense relative to `pendingRecommendations` — cleared alongside
+// it on a material correction so the next turn asks the traveler to select fresh options rather than
+// re-prompting for passenger details/contact/confirmation against a package that no longer applies.
+const PACKAGE_DEPENDENT_PENDING_ACTIONS: TravelPendingAction[] = [
+  "AWAITING_OPTION_SELECTION",
+  "AWAITING_PASSENGER_DETAILS",
+  "AWAITING_TICKET_CONTACT",
+  "AWAITING_BOOKING_CONFIRMATION"
+];
+
+/**
+ * True when the DETERMINISTIC extractor (never LLM inference) found a literal value for one of
+ * `EXPLICIT_CORRECTION_FIELDS` in the traveler's own raw text, and that value differs from the
+ * already-known value for the same field — the traveler's own restated number/date always outranks
+ * whatever the turn's overall intent was otherwise classified as. Never fires from an LLM hallucinating a
+ * change out of ambiguous wording, since `deterministic` here is always the regex-based extractor's
+ * output, not model output.
+ */
+export function detectExplicitFieldCorrection(
+  deterministic: Partial<TravelEntities>,
+  lastEntities: TravelEntities
+): boolean {
+  return EXPLICIT_CORRECTION_FIELDS.some((field) => {
+    const next = deterministic[field];
+    const prior = lastEntities[field];
+    return next !== null && next !== undefined && prior !== null && next !== prior;
+  });
+}
+
+/**
+ * Sprint 6.5 — Part 15/28: true when `changed` (the already-computed per-turn diff, `field=X (was Y)`
+ * entries only for a genuine change from a known prior value — never a field being set for the first
+ * time) includes one of `MATERIAL_PACKAGE_FIELDS`. Pure and reusable so it can be unit-tested directly
+ * against representative diff strings without needing a full orchestrator instance.
+ */
+export function hasMaterialPackageChange(changed: readonly string[]): boolean {
+  return changed.some(
+    (entry) => entry.includes("(was ") && MATERIAL_PACKAGE_FIELDS.some((field) => entry.startsWith(`${field}=`))
+  );
+}
+
 /**
  * Deterministic fallback used only when the configured real LLM is unavailable (no provider configured,
  * or the extraction call itself throws) — reuses the regex-based extractors and the typo catalog so the
@@ -5204,6 +5263,13 @@ export interface DateInterpretation {
   normalizedDate: string | null;
   travelMonth: string | null;
   durationDays: number | null;
+  /** Sprint 6.5 — Part 10: set only when the phrase resolves to a window wider than a single day
+   *  ("next week", "next month", "first week of October") rather than a precise date. `normalizedDate`
+   *  stays null in that case — exactly as it already did for a bare month — so a broad expression is
+   *  never silently turned into a fabricated precise date; see `windowStart`/`windowEnd` instead. */
+  windowType?: "DAY" | "WEEK" | "MONTH" | null;
+  windowStart?: string | null;
+  windowEnd?: string | null;
 }
 
 function toIsoDate(date: Date): string {
@@ -5218,11 +5284,56 @@ function monthNameOf(date: Date): string {
   return titleCase(MONTHS[date.getUTCMonth()] ?? "");
 }
 
+/** Last calendar day of the given UTC year/0-indexed month — computed via `Date`'s own day-0-of-next-
+ *  month rollover rather than a hardcoded day-count table, so leap-year February is correct for free. */
+function lastDayOfMonth(year: number, monthIndex: number): number {
+  return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+}
+
+/** Resolves a bare month name to its nearest FUTURE occurrence relative to `base` — the same "already
+ *  passed this year -> next year" convention the explicit month/day branch below already used, extracted
+ *  so every "of <month>" window phrase shares one definition instead of three copies. */
+function resolveNamedMonthYear(monthIndex: number, base: Date): number {
+  return base.getUTCMonth() <= monthIndex ? base.getUTCFullYear() : base.getUTCFullYear() + 1;
+}
+
+/** Resolves "next month" / "this month" tokens (bare or inside a larger "first week of next month" /
+ *  "end of this month" phrase) to a concrete {year, monthIndex} pair, correctly rolling December -> next
+ *  January. Returns null for a named month string that isn't one of MONTHS (defensive; regexes only ever
+ *  pass a validated token). */
+function resolveMonthToken(token: string, base: Date): { year: number; monthIndex: number } | null {
+  if (token === "next month") {
+    const monthIndex = (base.getUTCMonth() + 1) % 12;
+    const year = base.getUTCMonth() === 11 ? base.getUTCFullYear() + 1 : base.getUTCFullYear();
+    return { year, monthIndex };
+  }
+  if (token === "this month") return { year: base.getUTCFullYear(), monthIndex: base.getUTCMonth() };
+  if (MONTHS.includes(token)) {
+    const monthIndex = MONTHS.indexOf(token);
+    return { year: resolveNamedMonthYear(monthIndex, base), monthIndex };
+  }
+  return null;
+}
+
 /**
- * Deterministic natural-date normalizer: "today", "tomorrow", "next Friday", "August 15", "mid-September",
- * and "for N day(s)/week(s)" durations. Accepts an injectable reference date so behavior is testable
- * without depending on the real current date. Never overwrites a confirmed date on its own — callers only
- * apply the result when the corresponding field is not already confirmed.
+ * Deterministic natural-date normalizer: "today", "tomorrow", "day after tomorrow", "next Friday",
+ * "next week", "this/next weekend", "this/next month", "first/second week of <month>", "end of <month>",
+ * "August 15", "mid-September", and "for N day(s)/week(s)" durations. Accepts an injectable reference
+ * date so behavior is testable without depending on the real current date (Sprint 6.5 Part 11/25).
+ *
+ * Timezone note (Sprint 6.5 Part 11): every date computed here uses UTC calendar arithmetic (`Date.UTC`)
+ * applied to `referenceDate`'s own UTC year/month/day — there is deliberately no separate timezone
+ * parameter. No per-customer or per-organization timezone reaches this far today (`TravelState
+ * .userLocalTime` is declared but never populated anywhere; `businessHoursTimezone` is display-only) and
+ * this function is a plain, DI-free module function with no access to `Organization.timezone` at its
+ * call sites — threading a decorative parameter through that would affect no computation would be worse
+ * than being explicit about the gap. Documented as a known limitation in the Sprint 6.5 report rather
+ * than silently glossed over.
+ *
+ * Never overwrites a confirmed date on its own — callers only apply the result when the corresponding
+ * field is not already confirmed. Deliberately does NOT attempt lunar-calendar festival phrases ("around
+ * Diwali") — guessing a date it cannot state with confidence would violate the "don't guess when
+ * genuinely ambiguous" rule; such phrases fall through to `UNKNOWN`/LLM-assisted handling untouched.
  */
 export function interpretDatePhrase(raw: string, referenceDate: Date = new Date()): DateInterpretation {
   const text = raw.trim().toLowerCase();
@@ -5237,6 +5348,12 @@ export function interpretDatePhrase(raw: string, referenceDate: Date = new Date(
   const forDays = /\bfor\s+(\d{1,2})\s+days?\b/.exec(text);
   if (forDays?.[1]) return { ...empty, durationDays: Number(forDays[1]) };
 
+  // "day after tomorrow" must be checked BEFORE the bare "tomorrow" check below, since it contains
+  // "tomorrow" as a substring.
+  if (/\bday after tomorrow\b/.test(text)) {
+    const target = addDays(base, 2);
+    return { ...empty, normalizedDate: toIsoDate(target), travelMonth: monthNameOf(target) };
+  }
   if (/\btoday\b/.test(text)) return { ...empty, normalizedDate: toIsoDate(base), travelMonth: monthNameOf(base) };
   if (/\btomorrow\b/.test(text)) {
     const target = addDays(base, 1);
@@ -5251,12 +5368,110 @@ export function interpretDatePhrase(raw: string, referenceDate: Date = new Date(
     const target = addDays(base, delta);
     return { ...empty, normalizedDate: toIsoDate(target), travelMonth: monthNameOf(target) };
   }
+
+  // "this weekend" / "next weekend" — Saturday-Sunday. If today itself is Sunday, "this weekend" means
+  // [yesterday(Saturday), today] — the weekend the user is currently in — rather than a week away.
+  const weekendMatch = /\b(this|next)\s+weekend\b/.exec(text);
+  if (weekendMatch?.[1]) {
+    const dow = base.getUTCDay(); // 0=Sun..6=Sat
+    let saturday = dow === 0 ? addDays(base, -1) : addDays(base, 6 - dow);
+    if (weekendMatch[1] === "next") saturday = addDays(saturday, 7);
+    const sunday = addDays(saturday, 1);
+    return {
+      ...empty,
+      windowType: "WEEK",
+      windowStart: toIsoDate(saturday),
+      windowEnd: toIsoDate(sunday),
+      travelMonth: monthNameOf(saturday)
+    };
+  }
+
+  // "next week" (bare — NOT "next <weekday>", already handled above) — Monday-Sunday of the following
+  // calendar week.
+  if (/\bnext week\b/.test(text)) {
+    const dow = base.getUTCDay();
+    const daysSinceMonday = (dow + 6) % 7;
+    const thisMonday = addDays(base, -daysSinceMonday);
+    const nextMonday = addDays(thisMonday, 7);
+    const nextSunday = addDays(nextMonday, 6);
+    return {
+      ...empty,
+      windowType: "WEEK",
+      windowStart: toIsoDate(nextMonday),
+      windowEnd: toIsoDate(nextSunday),
+      travelMonth: monthNameOf(nextMonday)
+    };
+  }
+
+  // "first/second week of <month | this month | next month>" — checked BEFORE the bare "this/next month"
+  // window below, since "first week of next month" would otherwise also satisfy the bare pattern and lose
+  // the "first week" qualifier entirely.
+  const weekOfMonth = /\b(first|second)\s+week\s+of\s+(next\s+month|this\s+month|[a-z]+)\b/.exec(text);
+  if (weekOfMonth?.[1] && weekOfMonth[2]) {
+    const resolved = resolveMonthToken(weekOfMonth[2], base);
+    if (resolved) {
+      const dayStart = weekOfMonth[1] === "first" ? 1 : 8;
+      const dayEnd = weekOfMonth[1] === "first" ? 7 : 14;
+      const start = new Date(Date.UTC(resolved.year, resolved.monthIndex, dayStart));
+      const end = new Date(Date.UTC(resolved.year, resolved.monthIndex, dayEnd));
+      return {
+        ...empty,
+        windowType: "WEEK",
+        windowStart: toIsoDate(start),
+        windowEnd: toIsoDate(end),
+        travelMonth: monthNameOf(start)
+      };
+    }
+  }
+
+  // "end of <month | this month | next month>" — also checked before the bare "this/next month" window.
+  const endOfMonth = /\bend\s+of\s+(next\s+month|this\s+month|[a-z]+)\b/.exec(text);
+  if (endOfMonth?.[1]) {
+    const resolved = resolveMonthToken(endOfMonth[1], base);
+    if (resolved) {
+      const lastDay = lastDayOfMonth(resolved.year, resolved.monthIndex);
+      const start = new Date(Date.UTC(resolved.year, resolved.monthIndex, Math.max(1, lastDay - 6)));
+      const end = new Date(Date.UTC(resolved.year, resolved.monthIndex, lastDay));
+      return {
+        ...empty,
+        windowType: "WEEK",
+        windowStart: toIsoDate(start),
+        windowEnd: toIsoDate(end),
+        travelMonth: monthNameOf(start)
+      };
+    }
+  }
+
+  // "this month" / "next month" (bare) — a full-month window, never collapsed to a fake precise date.
+  const monthWindowMatch = /\b(this|next)\s+month\b/.exec(text);
+  if (monthWindowMatch?.[1]) {
+    const resolved = resolveMonthToken(`${monthWindowMatch[1]} month`, base);
+    if (resolved) {
+      const start = new Date(Date.UTC(resolved.year, resolved.monthIndex, 1));
+      const end = new Date(Date.UTC(resolved.year, resolved.monthIndex, lastDayOfMonth(resolved.year, resolved.monthIndex)));
+      return {
+        ...empty,
+        windowType: "MONTH",
+        windowStart: toIsoDate(start),
+        windowEnd: toIsoDate(end),
+        travelMonth: monthNameOf(start)
+      };
+    }
+  }
+
   const midMonth = /\bmid[- ]?([a-z]+)\b/.exec(text);
   if (midMonth?.[1] && MONTHS.includes(midMonth[1])) {
     const monthIndex = MONTHS.indexOf(midMonth[1]);
-    const year = base.getUTCMonth() <= monthIndex ? base.getUTCFullYear() : base.getUTCFullYear() + 1;
+    const year = resolveNamedMonthYear(monthIndex, base);
     const target = new Date(Date.UTC(year, monthIndex, 15));
-    return { ...empty, normalizedDate: toIsoDate(target), travelMonth: titleCase(midMonth[1]) };
+    return {
+      ...empty,
+      normalizedDate: toIsoDate(target),
+      travelMonth: titleCase(midMonth[1]),
+      windowType: "WEEK",
+      windowStart: toIsoDate(new Date(Date.UTC(year, monthIndex, 11))),
+      windowEnd: toIsoDate(new Date(Date.UTC(year, monthIndex, 20)))
+    };
   }
   const monthDay = /\b([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/.exec(text);
   if (monthDay?.[1] && monthDay[2] && MONTHS.includes(monthDay[1])) {
@@ -5265,6 +5480,16 @@ export function interpretDatePhrase(raw: string, referenceDate: Date = new Date(
     const year = base.getUTCMonth() <= monthIndex ? base.getUTCFullYear() : base.getUTCFullYear() + 1;
     const target = new Date(Date.UTC(year, monthIndex, day));
     return { ...empty, normalizedDate: toIsoDate(target), travelMonth: titleCase(monthDay[1]) };
+  }
+  // Day-first order ("15 October") — unambiguous (a leading 1-2 digit number can't be a month name), so
+  // this is safe to resolve deterministically the same way the month-first branch above does.
+  const dayMonth = /\b(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\b/.exec(text);
+  if (dayMonth?.[1] && dayMonth[2] && MONTHS.includes(dayMonth[2])) {
+    const monthIndex = MONTHS.indexOf(dayMonth[2]);
+    const day = Number(dayMonth[1]);
+    const year = resolveNamedMonthYear(monthIndex, base);
+    const target = new Date(Date.UTC(year, monthIndex, day));
+    return { ...empty, normalizedDate: toIsoDate(target), travelMonth: titleCase(dayMonth[2]) };
   }
   return empty;
 }
@@ -5587,6 +5812,12 @@ export function reconcileRouteFromMessage(
       destinationCity: normalizeCityName(routePair.destination)
     };
   }
+  // Sprint 6.5 — Part 7/29: an explicit, UNPROMPTED "from <City>" statement ("from Delhi", sent on its
+  // own turn rather than in reply to a dedicated origin question) deterministically supplies origin — the
+  // same extractor the dedicated-question fast path uses (`extractOriginCity`), not gated on
+  // `lastAskedField` here since the traveler volunteered it without being asked.
+  const explicitOrigin = extractOriginCity(message);
+  if (explicitOrigin) return { ...extracted, originCity: explicitOrigin };
   if (lastAskedField !== "originCity" && DESTINATION_VERB_PATTERN.test(message)) {
     const singleCity = normalizeCityName(extractDestination(message));
     if (singleCity) {
@@ -7099,13 +7330,17 @@ export function buildNextActionMessage(language: TravelResponseLanguage = "ENGLI
   return "Next: reply 'confirm' to proceed with this plan, ask for live options, or request a lead/callback.";
 }
 
+// Fix (Travel Booking Closure Pass — Phase 17/18): natural phrasing over a numbered menu. Every reply this
+// used to expect — bare "1"/"2"/"3", "option 1", "first one"/"second one"/"third one"/"callback" — still
+// works exactly as before (see RECOVERY_OPTION_1/2/3_PATTERN right below); this only changes how the
+// choice is OFFERED, never what answers are accepted. Web may still render this as numbered buttons/cards.
 /** The three-way offer after a provider failure — retry live, take the indicative guidance already shown, or hand off to sales. */
 export function buildProviderFailureRecoveryOffer(language: TravelResponseLanguage = "ENGLISH"): string {
   if (language === "HINGLISH")
-    return "Aap chahein to: (1) abhi ke liye ye indicative recommendations use karein, (2) live search dobara try karayein, ya (3) enquiry/callback request kar sakte hain.";
+    return "Koi baat nahi — hum ye kar sakte hain: abhi ke liye ye indicative numbers use karein, live search dobara try karein, ya main ek callback arrange kar doon. Aapko kya theek lagega?";
   if (language === "HINDI")
-    return "आप चाहें तो: (1) अभी के लिए ये संकेतात्मक सुझाव उपयोग करें, (2) लाइव सर्च दोबारा करवाएँ, या (3) पूछताछ/कॉलबैक का अनुरोध कर सकते हैं।";
-  return "You can: (1) use these indicative recommendations for now, (2) ask me to retry the live search, or (3) request a lead/callback instead.";
+    return "कोई बात नहीं — हम यह कर सकते हैं: अभी के लिए ये संकेतात्मक आंकड़े उपयोग करें, लाइव सर्च दोबारा करें, या मैं एक कॉलबैक की व्यवस्था कर दूँ। आपको क्या ठीक लगेगा?";
+  return "No worries — here's what we can do: use the indicative numbers I already have, try the live search again, or I can arrange a callback so our team can help directly. Which would you prefer?";
 }
 
 // A bare "1"/"2"/"3" (optionally "option 1") or its natural-language equivalent, ONLY meaningful as a menu
@@ -7738,6 +7973,39 @@ export function buildBelowMinimumMessage(
 }
 
 /**
+ * Fix (Travel Booking UAT correction pass — budget-override bug): the explicit, priced yes/no question
+ * that must be asked — and answered affirmatively — before ANY above-budget simulated option is ever
+ * shown. Never invents a price: `lowestAmount`/`lowestCurrency` must come from the SAME
+ * `generateSimulatedPackageOptions` set that will actually be shown if the traveler says yes, so the
+ * number quoted here always matches what they see next.
+ */
+function buildBudgetOverrideQuestion(
+  feasibility: BudgetFeasibilityResult,
+  lowestAmount: number,
+  lowestCurrency: string,
+  language: TravelResponseLanguage
+): string {
+  const { currency, userBudget } = feasibility;
+  if (language === "HINGLISH")
+    return `Sabhi available simulated options aapke ${currency} ${formatAmount(userBudget)} budget se zyada hain. Sabse kam wala option ${lowestCurrency} ${formatAmount(lowestAmount)} hai. Kya aap chahenge ki main aapke budget se upar wale options dikhau? (Ya apna mobile number share karein, ek travel advisor budget ke andar kuch dhoondhne mein madad karega.)`;
+  if (language === "HINDI")
+    return `सभी उपलब्ध सिम्युलेटेड विकल्प आपके ${currency} ${formatAmount(userBudget)} बजट से अधिक हैं। सबसे कम विकल्प ${lowestCurrency} ${formatAmount(lowestAmount)} है। क्या आप चाहेंगे कि मैं आपके बजट से ऊपर के विकल्प दिखाऊं? (या अपना मोबाइल नंबर साझा करें, एक ट्रैवल एडवाइज़र बजट के भीतर कुछ खोजने में मदद करेगा।)`;
+  return `All available simulated options exceed your ${currency} ${formatAmount(userBudget)} budget. The lowest option is ${lowestCurrency} ${formatAmount(lowestAmount)}. Would you like me to continue with options above your budget? (Or share your mobile number and a travel advisor can help find something within budget.)`;
+}
+
+/**
+ * Fix (Travel Booking Closure Pass — Phase 2): the single authoritative answer to "does this message
+ * resolve Travel's currently-pending AWAITING_BUDGET_OVERRIDE_CONFIRMATION question?" — reused by the
+ * Receptionist's pending-input-ownership check (`receptionist/specialist-pending-input.ts`) exactly the
+ * way `resolvesTicketDeliveryQuestion` is. A clear yes/no reply to "would you like to continue with
+ * options above your budget?" must never be misread as an unrelated domain switch merely because it
+ * contains the word "budget" (which happens to be Finance's own routing alias too).
+ */
+export function resolvesBudgetOverrideQuestion(text: string): boolean {
+  return isAffirmativeResponse(text) || isNegativeResponse(text);
+}
+
+/**
  * Deterministic, language-aware one-line feasibility statement for FEASIBLE/TIGHT budgets. BELOW_MINIMUM
  * is handled separately by {@link buildBelowMinimumMessage} (alternatives + possible sales handoff).
  */
@@ -7973,9 +8241,13 @@ export function buildFallbackAskMessage(
   config: TravelEmployeeRuntimeConfig,
   isFirstTurn: boolean,
   language: TravelResponseLanguage = "ENGLISH",
-  justLearnedName: string | null = null
+  justLearnedName: string | null = null,
+  // True when the traveler's name was already known BEFORE this turn (e.g. seeded from a Receptionist
+  // handoff) — the configured welcome message has its own "may I know your name?" question baked into its
+  // literal text, so reciting it verbatim here would be a real (not just wording) re-ask of a known fact.
+  nameAlreadyKnown = false
 ): string {
-  const greeting = isFirstTurn ? `${config.welcomeMessage}\n\n` : "";
+  const greeting = isFirstTurn && !nameAlreadyKnown ? `${config.welcomeMessage}\n\n` : "";
   const nameAck = justLearnedName ? `${buildNameAcknowledgment(justLearnedName, language)} ` : "";
   const prefix = greeting + nameAck;
   const labels = missing
@@ -7995,6 +8267,31 @@ export function buildFallbackAskMessage(
   if (language === "HINGLISH") return `${prefix}Kya aap ye bata sakte hain:\n${bullets}`;
   if (language === "HINDI") return `${prefix}क्या आप ये बता सकते हैं:\n${bullets}`;
   return `${prefix}To plan this well, could you share:\n${bullets}`;
+}
+
+/**
+ * Sprint 6.5 — Part 12: when the traveler just supplied a broad date WINDOW ("next month", "next week")
+ * rather than a precise day, acknowledge what was understood and invite — never demand — more precision:
+ * "September works. Do you have a preferred departure date, or should I look across the month?" instead
+ * of a generic "please provide an exact travel date." Re-parses the raw turn text directly (cheap, pure,
+ * no coupling to the entity-merge pipeline) rather than threading window metadata through it, so this is
+ * safe to call from every `safeGenerateReply` call site uniformly. Returns null once a precise
+ * `departureDate` is already known (nothing to acknowledge) or when the phrase didn't resolve to a
+ * window at all (an exact date needs no such caveat).
+ */
+export function buildDateWindowAcknowledgment(
+  entities: TravelEntities,
+  userMessage: string,
+  language: TravelResponseLanguage = "ENGLISH"
+): string | null {
+  if (entities.departureDate || !entities.travelMonth) return null;
+  const interpretation = interpretDatePhrase(userMessage);
+  if (interpretation.windowType !== "MONTH" && interpretation.windowType !== "WEEK") return null;
+  const month = entities.travelMonth;
+  if (language === "HINGLISH")
+    return `${month} theek rahega. Koi specific departure date chahiye, ya poore mahine mein dhoondhun?`;
+  if (language === "HINDI") return `${month} ठीक रहेगा। कोई विशेष प्रस्थान तिथि चाहिए, या पूरे महीने में देखूं?`;
+  return `${month} works. Do you have a preferred departure date, or should I look across the month?`;
 }
 
 /** Adapts the extended entity schema to the legacy slot shape so the deterministic recommendation/CRM builders can be reused unchanged. */
@@ -8057,7 +8354,8 @@ export function entitiesToStoredState(
           selectedRecommendationId: memory.selectedRecommendationId,
           passengerDetails: memory.passengerDetails,
           pendingResendLookup: memory.pendingResendLookup,
-          ticketContact: memory.ticketContact
+          ticketContact: memory.ticketContact,
+          budgetOverrideAccepted: memory.budgetOverrideAccepted
         }
       : {})
   };
@@ -8076,7 +8374,8 @@ const VALID_PENDING_ACTIONS: readonly Exclude<TravelPendingAction, null>[] = [
   "AWAITING_PASSENGER_DETAILS",
   "AWAITING_TICKET_CONTACT",
   "AWAITING_BOOKING_CONFIRMATION",
-  "AWAITING_RESEND_TICKET_DETAILS"
+  "AWAITING_RESEND_TICKET_DETAILS",
+  "AWAITING_BUDGET_OVERRIDE_CONFIRMATION"
 ];
 const VALID_PENDING_INPUT_ACTIONS: readonly Exclude<TravelPendingInputAction, null>[] = [
   "AWAITING_LEAD_CONTACT",
@@ -8236,6 +8535,7 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
           phone: typeof rawTicketContact.phone === "string" ? rawTicketContact.phone : null
         }
       : null;
+  const budgetOverrideAccepted = value.budgetOverrideAccepted === true;
   return {
     confirmation,
     pendingClarification,
@@ -8261,7 +8561,8 @@ export function memoryFromStoredState(value: Record<string, unknown> | null | un
     selectedRecommendationId,
     passengerDetails,
     pendingResendLookup,
-    ticketContact
+    ticketContact,
+    budgetOverrideAccepted
   };
 }
 
@@ -8370,6 +8671,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    *  budget feasibility) decided a workflow should start — see {@link TravelRuntimeExecutionMode} and
    *  `lastWorkflowSignal`. Reset at the start of every `complete()` call. Not persisted across requests. */
   private pendingWorkflowSignal: TravelWorkflowSignalDraft | null = null;
+  /** Non-null only the turn a routing offer (see `buildOutOfScopeRoutingMessage`) was just confirmed —
+   *  same convention as `lastWorkflowSignal`. Reset at the start of every `complete()` call. */
+  private routingHandoffSignal: RoutingHandoffSignal | null = null;
   // The LLM orchestrator never generates or reads structured package options itself (that's the
   // deterministic provider's job today — see travel-package-options.ts and the disclosed LLM-parity gap
   // in ARCHITECTURE.md); it only round-trips these two fields so a conversation that used the
@@ -8380,6 +8684,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
   private passengerDetails: PassengerDetail[] | null;
   private pendingResendLookup: { email: string | null; travelDate: string | null } | null;
   private ticketContact: { email: string | null; phone: string | null } | null;
+  /** See {@link TravelConversationMemory.budgetOverrideAccepted}. Persisted across turns. */
+  private budgetOverrideAccepted: boolean;
 
   constructor(
     private readonly realProvider: AiProvider,
@@ -8419,6 +8725,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.passengerDetails = priorMemory.passengerDetails ?? null;
     this.pendingResendLookup = priorMemory.pendingResendLookup ?? null;
     this.ticketContact = priorMemory.ticketContact ?? null;
+    this.budgetOverrideAccepted = priorMemory.budgetOverrideAccepted ?? false;
   }
 
   /** Snapshot of everything besides plain entity values that must be persisted between turns. */
@@ -8448,7 +8755,8 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       selectedRecommendationId: this.selectedRecommendationId,
       passengerDetails: this.passengerDetails,
       pendingResendLookup: this.pendingResendLookup,
-      ticketContact: this.ticketContact
+      ticketContact: this.ticketContact,
+      budgetOverrideAccepted: this.budgetOverrideAccepted
     };
   }
 
@@ -8461,6 +8769,10 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    *  only — always null in STANDALONE_COMPATIBILITY) and hands it to WorkflowCoordinator.dispatchSignal. */
   get lastWorkflowSignal(): TravelWorkflowSignalDraft | null {
     return this.pendingWorkflowSignal;
+  }
+
+  get lastRoutingHandoffSignal(): RoutingHandoffSignal | null {
+    return this.routingHandoffSignal;
   }
 
   /**
@@ -8494,6 +8806,13 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    * what actually prevents re-offering after an explicit submit/callback/confirm already ran this
    * conversation — both paths share the same stage, so there is nothing further to check here. */
   private isReadyForCompletionOffer(): boolean {
+    // A budget-override question is itself a pending, more specific yes/no ask — see
+    // AWAITING_BUDGET_OVERRIDE_CONFIRMATION. Offering "submit this travel request?" on the SAME turn (or
+    // reading a later "yes" answering the override question as an affirmative reply to THIS offer, via
+    // ContactCaptureWorkflowService.shouldStart's own OFFERED+affirmative trigger) would ask two competing
+    // questions/hijack one answer for the wrong question. `completionStage` deliberately stays untouched
+    // (still NOT_OFFERED) so the legitimate completion offer can still fire normally once this resolves.
+    if (this.pendingAction === "AWAITING_BUDGET_OVERRIDE_CONFIRMATION") return false;
     if (computeMissingEntityFields(this.lastEntities, this.budgetMode).length > 0) return false;
     return this.lastBudgetEstimate !== null || this.lastGeneratedItinerary !== null;
   }
@@ -8586,6 +8905,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
 
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
     this.pendingWorkflowSignal = null;
+    this.routingHandoffSignal = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const currentText = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
@@ -8601,17 +8921,31 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // to do with trip planning is answered with a polite "not my area — I can route you" reply instead of
     // forcing the traveler through trip-detail questions. Only when there is no active workflow/booking
     // flow in progress (never interrupts contact capture or an active pending action).
-    const travelOutOfScope = detectOutOfScopeEmployee(TRAVEL_ATTACHMENT_SPEC, currentText);
     if (
-      travelOutOfScope &&
       last?.role !== "tool" &&
       this.pendingAction === null &&
       this.completionStage !== "AWAITING_CONTACT" &&
       this.completionStage !== "CAPTURED"
     ) {
-      return textResult(buildAttachmentReadMessage(TRAVEL_ATTACHMENT_SPEC, [
-        { filename: "your request", mimeType: "text/plain", content: currentText }
-      ]));
+      // Confirming a previously offered routing handoff ("yes", "route it", ...) — checked before a fresh
+      // out-of-scope detection, since the confirmation reply itself ("yes") never carries any domain signal.
+      const confirmation = detectRoutingConfirmation(TRAVEL_ATTACHMENT_SPEC, messages);
+      if (confirmation) {
+        this.routingHandoffSignal = {
+          targetSlug: confirmation.target.slug,
+          originalText: confirmation.originalText
+        };
+        return textResult(`Connecting you to ${confirmation.target.displayName}…`);
+      }
+      // Sprint 6.4 — Part 10: see the identical fix in TravelEmployeeProvider.complete() above — a bare
+      // "budget"/"invoice"-style word that only echoes what Travel itself just asked must never bounce to
+      // another employee (contextEcho, inside detectOutOfScopeEmployee).
+      const recentOwnMessage =
+        [...messages].reverse().find((message) => message.role === "assistant")?.content ?? null;
+      const travelOutOfScope = detectOutOfScopeEmployee(TRAVEL_ATTACHMENT_SPEC, currentText, recentOwnMessage);
+      if (travelOutOfScope) {
+        return textResult(buildOutOfScopeRoutingMessage(TRAVEL_ATTACHMENT_SPEC, travelOutOfScope));
+      }
     }
     // Once a greeting has already been shown as its own turn (the normal proactive-greeting flow),
     // `isFirstTurn` must never be true again — otherwise the configured welcome message gets recited a
@@ -8683,6 +9017,80 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       );
     }
 
+    // Fix (Travel Booking UAT correction pass — budget-override bug): an explicit, priced yes/no question
+    // is pending — see `handleBelowMinimumFeasibility`/`buildBudgetOverrideQuestion`. Only an affirmative
+    // reply to THIS exact question ever sets `budgetOverrideAccepted`, and only then are the above-budget
+    // options (already generated and stashed in `pendingRecommendations` when the question was asked) ever
+    // actually shown. A decline falls back to the existing lead-capture offer, unchanged. Checked ahead of
+    // every other routing below, mirroring every other single-purpose pending-input gate in this class.
+    if (this.pendingAction === "AWAITING_BUDGET_OVERRIDE_CONFIRMATION") {
+      if (isAffirmativeResponse(currentText) && !isNegativeResponse(currentText)) {
+        this.budgetOverrideAccepted = true;
+        const options =
+          this.pendingRecommendations?.length
+            ? this.pendingRecommendations
+            : generateSimulatedPackageOptions(this.lastEntities, this.config, packageOptionSeed(this.lastEntities));
+        this.pendingAction = "AWAITING_OPTION_SELECTION" as TravelPendingAction;
+        this.pendingRecommendations = options;
+        this.selectedRecommendationId = null;
+        return this.tag("budget_override_accepted", textResult(formatPackageOptionsMessage(options)));
+      }
+      // Fix (Travel Booking Closure Pass — Phase 1 regression fix, found via automated test rather than
+      // live UAT): deliberately no `!isFarewellMessage(currentText)` guard here, unlike the analogous
+      // AWAITING_LEAD_CONTACT branch elsewhere in this file. "no thanks" is BOTH a farewell phrase (see
+      // FAREWELL_PHRASE) AND the single most natural way to decline this specific yes/no question — for
+      // THIS narrow, unambiguous pending question, a negative reply always means "no, don't show me
+      // above-budget options," never "goodbye, end this whole conversation." Confirmed via a direct
+      // reproduction: with the guard in place, "no thanks" fell through to the ambiguous re-ask branch and
+      // silently re-asked the same question forever instead of declining.
+      //
+      // Also treats a volunteered phone/email as an equally sufficient decline signal — a customer who
+      // skips ahead and just types their number instead of answering yes/no is clearly not asking for
+      // above-budget options, and re-asking "would you like options above budget?" while ignoring the
+      // contact info they just gave would waste it: `dispatchSignal`'s downstream `TripSubmissionWorkflowService.
+      // start()` reads THIS SAME TURN's raw text for its own "immediate contact" shortcut (see
+      // `extractContactValue`), so emitting the signal on the same turn the number was typed lets the lead
+      // be captured immediately instead of asking the customer to repeat themselves.
+      if (isNegativeResponse(currentText) || extractEmailAddress(currentText) || extractPhoneNumber(currentText)) {
+        this.pendingAction = null;
+        this.pendingRecommendations = null;
+        if (this.completionStage !== "CAPTURED") {
+          this.completionStage = "AWAITING_CONTACT";
+          this.pendingInputAction = "AWAITING_LEAD_CONTACT";
+          // Fix (Travel Booking Closure Pass — Phase 1 regression fix): mirrors
+          // `handleBelowMinimumFeasibility`'s own PLATFORM_MANAGED branch exactly — without this, declining
+          // the budget-override offer transitioned the legacy memory fields correctly but never actually
+          // gave WorkflowCoordinator authority over the next turn's contact reply (no TRIP_SUBMISSION
+          // workflow would ever start), silently breaking lead capture for this path in PLATFORM_MANAGED
+          // mode. Never emitted in STANDALONE_COMPATIBILITY, matching every other signal-emission site.
+          if (this.executionMode === "PLATFORM_MANAGED") {
+            this.pendingWorkflowSignal = { signalType: "START_TRIP_SUBMISSION", trigger: "BELOW_MINIMUM_BUDGET" };
+          }
+        }
+        return this.tag("budget_override_declined", textResult(buildContactRequestMessage(this.responseLanguage)));
+      }
+      // Neither a clear yes nor no — re-ask the same priced question rather than letting an ambiguous
+      // reply fall through to generic classification (which could misroute it as an unrelated request).
+      const options =
+        this.pendingRecommendations?.length
+          ? this.pendingRecommendations
+          : generateSimulatedPackageOptions(this.lastEntities, this.config, packageOptionSeed(this.lastEntities));
+      this.pendingRecommendations = options;
+      const lowest = options.reduce((min, option) => (option.totalAmount < min.totalAmount ? option : min), options[0]!);
+      const feasibilityForReask =
+        this.lastEntities.budget !== null
+          ? classifyBudgetFeasibility(this.lastEntities.budget, estimateBudgetRange(this.lastEntities, this.config))
+          : null;
+      return this.tag(
+        "budget_override_reask",
+        textResult(
+          feasibilityForReask
+            ? buildBudgetOverrideQuestion(feasibilityForReask, lowest.totalAmount, lowest.currency, this.responseLanguage)
+            : "Would you like me to continue with options above your budget?"
+        )
+      );
+    }
+
     // Booking options: an option set is pending selection, passenger details are pending, or the final
     // confirmation summary is pending an explicit "Confirm booking" — mirrors the deterministic
     // provider's own three-stage flow exactly (see travel-package-options.ts), reusing the SAME
@@ -8726,7 +9134,10 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
           );
         }
       }
-      return this.tag("booking_options_reprompt", textResult("Please select Option 1, Option 2 or Option 3."));
+      return this.tag(
+        "booking_options_reprompt",
+        textResult("Sorry, I didn't catch which one you'd like — Value, Recommended, or Premium?")
+      );
     }
 
     if (this.pendingAction === "AWAITING_PASSENGER_DETAILS") {
@@ -8786,6 +9197,19 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         this.selectedRecommendationId = null;
         return this.tag("booking_options_reshow", textResult(formatPackageOptionsMessage(pendingOptions)));
       }
+      // Fix (Travel Booking Closure Pass — Phase 3): extract an actual contact value FIRST — see the
+      // deterministic provider's own copy of this comment for why (a real email/phone must always be
+      // honored even alongside an incidental "chat"/"no email"-shaped word).
+      const email = extractEmailAddress(currentText);
+      const phone = extractPhoneNumber(currentText);
+      if (email || phone) {
+        this.ticketContact = { email, phone };
+        this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
+        return this.tag(
+          "booking_confirmation_summary",
+          textResult(buildBookingConfirmationSummary(this.lastEntities, selected, confirmedPassengers))
+        );
+      }
       if (isSkipTicketContactRequest(currentText)) {
         this.ticketContact = { email: null, phone: null };
         this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
@@ -8794,17 +9218,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
           textResult(buildBookingConfirmationSummary(this.lastEntities, selected, confirmedPassengers))
         );
       }
-      const email = extractEmailAddress(currentText);
-      const phone = extractPhoneNumber(currentText);
-      if (!email && !phone) {
-        return this.tag("ticket_contact_ask", textResult(buildTicketContactRequestMessage()));
-      }
-      this.ticketContact = { email, phone };
-      this.pendingAction = "AWAITING_BOOKING_CONFIRMATION" as TravelPendingAction;
-      return this.tag(
-        "booking_confirmation_summary",
-        textResult(buildBookingConfirmationSummary(this.lastEntities, selected, confirmedPassengers))
-      );
+      return this.tag("ticket_contact_ask", textResult(buildTicketContactRequestMessage()));
     }
 
     if (this.pendingAction === "AWAITING_BOOKING_CONFIRMATION") {
@@ -9346,6 +9760,18 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.lastEntities = merged;
     this.confirmation = mergedConfirmation;
     this.diagnostics.passengerState = computePassengerState(merged);
+    // Sprint 6.5 — Part 15/28: package options already offered were priced/curated for the PRIOR trip
+    // requirements — a material correction (destination, dates, travellers, nights, budget) after they
+    // exist must invalidate them, or the traveler could go on to "book" a package that no longer matches
+    // what they asked for. Only ever clears state that logically depends on the changed field; it never
+    // resets the trip requirements themselves (those are already correctly updated by the merge above).
+    if (this.pendingRecommendations?.length && hasMaterialPackageChange(changed)) {
+      this.pendingRecommendations = null;
+      this.selectedRecommendationId = null;
+      if (PACKAGE_DEPENDENT_PENDING_ACTIONS.includes(this.pendingAction)) {
+        this.pendingAction = null;
+      }
+    }
 
     if (
       this.pendingDepartureDate &&
@@ -10590,7 +11016,11 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     tools: readonly AiToolDefinition[] | undefined,
     forceReminder = false
   ): AiCompletionResult {
-    if (feasibility?.classification === "BELOW_MINIMUM" && (forceReminder || !this.budgetDiscussionCompleted)) {
+    if (
+      feasibility?.classification === "BELOW_MINIMUM" &&
+      !this.budgetOverrideAccepted &&
+      (forceReminder || !this.budgetDiscussionCompleted)
+    ) {
       if (this.diagnostics) this.diagnostics.toolExecutionSkippedForFeasibility = true;
       return this.handleBelowMinimumFeasibility(merged, feasibility, tools);
     }
@@ -10648,6 +11078,42 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     this.budgetDiscussionCompleted = true;
     this.storeEstimate(merged, "INDICATIVE");
     const message = buildBelowMinimumMessage(merged, feasibility, this.responseLanguage);
+    // Fix (Travel Booking UAT correction pass — budget-override bug): whenever there's enough trip detail
+    // to actually generate the three simulated package options, offer them via an explicit, priced yes/no
+    // question instead of jumping straight to the lead-capture offer — the traveler must be able to say
+    // "yes, show me options above budget" and get exactly that, not another round of the same explanation.
+    // Only reachable when `!this.budgetOverrideAccepted` (see `searchOrBelowMinimumHandoff`), so this never
+    // re-asks a traveler who has already said yes earlier in the conversation.
+    //
+    // Fix (Travel Booking Closure Pass — Phase 1 regression fix): PLATFORM_MANAGED-only. The override
+    // question's "decline" path relies on WorkflowCoordinator/TRIP_SUBMISSION (PLATFORM_MANAGED-only
+    // infrastructure) to actually capture the lead — STANDALONE_COMPATIBILITY mode's own doc comment
+    // below explicitly promises its legacy CRM-tool sales-handoff behavior is "preserved unchanged for
+    // direct-construction callers/tests" (e.g. travel.llm.spec.ts's own BELOW_MINIMUM regression suite,
+    // which constructs the orchestrator directly with no execution mode — defaulting to
+    // STANDALONE_COMPATIBILITY — and asserts the ORIGINAL immediate lead-capture-offer text). Gating this
+    // branch to PLATFORM_MANAGED keeps that promise instead of silently breaking it.
+    if (this.executionMode === "PLATFORM_MANAGED" && determineMissingFields(merged).length === 0) {
+      const options = generateSimulatedPackageOptions(merged, this.config, packageOptionSeed(merged));
+      const lowest = options.length
+        ? options.reduce((min, option) => (option.totalAmount < min.totalAmount ? option : min), options[0]!)
+        : null;
+      if (lowest) {
+        this.pendingAction = "AWAITING_BUDGET_OVERRIDE_CONFIRMATION" as TravelPendingAction;
+        this.pendingRecommendations = options;
+        this.selectedRecommendationId = null;
+        // `completionStage` deliberately stays untouched here — see `isReadyForCompletionOffer`'s own guard
+        // for why, and why mutating it to "OFFERED" here would be wrong (it has a distinct, special meaning
+        // to ContactCaptureWorkflowService.shouldStart).
+        const overrideQuestion = buildBudgetOverrideQuestion(
+          feasibility,
+          lowest.totalAmount,
+          lowest.currency,
+          this.responseLanguage
+        );
+        return textResult(`${message}\n\n${overrideQuestion}`);
+      }
+    }
     // Stage 9E: in PLATFORM_MANAGED mode this ALSO emits a typed signal (below) that gives
     // WorkflowCoordinator real workflow authority over the next turn's contact reply — the legacy memory
     // transition itself stays unchanged (rather than skipped) in both modes: `dispatchPendingWorkflowTurn`
@@ -10922,7 +11388,26 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // "delhi to dubai on 12 august..." answered the pending "travel dates" question, took the fast path, and
     // lost the origin city and exact date entirely.
     const statesExplicitRoute = findConnectedRoutePair(message) !== null;
-    if ((askedField || pendingAction) && !statesExplicitRoute) {
+    // Sprint 6.5 — Part 5/16: a pending question is EVIDENCE about what the assistant expects, never
+    // authority to force-fit unrelated text into it. The type-matching conditions below already made this
+    // fast path safe in practice (a destination string never satisfies `askedField === "budget"`) — this
+    // is an explicit, testable, shared-vocabulary version of that same guarantee: an obvious correction,
+    // domain pivot, action command, or farewell always falls through to the full extraction/routing path
+    // below (which already handles all four correctly), even on the rare chance it also happens to contain
+    // a same-typed value.
+    const pendingSemantic = (askedField || pendingAction)
+      ? classifyUserInput(message, { hasPendingQuestion: true }).semantic
+      : "UNKNOWN";
+    const overridesPendingField =
+      pendingSemantic === "CORRECTION" ||
+      pendingSemantic === "DOMAIN_PIVOT" ||
+      pendingSemantic === "ACTION" ||
+      pendingSemantic === "FAREWELL";
+    if ((askedField || pendingAction) && !statesExplicitRoute && !overridesPendingField) {
+      // Sprint 6.5 — Part 7/29: "from Delhi" (or a bare "Delhi") deterministically answers a DEDICATED
+      // "where are you traveling from?" question — see `resolveOriginReplyDeterministically`'s own doc
+      // comment for why the bare-city fallback is safe only in this specific context.
+      const originReply = askedField === "originCity" ? resolveOriginReplyDeterministically(message) : null;
       const matchByField =
         (askedField === "budget" && deterministic.budget !== null) ||
         (askedField === "adults" && deterministic.adults !== null) ||
@@ -10932,10 +11417,15 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         (askedField === "passengerComposition" && (deterministic.adults !== null || deterministic.children !== null || deterministic.infants !== null)) ||
         (askedField === "customerName" && deterministic.customerName !== null) ||
         (askedField === "travelYear" && /\b20[2-9]\d\b/.test(message)) ||
+        (askedField === "originCity" && originReply !== null) ||
         (pendingAction === "AWAITING_TRAVEL_YEAR") ||
         (pendingAction === "AWAITING_PASSENGER_COMPOSITION" && (deterministic.adults !== null || deterministic.children !== null || deterministic.infants !== null));
       if (matchByField) {
-        rawEntities = deterministic;
+        // A bare-city origin reply reuses `extractDestination`'s own city scan (see
+        // `resolveOriginReplyDeterministically`) — `deterministic.destinationCity` may have matched the
+        // SAME text and must be cleared here, or the traveler's origin would also corrupt the confirmed
+        // destination.
+        rawEntities = originReply !== null ? { ...deterministic, originCity: originReply, destinationCity: null } : deterministic;
         intent = classifyIntentDeterministically(message);
         return { entities: rawEntities, intent, cityInterpretations, turnProposal };
       }
@@ -11014,18 +11504,20 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     const dateAugmented = augmentWithDatePhrase(message, nightsGuarded);
     const dateGuarded = guardReturnDateAssumption(message, dateAugmented);
     const entities = reconcileRouteFromMessage(message, dateGuarded, this.lastAskedField);
-    // Stage 9F: a bare, explicit budget restatement in the traveler's own literal text ("50000 USD",
-    // "budget is now AED 10,000") must always be treated as a correction, regardless of how the LLM (or
-    // the deterministic classification fallback) classified the turn's overall intent — otherwise
-    // `mergeConfirmedEntities`'s "never silently overwrite an already-confirmed field" guard keeps the
-    // stale amount forever, which is exactly the "AED 5,000 survives an AED 10,000 correction" UAT defect.
-    // Gated on the DETERMINISTIC parser itself (never model inference) finding a budget in the raw text,
-    // so this can never fire from an LLM hallucinating a budget change out of ambiguous wording.
-    const explicitBudgetCorrection =
-      deterministic.budget !== null &&
-      this.lastEntities.budget !== null &&
-      deterministic.budget !== this.lastEntities.budget;
-    return { entities, intent: explicitBudgetCorrection ? "modify_trip" : intent, cityInterpretations, turnProposal };
+    // Sprint 6.5 — Part 13/35: Stage 9F's "a bare, explicit budget restatement always wins" rule
+    // (`detectExplicitFieldCorrection`, below) generalized to every correctable scalar field — passengers,
+    // nights/days, and dates — not just budget. Without this, a no-LLM environment (`classifyIntentDeterministically`
+    // never returns "modify_trip" on its own for these fields) could never process "Actually make it 3
+    // adults" or "Sorry, I meant October" as a correction: `mergeConfirmedEntities`'s "never silently
+    // overwrite an already-confirmed field" guard would keep the stale value forever, exactly the
+    // "AED 5,000 survives an AED 10,000 correction" UAT defect this pattern was originally built to fix —
+    // just for one field instead of all of them. Skips when the turn was already classified as
+    // "start_new_trip" — a differing value there is an independent trip's own value, not a correction to
+    // the current one, and must never be reclassified into "modify_trip" (see the new-trip isolation
+    // guarantee `classifyRouteRelationship`/Stage 9G already provide).
+    const explicitFieldCorrection =
+      intent !== "start_new_trip" && detectExplicitFieldCorrection(deterministic, this.lastEntities);
+    return { entities, intent: explicitFieldCorrection ? "modify_trip" : intent, cityInterpretations, turnProposal };
   }
 
   private async safeGenerateReply(
@@ -11037,6 +11529,14 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     startingNewTrip: boolean
   ): Promise<string> {
     const justLearnedName = changed.some((entry) => entry.startsWith("customerName=")) ? entities.customerName : null;
+    // Known before this turn (not just-captured — `justLearnedName` covers that case separately) — true
+    // for a name seeded from a Receptionist handoff, which never appears in `changed` since it was never
+    // "extracted" from this turn's text at all.
+    const nameAlreadyKnown = Boolean(entities.customerName) && !justLearnedName;
+    // Sprint 6.5 — Part 12: computed once, applied to whichever reply (LLM or deterministic fallback)
+    // actually gets used, so the required wording is guaranteed even when no LLM provider is configured.
+    const dateWindowAck = buildDateWindowAcknowledgment(entities, userMessage, this.responseLanguage);
+    const withDateWindowAck = (text: string): string => (dateWindowAck ? `${dateWindowAck} ${text}` : text);
     try {
       const result = await this.realProvider.complete({
         messages: [
@@ -11058,12 +11558,28 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         temperature: 0.4
       });
       const text = result.content?.trim();
-      return (
+      return withDateWindowAck(
         text ||
-        buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage, justLearnedName)
+          buildFallbackAskMessage(
+            missing,
+            this.config,
+            isFirstTurn,
+            this.responseLanguage,
+            justLearnedName,
+            nameAlreadyKnown
+          )
       );
     } catch {
-      return buildFallbackAskMessage(missing, this.config, isFirstTurn, this.responseLanguage, justLearnedName);
+      return withDateWindowAck(
+        buildFallbackAskMessage(
+          missing,
+          this.config,
+          isFirstTurn,
+          this.responseLanguage,
+          justLearnedName,
+          nameAlreadyKnown
+        )
+      );
     }
   }
 

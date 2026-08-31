@@ -6,11 +6,25 @@
   "description": "AI travel planning employee. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
-  "permissions": ["LLM", "MEMORY", "TOOLS", "CRM"],
-  "capabilities": ["travel.chat", "CRM"],
+  "permissions": [
+    "LLM",
+    "MEMORY",
+    "TOOLS",
+    "CRM"
+  ],
+  "capabilities": [
+    "travel.chat",
+    "CRM"
+  ],
   "tools": [
-    { "name": "travel.search_flights", "description": "Search placeholder flight options" },
-    { "name": "travel.search_hotels", "description": "Search placeholder hotel options" },
+    {
+      "name": "travel.search_flights",
+      "description": "Search placeholder flight options"
+    },
+    {
+      "name": "travel.search_hotels",
+      "description": "Search placeholder hotel options"
+    },
     {
       "name": "travel.escalate",
       "description": "Escalate the conversation to a human team member"
@@ -23,5 +37,56 @@
       "name": "travel.resend_ticket",
       "description": "Look up an already-ticketed booking by email (and optionally travel date) and resend the ticket by email/WhatsApp"
     }
-  ]
+  ],
+  "routing": {
+    "employeeKey": "travel-employee",
+    "employeeType": "TRAVEL",
+    "displayName": "Travel Employee",
+    "summary": "Plans trips, searches flight and hotel options, and manages bookings and itineraries.",
+    "domains": [
+      "travel",
+      "trip planning",
+      "bookings"
+    ],
+    "capabilities": [
+      "travel.chat",
+      "travel.search",
+      "travel.booking"
+    ],
+    "intents": [
+      "PLAN_TRIP",
+      "SEARCH_FLIGHTS",
+      "SEARCH_HOTELS",
+      "BOOK_TRIP",
+      "ITINERARY_QUESTION"
+    ],
+    "examples": [
+      "I want to plan a trip",
+      "Find me a flight to Dubai",
+      "I need a hotel for next month",
+      "Book my trip"
+    ],
+    "aliases": [
+      "Travel",
+      "Travel team",
+      "Trip planning team"
+    ],
+    "keywords": [
+      "travel",
+      "trip",
+      "flight",
+      "hotel",
+      "visa",
+      "holiday",
+      "booking",
+      "vacation",
+      "tour",
+      "itinerary",
+      "package",
+      "budget",
+      "lead",
+      "invoice",
+      "ticket"
+    ]
+  }
 }

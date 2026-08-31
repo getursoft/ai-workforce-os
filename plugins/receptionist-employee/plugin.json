@@ -1,0 +1,137 @@
+{
+  "id": "receptionist-employee",
+  "name": "AI Receptionist",
+  "version": "1.0.0",
+  "displayName": "AI Receptionist",
+  "description": "The configurable customer-facing front door for the installed AI workforce. Greets customers, clarifies requirements, discovers eligible specialists, coordinates handoffs, and returns one coherent response without performing specialist domain work itself.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "EVENTS", "TOOLS", "VOICE"],
+  "capabilities": [
+    "workforce.intake",
+    "workforce.route",
+    "workforce.delegate",
+    "workforce.status",
+    "workforce.handoff",
+    "customer.conversation",
+    "customer.clarification"
+  ],
+  "routing": {
+    "employeeKey": "receptionist-employee",
+    "employeeType": "RECEPTIONIST",
+    "summary": "Greets customers, identifies and clarifies requirements, discovers the installed workforce, and coordinates safe specialist handoffs.",
+    "domains": ["workforce intake", "customer conversation"],
+    "capabilities": [
+      "workforce.intake",
+      "workforce.route",
+      "workforce.delegate",
+      "workforce.status",
+      "workforce.handoff",
+      "customer.conversation",
+      "customer.clarification"
+    ],
+    "intents": [
+      "GREET",
+      "DISCOVER_WORKFORCE",
+      "CLARIFY_REQUIREMENT",
+      "ROUTE_REQUEST",
+      "HANDOFF_STATUS",
+      "RETURN_TO_RECEPTIONIST"
+    ],
+    "examples": [
+      "what can you help me with",
+      "connect me to the right team",
+      "I need something else",
+      "talk to the receptionist"
+    ],
+    "aliases": ["receptionist", "front desk", "main desk", "Krevia"],
+    "keywords": ["receptionist", "connect me", "right team", "something else", "what can you help"],
+    "negativeCapabilities": ["travel.booking", "hr.leave", "finance.invoice", "legal.review"],
+    "supportedActions": [
+      "WORKFORCE_INTAKE",
+      "WORKFORCE_ROUTE",
+      "WORKFORCE_HANDOFF",
+      "CUSTOMER_CLARIFICATION"
+    ],
+    "channelEligibility": ["WEB", "WHATSAPP", "VOICE"],
+    "delegationEnabled": true,
+    "priority": 1000,
+    "enabled": true
+  },
+  "tools": [],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "enabled": { "type": "boolean", "title": "Enabled", "default": true },
+      "displayName": {
+        "type": "string",
+        "title": "Display name",
+        "default": "AI Receptionist",
+        "maxLength": 160
+      },
+      "defaultWebFrontDoor": {
+        "type": "boolean",
+        "title": "Default web front door",
+        "default": true
+      },
+      "defaultWhatsAppFrontDoor": {
+        "type": "boolean",
+        "title": "Default WhatsApp front door",
+        "default": true
+      },
+      "handoffDisplayMode": {
+        "type": "string",
+        "title": "Handoff display mode",
+        "enum": ["TRANSPARENT_HANDOFF", "RECEPTIONIST_PROXY"],
+        "default": "TRANSPARENT_HANDOFF"
+      },
+      "llmRoutingEnabled": {
+        "type": "boolean",
+        "title": "Use LLM routing fallback",
+        "default": true
+      },
+      "routingModel": {
+        "type": "string",
+        "title": "Routing model",
+        "default": "configured-provider-model",
+        "maxLength": 120
+      },
+      "minimumRoutingConfidence": {
+        "type": "number",
+        "title": "Minimum automatic routing confidence",
+        "minimum": 0.6,
+        "maximum": 1,
+        "default": 0.85
+      },
+      "clarificationEnabled": {
+        "type": "boolean",
+        "title": "Ask clarifying questions",
+        "default": true
+      },
+      "voiceEnabled": {
+        "type": "boolean",
+        "title": "Enable voice when provider is configured",
+        "default": false
+      },
+      "preferredLanguage": {
+        "type": "string",
+        "title": "Preferred language",
+        "default": "auto",
+        "maxLength": 35
+      },
+      "welcomeMessage": {
+        "type": "string",
+        "title": "Welcome message",
+        "default": "Hello! I'm your AI Receptionist. Tell me what you need, and I'll connect you with the right specialist.",
+        "maxLength": 1000
+      },
+      "fallbackMessage": {
+        "type": "string",
+        "title": "Fallback message",
+        "default": "I couldn't find an available specialist for that request. I can keep the request, retry, or help with something else.",
+        "maxLength": 1000
+      }
+    },
+    "additionalProperties": false
+  }
+}

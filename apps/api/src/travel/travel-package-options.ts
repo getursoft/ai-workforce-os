@@ -264,8 +264,37 @@ export function formatPackageOptionsMessage(options: readonly SimulatedPackageOp
     lines.push("");
   }
   lines.push("These are simulated packages, not real airline or hotel inventory.");
-  lines.push("Please select Option 1, Option 2 or Option 3.");
+  // Fix (Travel Booking Closure Pass — Phase 17): natural phrasing over a numbered-menu prompt. Every
+  // reply this used to expect — "Option 1", a bare "1"/"2"/"3", "value"/"recommended"/"premium", "the
+  // first one" — still works exactly as before (see ORDINAL_WORDS/the detection pattern right below);
+  // this only changes how the choice is asked, never what answers are accepted. Web may still render
+  // these as numbered buttons/cards alongside the text.
+  lines.push("Which one works best for you — Value, Recommended, or Premium?");
   return lines.join("\n");
+}
+
+/**
+ * Travel Booking Closure Pass — Phase 14/15/25: a VOICE-channel presentation of the SAME options
+ * `formatPackageOptionsMessage` renders for WEB/WHATSAPP — same underlying data (never regenerated,
+ * never a different price/carrier/hotel), only the PRESENTATION differs: no markdown, no bullet lists, no
+ * enumerating every option's full detail, 1-3 short spoken sentences, leads with the Recommended tier and
+ * offers to describe the others rather than reciting all three up front. Not reachable from any live
+ * channel today (no VOICE adapter exists yet — see the closure-pass report's "Voice readiness" section)
+ * — this proves the response architecture CAN already produce voice-appropriate text from the exact same
+ * authoritative option data, without any Travel business-logic change, ahead of that adapter existing.
+ */
+export function formatPackageOptionsMessageForVoice(options: readonly SimulatedPackageOption[]): string {
+  const recommended = options.find((option) => option.optionType === "RECOMMENDED") ?? options[0];
+  if (!recommended) return "I couldn't put together options for this trip just now — could we try again?";
+  const stops = recommended.flight.stops === 0 ? "direct" : `${recommended.flight.stops} stop`;
+  const hotelPhrase = recommended.hotel
+    ? ` and a ${recommended.hotel.starRating}-star ${recommended.hotel.area} hotel`
+    : "";
+  const price = formatMoney(recommended.totalAmount, recommended.currency);
+  return (
+    `I found three simulated options. The recommended one is a ${stops} ${recommended.flight.carrierName} flight` +
+    `${hotelPhrase} for about ${price}. Would you like that one, or should I tell you about the cheaper and premium options?`
+  );
 }
 
 const ORDINAL_WORDS: Record<string, 1 | 2 | 3> = {
@@ -340,15 +369,23 @@ export function parsePassengerDetailsReply(text: string): PassengerDetail[] {
  *  is selected and again (listing what's already recorded) if a reply only partially answers it. Gating
  *  the booking on this, rather than fabricating "Passenger 1"/"Passenger 2" placeholders, is what makes
  *  the generated ticket usable as an actual travel document. */
+// Fix (Travel Booking Closure Pass — Phase 11/17): natural phrasing over an exposed-counter prompt
+// ("2 more traveller(s) (3 total)") — authoritative facts (how many, how many collected) still come
+// entirely from `totalTravellers`/`alreadyCollected`, only how they're PHRASED changed. Parsing is
+// unaffected: `parsePassengerDetailsReply` (below) never depends on this message's exact wording.
 export function buildPassengerDetailsRequestMessage(
   totalTravellers: number,
   alreadyCollected: readonly PassengerDetail[]
 ): string {
   const remaining = totalTravellers - alreadyCollected.length;
+  const firstAsk = totalTravellers === 1
+    ? "Great choice! Before I prepare the booking, could you share the traveller's full name, age and gender?"
+    : "Great choice! Before I prepare the booking, could you share each traveller's full name, age and gender?";
+  const followUp = remaining === 1
+    ? "Thanks — I just need the name, age and gender for the last traveller."
+    : `Thanks — I just need the name, age and gender for the remaining ${remaining} travellers.`;
   const lines = [
-    alreadyCollected.length
-      ? `Thanks — I still need the full name, age, and gender for ${remaining} more traveller(s) (${totalTravellers} total).`
-      : `Before I can confirm this booking, I need the full name, age, and gender for each traveller (${totalTravellers} total).`,
+    alreadyCollected.length ? followUp : firstAsk,
     `Please list them like: "1. Full Name, Age, Gender" — one per line or separated by semicolons.`
   ];
   if (alreadyCollected.length) {

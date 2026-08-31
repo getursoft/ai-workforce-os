@@ -87,6 +87,7 @@ export class TextSummarizationSkill implements SkillAdapter<SummarizationInput, 
     if (context.capabilities.ai) {
       try {
         const result = await context.capabilities.ai.complete({
+          purpose: "SUMMARIZATION",
           messages: [
             {
               role: "system",

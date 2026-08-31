@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter, Poppins } from "next/font/google";
 import { AppProviders } from "../providers/app-providers";
+import { siteConfig } from "../marketing/content/site";
 import "./globals.css";
 
 // Same brand typography as the marketing site (Inter for body copy, Poppins for headings) so the
@@ -15,6 +16,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(`https://${siteConfig.domain}`),
   title: "Krevia.ai",
   description: "Enterprise AI workforce operations platform"
 };

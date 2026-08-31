@@ -36,11 +36,14 @@ import { WorkforceEventsModule } from "./workforce/workforce-event-bus";
 import { ObservabilityCoreModule } from "./observability/observability-core.module";
 import { ObservabilityModule } from "./observability/observability.module";
 import { SchedulerModule } from "./scheduler/scheduler.module";
+import { ReceptionistModule } from "./receptionist/receptionist.module";
+import { AiConfigurationModule } from "./ai-configuration/ai-configuration.module";
+import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true,
+      isGlobal: true
     }),
 
     AppConfigModule,
@@ -53,6 +56,7 @@ import { SchedulerModule } from "./scheduler/scheduler.module";
     IdentityModule,
     TeamModule,
     ServiceAccountModule,
+    AiConfigurationModule,
     PluginModule,
     ConnectorModule,
     AgentModule,
@@ -76,8 +80,10 @@ import { SchedulerModule } from "./scheduler/scheduler.module";
     WorkforceModule,
     ObservabilityModule,
     SchedulerModule,
+    ReceptionistModule,
     OnboardingModule,
     SkillPlatformModule,
-  ],
+    PlatformLeadsModule
+  ]
 })
 export class AppModule {}

@@ -1,7 +1,8 @@
 import argon2 from "argon2";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 
-const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const PLATFORM_OWNER_EMAIL =
+  process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
 const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
 
 /**
@@ -15,7 +16,9 @@ export async function ensurePlatformOwner(prisma: PrismaService): Promise<void> 
     update: {},
     create: { name: "Krevia.ai Platform", slug: "ai-workforce-os-platform", status: "ACTIVE" }
   });
-  const existing = await prisma.user.findUnique({ where: { normalizedEmail: PLATFORM_OWNER_EMAIL } });
+  const existing = await prisma.user.findUnique({
+    where: { normalizedEmail: PLATFORM_OWNER_EMAIL }
+  });
   if (existing) return;
   await prisma.user.create({
     data: {
@@ -85,6 +88,9 @@ export async function deleteAllOrganizationScopedRows(prisma: PrismaService): Pr
   // delete before users.
   await prisma.creditPurchaseOrder.deleteMany();
   await prisma.paymentGatewayConfiguration.deleteMany();
+  // Receptionist voice/handoff state references organization-scoped channels/conversations logically.
+  await prisma.voiceSession.deleteMany();
+  await prisma.receptionistHandoff.deleteMany();
   // Conversation content + conversations.
   await prisma.channelMessage.deleteMany();
   await prisma.conversationMessage.deleteMany();
@@ -101,6 +107,13 @@ export async function deleteAllOrganizationScopedRows(prisma: PrismaService): Pr
   await prisma.connectorInstallation.deleteMany();
   await prisma.dummyCrmLead.deleteMany();
   await prisma.usageEvent.deleteMany();
+  // Shared AI configuration — children before parents: assignments/org-defaults reference
+  // profiles (Restrict/SetNull), profiles reference connections (Restrict), and connections
+  // reference users via createdByUserId (Restrict), so this must run before user.deleteMany().
+  await prisma.employeeAiProfileAssignment.deleteMany();
+  await prisma.organizationAiDefaults.deleteMany();
+  await prisma.aiModelProfile.deleteMany();
+  await prisma.aiProviderConnection.deleteMany();
   // Plugins + config.
   await prisma.pluginAiConfiguration.deleteMany();
   await prisma.pluginConfiguration.deleteMany();

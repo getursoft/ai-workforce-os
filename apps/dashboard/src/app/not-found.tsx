@@ -1,5 +1,11 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "../components/ui";
+
+export const metadata: Metadata = {
+  title: "Page not found | Krevia.ai",
+  robots: { index: false, follow: true }
+};
 
 export default function NotFound() {
   return (

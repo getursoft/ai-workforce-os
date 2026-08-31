@@ -36,6 +36,30 @@ export interface AgentRunResult {
     url: string;
     filename: string;
   }>;
+  receptionist?: ReceptionistResult;
+}
+export interface ReceptionistResult {
+  routeType: string;
+  decisionSource: string;
+  confidence: number;
+  reasonCode: string;
+  handoff: {
+    id: string;
+    status: string;
+    targetEmployeeInstallationId: string;
+    targetDisplayName: string;
+    displayMode: "TRANSPARENT_HANDOFF" | "RECEPTIONIST_PROXY";
+  } | null;
+}
+export interface ReceptionistFrontDoor {
+  enabled: boolean;
+  reasonCode:
+    "RECEPTIONIST_NOT_INSTALLED" | "RECEPTIONIST_DISABLED" | "RECEPTIONIST_NOT_CONFIGURED" | null;
+  installationId: string | null;
+  pluginInstallationId: string | null;
+  employeeKey: string | null;
+  displayName: string;
+  description: string;
 }
 export interface Conversation {
   id: string;
@@ -52,6 +76,13 @@ export interface ConversationMessage {
   content: string;
   createdAt: string;
   toolExecutionId: string | null;
+  contentJson?: {
+    receptionist?: ReceptionistResult;
+    attachments?: Array<
+      | { type: "PDF_TICKET"; bookingId: string; url: string; filename: string }
+      | { type: "CONVERSATION_LINK"; employeeInstallationId: string; conversationId: string; label: string }
+    >;
+  } | null;
 }
 export interface Execution {
   id: string;
@@ -92,12 +123,14 @@ type Page<T> = { items: T[]; pagination: { page: number; pages: number; total: n
 export function createAgentApi(client: ApiClient) {
   return {
     employees: () => client.request<AgentEmployee[]>("/agents"),
+    receptionistFrontDoor: () => client.request<ReceptionistFrontDoor>("/receptionist/front-door"),
     run: (body: {
       pluginInstallationId: string;
       conversationId?: string;
       message: string;
       attachmentIds?: string[];
-    }) => client.request<AgentRunResult>("/agents/run", { method: "POST", body: JSON.stringify(body) }),
+    }) =>
+      client.request<AgentRunResult>("/agents/run", { method: "POST", body: JSON.stringify(body) }),
     uploadAttachment: (conversationId: string, file: File) => {
       const form = new FormData();
       form.append("file", file);

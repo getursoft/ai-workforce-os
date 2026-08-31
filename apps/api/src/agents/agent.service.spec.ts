@@ -297,7 +297,7 @@ describe("AgentService travel tool failure recovery", () => {
         "My name is Alex. New Delhi to Adelaide in September for 5 days, 2 adults and 2 children, budget 20000 USD, 5-star hotel"
     });
     expect(first.response).toBe(
-      "I have everything I need for your trip — would you like me to look up flight and hotel options now?"
+      "Got it — want me to look up flight and hotel options for your trip now?"
     );
     expect(prisma.agentToolExecution.create).not.toHaveBeenCalled();
     expect(prisma.agentExecution.update).toHaveBeenLastCalledWith(
@@ -334,7 +334,7 @@ describe("AgentService travel tool failure recovery", () => {
     // indicative recommendations (never the old flat "options retrieve nahi ho paaye" dead end) and offers
     // to retry the live search instead.
     expect(result.response).toMatch(/indicative recommendations, not live availability/i);
-    expect(result.response).toMatch(/retry the live search/i);
+    expect(result.response).toMatch(/live search again/i);
     expect(assistantCreate).toHaveBeenCalled();
     // The captured trip state is still persisted even though the search tool failed.
     expect(state.saved).toMatchObject({ destinationCity: "Adelaide", originCity: "New Delhi" });

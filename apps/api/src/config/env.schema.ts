@@ -19,7 +19,18 @@ export class ConfigValidationError extends Error {
   }
 }
 
-export type EnvGroup = "app" | "database" | "auth" | "encryption" | "storage" | "queue" | "email" | "meta" | "observability" | "billing" | "secrets";
+export type EnvGroup =
+  | "app"
+  | "database"
+  | "auth"
+  | "encryption"
+  | "storage"
+  | "queue"
+  | "email"
+  | "meta"
+  | "observability"
+  | "billing"
+  | "secrets";
 
 export interface FieldSpec {
   name: string;
@@ -40,8 +51,10 @@ export interface FieldSpec {
 function parseNumber(value: string, field: FieldSpec): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) throw new Error(`${field.name} must be a number`);
-  if (field.min !== undefined && parsed < field.min) throw new Error(`${field.name} must be >= ${field.min}`);
-  if (field.max !== undefined && parsed > field.max) throw new Error(`${field.name} must be <= ${field.max}`);
+  if (field.min !== undefined && parsed < field.min)
+    throw new Error(`${field.name} must be >= ${field.min}`);
+  if (field.max !== undefined && parsed > field.max)
+    throw new Error(`${field.name} must be <= ${field.max}`);
   return parsed;
 }
 
@@ -59,7 +72,13 @@ export function parseDurationMs(value: string, name: string): number {
   if (amountText === undefined) throw new Error(`${name} must be a duration like 30s, 5m, 1h`);
   const amount = Number(amountText);
   const unit = match[2] ?? "ms";
-  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  const multipliers: Record<string, number> = {
+    ms: 1,
+    s: 1000,
+    m: 60_000,
+    h: 3_600_000,
+    d: 86_400_000
+  };
   const multiplier = multipliers[unit];
   if (multiplier === undefined) throw new Error(`${name} must be a duration like 30s, 5m, 1h`);
   return amount * multiplier;
@@ -67,39 +86,167 @@ export function parseDurationMs(value: string, name: string): number {
 
 export const DEFAULT_FIELDS: FieldSpec[] = [
   // ------------------------------------------------------------------ Application
-  { name: "NODE_ENV", group: "app", type: "string", default: "development", oneOf: ["development", "test", "staging", "production"] },
-  { name: "APP_ENV", group: "app", type: "string", default: "development", oneOf: ["development", "test", "staging", "production"] },
+  {
+    name: "NODE_ENV",
+    group: "app",
+    type: "string",
+    default: "development",
+    oneOf: ["development", "test", "staging", "production"]
+  },
+  {
+    name: "APP_ENV",
+    group: "app",
+    type: "string",
+    default: "development",
+    oneOf: ["development", "test", "staging", "production"]
+  },
   { name: "API_PORT", group: "app", type: "number", default: "4000", min: 1, max: 65_535 },
   { name: "API_PUBLIC_URL", group: "app", type: "url", requiredIn: ["production", "staging"] },
   { name: "WEB_APP_URL", group: "app", type: "url", requiredIn: ["production", "staging"] },
-  { name: "PLATFORM_OWNER_EMAIL", group: "app", type: "string", default: "krpandey25646@gmail.com" },
+  {
+    name: "PLATFORM_OWNER_EMAIL",
+    group: "app",
+    type: "string",
+    default: "krpandey25646@gmail.com"
+  },
   { name: "PLUGIN_DIRECTORY", group: "app", type: "string", default: "" },
   { name: "CORS_ALLOWED_ORIGINS", group: "app", type: "string", default: "" },
-  { name: "PROCESS_ROLE", group: "app", type: "string", default: "all", oneOf: ["all", "api", "scheduler", "workforce-worker", "channel-worker", "maintenance"] },
+  {
+    name: "PROCESS_ROLE",
+    group: "app",
+    type: "string",
+    default: "all",
+    oneOf: ["all", "api", "scheduler", "workforce-worker", "channel-worker", "maintenance"]
+  },
   { name: "TRUST_PROXY", group: "app", type: "boolean", default: "false" },
+  { name: "RECEPTIONIST_VOICE_ENABLED", group: "app", type: "boolean", default: "false" },
   // ------------------------------------------------------------------ Database
-  { name: "DATABASE_URL", group: "database", type: "string", requiredIn: ["production", "staging"], secret: true, mask: "none" },
+  {
+    name: "DATABASE_URL",
+    group: "database",
+    type: "string",
+    requiredIn: ["production", "staging"],
+    secret: true,
+    mask: "none"
+  },
   { name: "DATABASE_POOL_MIN", group: "database", type: "number", default: "2", min: 1, max: 100 },
   { name: "DATABASE_POOL_MAX", group: "database", type: "number", default: "10", min: 1, max: 200 },
-  { name: "DATABASE_STATEMENT_TIMEOUT_MS", group: "database", type: "number", default: "30000", min: 100, max: 600_000 },
-  { name: "DATABASE_SLOW_QUERY_MS", group: "database", type: "number", default: "500", min: 1, max: 60_000 },
-  { name: "DATABASE_TRANSACTION_TIMEOUT_MS", group: "database", type: "number", default: "30000", min: 100, max: 600_000 },
+  {
+    name: "DATABASE_STATEMENT_TIMEOUT_MS",
+    group: "database",
+    type: "number",
+    default: "30000",
+    min: 100,
+    max: 600_000
+  },
+  {
+    name: "DATABASE_SLOW_QUERY_MS",
+    group: "database",
+    type: "number",
+    default: "500",
+    min: 1,
+    max: 60_000
+  },
+  {
+    name: "DATABASE_TRANSACTION_TIMEOUT_MS",
+    group: "database",
+    type: "number",
+    default: "30000",
+    min: 100,
+    max: 600_000
+  },
   // ------------------------------------------------------------------ Authentication
-  { name: "JWT_ACCESS_SECRET", group: "auth", type: "string", requiredIn: ["production", "staging"], secret: true },
-  { name: "REFRESH_TOKEN_PEPPER", group: "auth", type: "string", requiredIn: ["production", "staging"], secret: true },
-  { name: "API_KEY_PEPPER", group: "auth", type: "string", requiredIn: ["production", "staging"], secret: true },
-  { name: "JWT_ACCESS_EXPIRES_IN_SECONDS", group: "auth", type: "number", default: "900", min: 1, max: 86_400 },
-  { name: "REFRESH_TOKEN_EXPIRES_IN_SECONDS", group: "auth", type: "number", default: "2592000", min: 1, max: 31_536_000 },
-  { name: "JWT_ACCESS_ISSUER", group: "auth", type: "string", requiredIn: ["production", "staging"] },
-  { name: "JWT_ACCESS_AUDIENCE", group: "auth", type: "string", requiredIn: ["production", "staging"] },
+  {
+    name: "JWT_ACCESS_SECRET",
+    group: "auth",
+    type: "string",
+    requiredIn: ["production", "staging"],
+    secret: true
+  },
+  {
+    name: "REFRESH_TOKEN_PEPPER",
+    group: "auth",
+    type: "string",
+    requiredIn: ["production", "staging"],
+    secret: true
+  },
+  {
+    name: "API_KEY_PEPPER",
+    group: "auth",
+    type: "string",
+    requiredIn: ["production", "staging"],
+    secret: true
+  },
+  {
+    name: "JWT_ACCESS_EXPIRES_IN_SECONDS",
+    group: "auth",
+    type: "number",
+    default: "900",
+    min: 1,
+    max: 86_400
+  },
+  {
+    name: "REFRESH_TOKEN_EXPIRES_IN_SECONDS",
+    group: "auth",
+    type: "number",
+    default: "2592000",
+    min: 1,
+    max: 31_536_000
+  },
+  {
+    name: "JWT_ACCESS_ISSUER",
+    group: "auth",
+    type: "string",
+    requiredIn: ["production", "staging"]
+  },
+  {
+    name: "JWT_ACCESS_AUDIENCE",
+    group: "auth",
+    type: "string",
+    requiredIn: ["production", "staging"]
+  },
   { name: "COOKIE_DOMAIN", group: "auth", type: "string", default: "" },
   { name: "COOKIE_SECURE", group: "auth", type: "boolean", default: "true" },
-  { name: "COOKIE_SAME_SITE", group: "auth", type: "string", default: "lax", oneOf: ["lax", "strict", "none"] },
-  { name: "PASSWORD_HASH_MEMORY_COST", group: "auth", type: "number", default: "65536", min: 8192, max: 1_048_576 },
+  {
+    name: "COOKIE_SAME_SITE",
+    group: "auth",
+    type: "string",
+    default: "lax",
+    oneOf: ["lax", "strict", "none"]
+  },
+  {
+    name: "PASSWORD_HASH_MEMORY_COST",
+    group: "auth",
+    type: "number",
+    default: "65536",
+    min: 8192,
+    max: 1_048_576
+  },
   { name: "PASSWORD_HASH_TIME_COST", group: "auth", type: "number", default: "3", min: 1, max: 10 },
-  { name: "PASSWORD_HASH_PARALLELISM", group: "auth", type: "number", default: "1", min: 1, max: 16 },
-  { name: "ACCOUNT_LOCKOUT_MAX_ATTEMPTS", group: "auth", type: "number", default: "5", min: 1, max: 20 },
-  { name: "ACCOUNT_LOCKOUT_DURATION_SECONDS", group: "auth", type: "number", default: "900", min: 1, max: 86_400 },
+  {
+    name: "PASSWORD_HASH_PARALLELISM",
+    group: "auth",
+    type: "number",
+    default: "1",
+    min: 1,
+    max: 16
+  },
+  {
+    name: "ACCOUNT_LOCKOUT_MAX_ATTEMPTS",
+    group: "auth",
+    type: "number",
+    default: "5",
+    min: 1,
+    max: 20
+  },
+  {
+    name: "ACCOUNT_LOCKOUT_DURATION_SECONDS",
+    group: "auth",
+    type: "number",
+    default: "900",
+    min: 1,
+    max: 86_400
+  },
   // ------------------------------------------------------------------ Encryption
   // PLATFORM_ENCRYPTION_KEY is reserved for future platform-wide encryption needs beyond plugin/connector
   // secrets — no consumer reads it yet, so it is intentionally NOT requiredIn production/staging (an
@@ -107,32 +254,132 @@ export const DEFAULT_FIELDS: FieldSpec[] = [
   // one actually in use today (PluginSecretsEncryptionService), together with SECRET_KEY_VERSION and the
   // optional PLUGIN_SECRETS_ENCRYPTION_KEY_PREVIOUS/SECRET_KEY_VERSION_PREVIOUS rotation pair.
   { name: "PLATFORM_ENCRYPTION_KEY", group: "encryption", type: "string", secret: true },
-  { name: "PLUGIN_SECRETS_ENCRYPTION_KEY", group: "encryption", type: "string", requiredIn: ["production", "staging"], secret: true },
+  {
+    name: "PLUGIN_SECRETS_ENCRYPTION_KEY",
+    group: "encryption",
+    type: "string",
+    requiredIn: ["production", "staging"],
+    secret: true
+  },
   { name: "SECRET_KEY_VERSION", group: "encryption", type: "string", default: "1" },
-  { name: "PLUGIN_SECRETS_ENCRYPTION_KEY_PREVIOUS", group: "encryption", type: "string", secret: true },
+  {
+    name: "PLUGIN_SECRETS_ENCRYPTION_KEY_PREVIOUS",
+    group: "encryption",
+    type: "string",
+    secret: true
+  },
   { name: "SECRET_KEY_VERSION_PREVIOUS", group: "encryption", type: "string", default: "1" },
   // ------------------------------------------------------------------ Storage
-  { name: "STORAGE_PROVIDER", group: "storage", type: "string", default: "local", oneOf: ["local", "s3"] },
+  {
+    name: "STORAGE_PROVIDER",
+    group: "storage",
+    type: "string",
+    default: "local",
+    oneOf: ["local", "s3"]
+  },
   { name: "S3_ENDPOINT", group: "storage", type: "string", default: "" },
   { name: "S3_REGION", group: "storage", type: "string", default: "us-east-1" },
   { name: "S3_BUCKET", group: "storage", type: "string", default: "" },
   { name: "S3_ACCESS_KEY_ID", group: "storage", type: "string", default: "", secret: true },
   { name: "S3_SECRET_ACCESS_KEY", group: "storage", type: "string", default: "", secret: true },
   { name: "S3_FORCE_PATH_STYLE", group: "storage", type: "boolean", default: "true" },
-  { name: "S3_SIGNED_URL_EXPIRY_SECONDS", group: "storage", type: "number", default: "300", min: 30, max: 3600 },
-  { name: "KNOWLEDGE_STORAGE_PATH", group: "storage", type: "string", default: "./storage/knowledge" },
-  { name: "OBJECT_STORAGE_LOCAL_PATH", group: "storage", type: "string", default: "./storage/objects" },
-  { name: "MAX_UPLOAD_BYTES", group: "storage", type: "number", default: String(10 * 1024 * 1024), min: 1024 },
-  { name: "KNOWLEDGE_MAX_FILE_SIZE_MB", group: "storage", type: "number", default: "10", min: 1, max: 50 },
-  { name: "KNOWLEDGE_CHUNK_TARGET_TOKENS", group: "storage", type: "number", default: "500", min: 400, max: 600 },
-  { name: "KNOWLEDGE_CHUNK_OVERLAP_TOKENS", group: "storage", type: "number", default: "100", min: 80, max: 120 },
-  { name: "KNOWLEDGE_SEARCH_CANDIDATE_LIMIT", group: "storage", type: "number", default: "1000", min: 10, max: 5000 },
-  { name: "KNOWLEDGE_SEARCH_DEFAULT_TOP_K", group: "storage", type: "number", default: "5", min: 1, max: 20 },
-  { name: "KNOWLEDGE_SEARCH_MAX_TOP_K", group: "storage", type: "number", default: "10", min: 1, max: 50 },
-  { name: "KNOWLEDGE_SEARCH_DEFAULT_SCORE_THRESHOLD", group: "storage", type: "number", default: "0.2", min: -1, max: 1 },
-  { name: "KNOWLEDGE_RETRIEVAL_DEBUG_LOGGING", group: "storage", type: "boolean", default: "false" },
+  {
+    name: "S3_SIGNED_URL_EXPIRY_SECONDS",
+    group: "storage",
+    type: "number",
+    default: "300",
+    min: 30,
+    max: 3600
+  },
+  {
+    name: "KNOWLEDGE_STORAGE_PATH",
+    group: "storage",
+    type: "string",
+    default: "./storage/knowledge"
+  },
+  {
+    name: "OBJECT_STORAGE_LOCAL_PATH",
+    group: "storage",
+    type: "string",
+    default: "./storage/objects"
+  },
+  {
+    name: "MAX_UPLOAD_BYTES",
+    group: "storage",
+    type: "number",
+    default: String(10 * 1024 * 1024),
+    min: 1024
+  },
+  {
+    name: "KNOWLEDGE_MAX_FILE_SIZE_MB",
+    group: "storage",
+    type: "number",
+    default: "10",
+    min: 1,
+    max: 50
+  },
+  {
+    name: "KNOWLEDGE_CHUNK_TARGET_TOKENS",
+    group: "storage",
+    type: "number",
+    default: "500",
+    min: 400,
+    max: 600
+  },
+  {
+    name: "KNOWLEDGE_CHUNK_OVERLAP_TOKENS",
+    group: "storage",
+    type: "number",
+    default: "100",
+    min: 80,
+    max: 120
+  },
+  {
+    name: "KNOWLEDGE_SEARCH_CANDIDATE_LIMIT",
+    group: "storage",
+    type: "number",
+    default: "1000",
+    min: 10,
+    max: 5000
+  },
+  {
+    name: "KNOWLEDGE_SEARCH_DEFAULT_TOP_K",
+    group: "storage",
+    type: "number",
+    default: "5",
+    min: 1,
+    max: 20
+  },
+  {
+    name: "KNOWLEDGE_SEARCH_MAX_TOP_K",
+    group: "storage",
+    type: "number",
+    default: "10",
+    min: 1,
+    max: 50
+  },
+  {
+    name: "KNOWLEDGE_SEARCH_DEFAULT_SCORE_THRESHOLD",
+    group: "storage",
+    type: "number",
+    default: "0.2",
+    min: -1,
+    max: 1
+  },
+  {
+    name: "KNOWLEDGE_RETRIEVAL_DEBUG_LOGGING",
+    group: "storage",
+    type: "boolean",
+    default: "false"
+  },
   // ------------------------------------------------------------------ Queue
-  { name: "QUEUE_PROVIDER", group: "queue", type: "string", default: "postgres", oneOf: ["postgres", "redis"] },
+  {
+    name: "QUEUE_PROVIDER",
+    group: "queue",
+    type: "string",
+    default: "postgres",
+    oneOf: ["postgres", "redis"]
+  },
   { name: "REDIS_URL", group: "queue", type: "string", default: "" },
   { name: "QUEUE_PREFIX", group: "queue", type: "string", default: "ai-workforce-os" },
   { name: "WORKER_CONCURRENCY", group: "queue", type: "number", default: "4", min: 1, max: 64 },
@@ -153,12 +400,32 @@ export const DEFAULT_FIELDS: FieldSpec[] = [
   // ------------------------------------------------------------------ Observability
   { name: "OTEL_ENABLED", group: "observability", type: "boolean", default: "false" },
   { name: "OTEL_EXPORTER_OTLP_ENDPOINT", group: "observability", type: "url", default: "" },
-  { name: "LOG_LEVEL", group: "observability", type: "string", default: "info", oneOf: ["debug", "info", "warn", "error"] },
-  { name: "TRACE_SAMPLE_RATE", group: "observability", type: "number", default: "1", min: 0, max: 1 },
+  {
+    name: "LOG_LEVEL",
+    group: "observability",
+    type: "string",
+    default: "info",
+    oneOf: ["debug", "info", "warn", "error"]
+  },
+  {
+    name: "TRACE_SAMPLE_RATE",
+    group: "observability",
+    type: "number",
+    default: "1",
+    min: 0,
+    max: 1
+  },
   // ------------------------------------------------------------------ Billing
   { name: "BILLING_ENFORCEMENT_ENABLED", group: "billing", type: "boolean", default: "true" },
   { name: "DEFAULT_PLAN_CODE", group: "billing", type: "string", default: "GROWTH" },
-  { name: "CREDIT_GRACE_PERCENT", group: "billing", type: "number", default: "0", min: 0, max: 200 },
+  {
+    name: "CREDIT_GRACE_PERCENT",
+    group: "billing",
+    type: "number",
+    default: "0",
+    min: 0,
+    max: 200
+  },
   // ------------------------------------------------------------------ Secrets
   { name: "ALLOW_DEVELOPMENT_IMPLEMENTATIONS", group: "secrets", type: "boolean", default: "true" },
   { name: "ALLOW_LOCALHOST_PRODUCTION", group: "secrets", type: "boolean", default: "false" },
@@ -166,7 +433,10 @@ export const DEFAULT_FIELDS: FieldSpec[] = [
 ];
 
 export interface ResolvedConfig {
-  fields: Record<string, { group: EnvGroup; value: string | number | boolean | null; secret: boolean }>;
+  fields: Record<
+    string,
+    { group: EnvGroup; value: string | number | boolean | null; secret: boolean }
+  >;
   /** True when every required-in-production variable was present and valid. */
   productionValid: boolean;
 }
@@ -186,7 +456,10 @@ export function maskSecret(value: string, mask: "full" | "tail" | "none" = "tail
  * optional-group gaps so development keeps working with a minimal .env — but the AppConfig loader calls
  * `assertProductionValid` in production.
  */
-export function validateEnvironment(environment: Env, { productionLike }: { productionLike: boolean }): ResolvedConfig {
+export function validateEnvironment(
+  environment: Env,
+  { productionLike }: { productionLike: boolean }
+): ResolvedConfig {
   const issues: string[] = [];
   const fields: ResolvedConfig["fields"] = {};
 
@@ -196,7 +469,10 @@ export function validateEnvironment(environment: Env, { productionLike }: { prod
     const value = raw ?? field.default;
 
     if (!value) {
-      if (isRequiredHere) issues.push(`${field.name} is required in ${productionLike ? "production" : "this"} environment`);
+      if (isRequiredHere)
+        issues.push(
+          `${field.name} is required in ${productionLike ? "production" : "this"} environment`
+        );
       fields[field.name] = { group: field.group, value: null, secret: Boolean(field.secret) };
       continue;
     }
@@ -224,7 +500,12 @@ export function validateEnvironment(environment: Env, { productionLike }: { prod
       if (field.pattern && !field.pattern.test(String(parsed))) {
         throw new Error(`${field.name} does not match the required pattern`);
       }
-      if (field.type === "string" && field.secret && typeof parsed === "string" && parsed.length < 8) {
+      if (
+        field.type === "string" &&
+        field.secret &&
+        typeof parsed === "string" &&
+        parsed.length < 8
+      ) {
         throw new Error(`${field.name} is too short`);
       }
       fields[field.name] = { group: field.group, value: parsed, secret: Boolean(field.secret) };
@@ -236,10 +517,12 @@ export function validateEnvironment(environment: Env, { productionLike }: { prod
 
   // Cross-field: STORAGE_PROVIDER=s3 requires S3_BUCKET.
   const provider = fields.STORAGE_PROVIDER?.value;
-  if (provider === "s3" && !fields.S3_BUCKET?.value) issues.push("S3_BUCKET is required when STORAGE_PROVIDER=s3");
+  if (provider === "s3" && !fields.S3_BUCKET?.value)
+    issues.push("S3_BUCKET is required when STORAGE_PROVIDER=s3");
   // Cross-field: QUEUE_PROVIDER=redis requires REDIS_URL.
   const queueProvider = fields.QUEUE_PROVIDER?.value;
-  if (queueProvider === "redis" && !fields.REDIS_URL?.value) issues.push("REDIS_URL is required when QUEUE_PROVIDER=redis");
+  if (queueProvider === "redis" && !fields.REDIS_URL?.value)
+    issues.push("REDIS_URL is required when QUEUE_PROVIDER=redis");
 
   return { fields, productionValid: issues.length === 0 };
 }

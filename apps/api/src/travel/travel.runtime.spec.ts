@@ -42,6 +42,11 @@ import {
   extractEmailAddress,
   extractResendTicketDate,
   buildResendTicketReply,
+  detectExplicitFieldCorrection,
+  hasMaterialPackageChange,
+  extractOriginCity,
+  resolveOriginReplyDeterministically,
+  deterministicExtractFallback,
   type TravelEmployeeRuntimeConfig
 } from "./travel.runtime";
 
@@ -429,7 +434,7 @@ describe("deriveTravelState", () => {
   it("reports DISCOVER_INTENT while the Intent Discovery menu is the most recent (unanswered) message", () => {
     const state = deriveTravelState([
       { role: "user", content: "My name is Alex" },
-      { role: "assistant", content: "Good morning, Alex! 👋\n\nHow may I help you today?" }
+      { role: "assistant", content: "Good morning, Alex! 👋 What can I help you with?" }
     ]);
     expect(state.stage).toBe("DISCOVER_INTENT");
     expect(state.customerName).toBe("Alex");
@@ -437,7 +442,7 @@ describe("deriveTravelState", () => {
   it("moves past DISCOVER_INTENT once the traveler replies to it", () => {
     const state = deriveTravelState([
       { role: "user", content: "My name is Alex" },
-      { role: "assistant", content: "Good morning, Alex! 👋\n\nHow may I help you today?" },
+      { role: "assistant", content: "Good morning, Alex! 👋 What can I help you with?" },
       { role: "user", content: "I'd like to plan a trip" }
     ]);
     expect(state.stage).not.toBe("DISCOVER_INTENT");
@@ -542,7 +547,7 @@ describe("TravelEmployeeProvider", () => {
     });
     expect(result.toolCalls).toEqual([]);
     expect(result.content).toMatch(/alex/i);
-    expect(result.content).toMatch(/how may i help you today/i);
+    expect(result.content).toMatch(/what can i help you with/i);
     expect(result.content).toMatch(/plan a trip/i);
     expect(result.content).toMatch(/build an itinerary/i);
     expect(result.content).toMatch(/estimate costs/i);
@@ -979,7 +984,7 @@ describe("TravelEmployeeProvider: onboarding (COLLECT_NAME gate)", () => {
       tools: []
     });
     expect(result.content).toMatch(/krishna/i);
-    expect(result.content).toMatch(/how may i help you today/i);
+    expect(result.content).toMatch(/what can i help you with/i);
     expect(result.content).not.toMatch(/where would you like to travel/i);
   });
 });
@@ -1004,9 +1009,7 @@ describe("buildIntentDiscoveryMessage", () => {
 
   it("greets by name with a time-of-day greeting and lists every menu item, in English by default", () => {
     const message = buildIntentDiscoveryMessage("Krishna", "ENGLISH", morning);
-    expect(message).toMatch(/^good morning, krishna! 👋/i);
-    expect(message).toMatch(/nice to meet you/i);
-    expect(message).toMatch(/how may i help you today/i);
+    expect(message).toMatch(/^good morning, krishna! 👋 what can i help you with\?/i);
     expect(message).toMatch(/plan a trip/i);
     expect(message).toMatch(/build an itinerary/i);
     expect(message).toMatch(/estimate costs/i);
@@ -1032,11 +1035,11 @@ describe("buildIntentDiscoveryMessage", () => {
   it("renders in Hinglish and Hindi when the traveler's language is detected as such", () => {
     const hinglish = buildIntentDiscoveryMessage("Krishna", "HINGLISH", morning);
     expect(hinglish).toMatch(/krishna/i);
-    expect(hinglish).toMatch(/kaise madad kar/i);
+    expect(hinglish).toMatch(/kis cheez mein madad/i);
 
     const hindi = buildIntentDiscoveryMessage("Krishna", "HINDI", morning);
     expect(hindi).toMatch(/krishna/i);
-    expect(hindi).toMatch(/कैसे मदद कर सकता/);
+    expect(hindi).toMatch(/किस चीज़ में मदद/);
   });
 });
 
@@ -1173,5 +1176,141 @@ describe("reconcileRouteFromMessage (deterministic origin/destination correction
   it("the extraction system prompt explicitly forbids inventing a year or date the user did not state", () => {
     expect(TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT).toMatch(/never invent or guess/i);
     expect(TRAVEL_ENTITY_EXTRACTION_SYSTEM_PROMPT).toMatch(/year/i);
+  });
+});
+
+describe("Sprint 6.5 — deterministic origin capture", () => {
+  it('extracts an explicit "from <City>" phrase', () => {
+    expect(extractOriginCity("from Delhi")).toBe("Delhi");
+    expect(extractOriginCity("flying from Mumbai please")).toBe("Mumbai");
+  });
+
+  it('stops at "to" so a connected route phrase yields only the origin half', () => {
+    expect(extractOriginCity("from Delhi to Dubai")).toBe("Delhi");
+  });
+
+  it("returns null when there's no explicit origin phrase", () => {
+    expect(extractOriginCity("Dubai please")).toBeNull();
+  });
+
+  it("resolveOriginReplyDeterministically falls back to a bare known-city reply, since the pending question itself disambiguates it as origin", () => {
+    expect(resolveOriginReplyDeterministically("Delhi")).toBe("Delhi");
+    expect(resolveOriginReplyDeterministically("from Delhi")).toBe("Delhi");
+  });
+});
+
+describe("Sprint 6.5 — generalized deterministic correction detection", () => {
+  it("detects a differing budget as a correction (Stage 9F's original case, preserved)", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, budget: 5000 };
+    expect(detectExplicitFieldCorrection({ budget: 10000 }, prior)).toBe(true);
+  });
+
+  it("detects a differing passenger count as a correction — the no-LLM gap this sprint closes", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, adults: 2 };
+    expect(detectExplicitFieldCorrection({ adults: 3 }, prior)).toBe(true);
+  });
+
+  it("detects a differing travel month as a correction ('September' -> 'October')", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, travelMonth: "September" };
+    expect(detectExplicitFieldCorrection({ travelMonth: "October" }, prior)).toBe(true);
+  });
+
+  it("detects a differing nights count as a correction ('Make that 7 nights')", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, nights: 3 };
+    expect(detectExplicitFieldCorrection({ nights: 7 }, prior)).toBe(true);
+  });
+
+  it("is false when the deterministic value matches the prior value (nothing changed)", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, budget: 5000 };
+    expect(detectExplicitFieldCorrection({ budget: 5000 }, prior)).toBe(false);
+  });
+
+  it("is false when the field is being set for the FIRST time (prior null) — new information, not a correction", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, budget: null };
+    expect(detectExplicitFieldCorrection({ budget: 5000 }, prior)).toBe(false);
+  });
+
+  it("is false when the deterministic extractor found nothing for any correctable field", () => {
+    const prior = { ...EMPTY_TRAVEL_ENTITIES, budget: 5000, adults: 2 };
+    expect(detectExplicitFieldCorrection({}, prior)).toBe(false);
+  });
+});
+
+describe("Sprint 6.5 — material-correction invalidation of stale package options", () => {
+  it("flags a genuine change from a known prior value on a material field", () => {
+    expect(hasMaterialPackageChange(["adults=5 (was 2)"])).toBe(true);
+    expect(hasMaterialPackageChange(["destinationCity=Singapore (was Dubai)"])).toBe(true);
+    expect(hasMaterialPackageChange(["budget=15000 (was 10000)"])).toBe(true);
+  });
+
+  it("does not flag a field being set for the first time (no prior value)", () => {
+    expect(hasMaterialPackageChange(["adults=2"])).toBe(false);
+  });
+
+  it("does not flag a non-material field changing (cabin class refines, doesn't invalidate)", () => {
+    expect(hasMaterialPackageChange(["cabinClass=BUSINESS (was ECONOMY)"])).toBe(false);
+  });
+
+  it("is false for an empty changed list", () => {
+    expect(hasMaterialPackageChange([])).toBe(false);
+  });
+});
+
+describe("Sprint 6.5 — out-of-order and multi-slot deterministic extraction (no LLM required)", () => {
+  it("extracts destination and a broad date window from one unprompted message", () => {
+    const result = deterministicExtractFallback("I need Dubai next month");
+    expect(result.destinationCity).toBe("Dubai");
+    expect(result.travelMonth).not.toBeNull();
+  });
+
+  it("a single message stating destination, passengers, nights, and budget together populates all four fields deterministically", () => {
+    const result = deterministicExtractFallback("Dubai next month, 2 adults, 5 nights, budget 10000 AED");
+    expect(result.destinationCity).toBe("Dubai");
+    expect(result.adults).toBe(2);
+    expect(result.nights).toBe(5);
+    expect(result.budget).toBe(10000);
+    expect(result.budgetCurrency).toBe("AED");
+  });
+
+  it("slot order does not matter: budget-first then destination-first extraction agree on the final values", () => {
+    const budgetFirst = deterministicExtractFallback("budget 10000 AED, 2 adults, 5 nights, Dubai");
+    const destinationFirst = deterministicExtractFallback("Dubai, 2 adults, 5 nights, budget 10000 AED");
+    expect(budgetFirst.destinationCity).toBe(destinationFirst.destinationCity);
+    expect(budgetFirst.adults).toBe(destinationFirst.adults);
+    expect(budgetFirst.nights).toBe(destinationFirst.nights);
+    expect(budgetFirst.budget).toBe(destinationFirst.budget);
+  });
+
+  it("accumulates fields across separate out-of-order turns via mergeConfirmedEntities, never losing an earlier turn's information", () => {
+    const turn1 = deterministicExtractFallback("Dubai next month");
+    const afterTurn1 = mergeConfirmedEntities(
+      EMPTY_TRAVEL_ENTITIES,
+      EMPTY_TRAVEL_ENTITY_CONFIRMATION,
+      turn1,
+      "provide_trip_details"
+    );
+    expect(afterTurn1.values.destinationCity).toBe("Dubai");
+
+    const turn2 = deterministicExtractFallback("2 adults");
+    const afterTurn2 = mergeConfirmedEntities(
+      afterTurn1.values,
+      afterTurn1.confirmation,
+      turn2,
+      "provide_trip_details"
+    );
+    expect(afterTurn2.values.destinationCity).toBe("Dubai"); // never lost
+    expect(afterTurn2.values.adults).toBe(2);
+
+    const turn3Extraction = { ...deterministicExtractFallback("5 nights"), originCity: resolveOriginReplyDeterministically("from Delhi") };
+    const afterTurn3 = mergeConfirmedEntities(
+      afterTurn2.values,
+      afterTurn2.confirmation,
+      turn3Extraction,
+      "provide_trip_details"
+    );
+    expect(afterTurn3.values.destinationCity).toBe("Dubai");
+    expect(afterTurn3.values.adults).toBe(2);
+    expect(afterTurn3.values.nights).toBe(5);
+    expect(afterTurn3.values.originCity).toBe("Delhi");
   });
 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isValidEmail, isRequired } from "@/lib/validation";
+import { API_BASE_URL } from "../../../lib/auth-constants";
 
 interface ContactPayload {
   name: string;
@@ -13,8 +14,10 @@ interface ContactPayload {
 }
 
 /**
- * Mock submission endpoint. Swap the body of this handler for a real CRM or
- * ticketing integration later — the request/response contract stays the same.
+ * Forwards a validated "Contact Us" submission to the NestJS API's public, unauthenticated platform-lead
+ * endpoint (`POST /public/leads`, source CONTACT_US) — the only change from the previous mock handler;
+ * the request/response contract exposed to the client is unchanged. Server-to-server only, same as
+ * /api/demo — see that route's own doc comment.
  */
 export async function POST(request: Request) {
   const body = (await request.json()) as Partial<ContactPayload>;
@@ -29,7 +32,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, errors }, { status: 400 });
   }
 
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  try {
+    const response = await fetch(`${API_BASE_URL}/public/leads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        source: "CONTACT_US",
+        name: body.name,
+        email: body.email,
+        company: body.company,
+        requirement: body.message,
+        metadata: {
+          role: body.role,
+          teamSize: body.teamSize,
+          interest: body.interest,
+          preferredContact: body.preferredContact
+        }
+      })
+    });
+    if (!response.ok) {
+      return NextResponse.json(
+        { success: false, errors: { form: "Something went wrong sending your message. Please try again." } },
+        { status: 502 }
+      );
+    }
+  } catch {
+    return NextResponse.json(
+      { success: false, errors: { form: "Something went wrong sending your message. Please try again." } },
+      { status: 502 }
+    );
+  }
 
   return NextResponse.json({ success: true });
 }

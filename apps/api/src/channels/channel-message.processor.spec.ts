@@ -30,7 +30,9 @@ function claimable(row: Row, direction: "INBOUND" | "OUTBOUND", now: number): bo
   if (row.direction !== direction) return false;
   if (row.status === "PROCESSING") return now - row.updatedAt.getTime() >= STALE_MS;
   if (direction === "INBOUND") return row.status === "RECEIVED";
-  return row.status === "FAILED" && Boolean(row.nextAttemptAt && row.nextAttemptAt.getTime() <= now);
+  return (
+    row.status === "FAILED" && Boolean(row.nextAttemptAt && row.nextAttemptAt.getTime() <= now)
+  );
 }
 
 function getRow(store: Map<string, Row>, id: string): Row {
@@ -39,7 +41,11 @@ function getRow(store: Map<string, Row>, id: string): Row {
   return row;
 }
 
-function createFakePrisma(rows: Row[], channels: Record<string, unknown>, conversations: Record<string, unknown>[]) {
+function createFakePrisma(
+  rows: Row[],
+  channels: Record<string, unknown>,
+  conversations: Record<string, unknown>[]
+) {
   const store = new Map(rows.map((r) => [r.id, r]));
   let created = 0;
   return {
@@ -68,9 +74,17 @@ function createFakePrisma(rows: Row[], channels: Record<string, unknown>, conver
           return { count: 1 };
         }
       ),
-      findUnique: vi.fn(async ({ where: { id } }: { where: { id: string } }) => store.get(id) ?? null),
+      findUnique: vi.fn(
+        async ({ where: { id } }: { where: { id: string } }) => store.get(id) ?? null
+      ),
       update: vi.fn(
-        async ({ where: { id }, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        async ({
+          where: { id },
+          data
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
           const row = store.get(id);
           if (!row) throw new Error("NOT_FOUND");
           Object.assign(row, data);
@@ -166,7 +180,9 @@ describe("ChannelMessageProcessor.processOnce", () => {
       security
     );
     (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
-      sendWhatsAppMessage: vi.fn().mockResolvedValue({ providerMessageSid: "SM_OUT_1", status: "queued" })
+      sendWhatsAppMessage: vi
+        .fn()
+        .mockResolvedValue({ providerMessageSid: "SM_OUT_1", status: "queued" })
     };
     const processed = await processor.processOnce();
     expect(processed).toBe(1);
@@ -186,22 +202,22 @@ describe("ChannelMessageProcessor.processOnce", () => {
   });
 
   it("reuses the existing active conversation for the same external user instead of creating a new one", async () => {
-    const prisma = createFakePrisma(
-      [inboundRow()],
-      { "channel-1": activeChannel() },
-      [
-        {
-          id: "conversation-existing",
-          channelConnectionId: "channel-1",
-          externalUserId: "+14155550100",
-          status: "ACTIVE"
-        }
-      ]
-    );
+    const prisma = createFakePrisma([inboundRow()], { "channel-1": activeChannel() }, [
+      {
+        id: "conversation-existing",
+        channelConnectionId: "channel-1",
+        externalUserId: "+14155550100",
+        status: "ACTIVE"
+      }
+    ]);
     const agents = {
       execute: vi
         .fn()
-        .mockResolvedValue({ conversationId: "conversation-existing", executionId: "execution-2", response: "ok" })
+        .mockResolvedValue({
+          conversationId: "conversation-existing",
+          executionId: "execution-2",
+          response: "ok"
+        })
     } as unknown as AgentService;
     const processor = new ChannelMessageProcessor(
       prisma as never,
@@ -211,12 +227,66 @@ describe("ChannelMessageProcessor.processOnce", () => {
       security
     );
     (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
-      sendWhatsAppMessage: vi.fn().mockResolvedValue({ providerMessageSid: "SM_OUT_2", status: "queued" })
+      sendWhatsAppMessage: vi
+        .fn()
+        .mockResolvedValue({ providerMessageSid: "SM_OUT_2", status: "queued" })
     };
     await processor.processOnce();
     expect(agents.execute).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: "conversation-existing" })
     );
+  });
+
+  it("sends a receptionist-bound WhatsApp turn through the universal runtime exactly once", async () => {
+    const channel = activeChannel({
+      routingMode: "INTENT_ROUTER",
+      processingAcknowledgementEnabled: true,
+      pluginInstallation: {
+        id: "agent-1",
+        status: "ACTIVE",
+        manifest: { capabilities: ["workforce.intake"] }
+      }
+    });
+    const prisma = createFakePrisma(
+      [inboundRow({ body: "Dubai trip plan karna hai" })],
+      {
+        "channel-1": channel
+      },
+      []
+    );
+    const agents = {
+      execute: vi.fn().mockResolvedValue({
+        conversationId: "receptionist-conversation",
+        executionId: "receptionist-execution",
+        response: "I'll connect you with Travel Employee."
+      })
+    } as unknown as AgentService;
+    const employeeRouter = {
+      route: vi.fn(),
+      isGreeting: vi.fn(),
+      buildReceptionistGreeting: vi.fn()
+    };
+    const processor = new ChannelMessageProcessor(
+      prisma as never,
+      agents,
+      encryption,
+      auditLogger,
+      security,
+      employeeRouter as never
+    );
+    (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
+      sendWhatsAppMessage: vi
+        .fn()
+        .mockResolvedValue({ providerMessageSid: "SM_RECEPTIONIST", status: "queued" })
+    };
+    await processor.processOnce();
+    expect(employeeRouter.route).not.toHaveBeenCalled();
+    expect(agents.execute).toHaveBeenCalledTimes(1);
+    expect(agents.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agent-1", text: "Dubai trip plan karna hai" })
+    );
+    expect(prisma.channelMessage.create).toHaveBeenCalledTimes(1);
+    expect(getRow(prisma.store, "outbound-1").body).toContain("Travel Employee");
   });
 
   it("does not run the agent when the channel is disabled, and terminally fails the message", async () => {
@@ -308,7 +378,9 @@ describe("ChannelMessageProcessor.processOnce", () => {
       security
     );
     (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
-      sendWhatsAppMessage: vi.fn().mockResolvedValue({ providerMessageSid: "SM_RETRY", status: "queued" })
+      sendWhatsAppMessage: vi
+        .fn()
+        .mockResolvedValue({ providerMessageSid: "SM_RETRY", status: "queued" })
     };
     const processed = await processor.processOnce();
     expect(processed).toBe(1);

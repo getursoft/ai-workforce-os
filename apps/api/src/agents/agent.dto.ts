@@ -21,6 +21,12 @@ export class AgentRunDto {
   @IsOptional() @IsString() @MaxLength(12000) message?: string;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
   @IsOptional() @IsArray() @IsUUID("4", { each: true }) attachmentIds?: string[];
+  // Sprint 6.4 — Part 4/5: an explicit response-channel override for this turn. Omitted by every existing
+  // caller today (the dashboard never sends it) — when absent, the channel is inferred from execution
+  // provenance exactly as before (defaulting to WEB), so no existing client's behavior changes. Exists so
+  // the one public /agents/run endpoint can be asked for WhatsApp/Voice-safe output without a real channel
+  // adapter behind it — see `resolveConversationChannel` in conversational-response-policy.ts.
+  @IsOptional() @IsEnum(["WEB", "WHATSAPP", "VOICE"]) channel?: "WEB" | "WHATSAPP" | "VOICE";
 }
 export class PageDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) page = 1;
