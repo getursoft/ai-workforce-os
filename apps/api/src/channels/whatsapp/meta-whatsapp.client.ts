@@ -27,6 +27,37 @@ export interface MetaMessageStatusUpdate {
   errorMessage?: string;
 }
 
+/** Sprint 6.7 — carries a normalized, retry-classifiable code alongside the existing, backward-compatible
+ *  `message` string (still prefixed "META_WHATSAPP_SEND_FAILED:"/"META_WHATSAPP_MEDIA_UPLOAD_FAILED:" so
+ *  existing `.rejects.toThrow(/META_WHATSAPP_SEND_FAILED/)`-style assertions keep working unchanged). */
+export class MetaProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly upstreamStatus?: number
+  ) {
+    super(message);
+  }
+}
+
+/** Coarse, status-code-driven classification — mirrors `channel.runtime.ts`'s `statusCode()` for Twilio.
+ *  Deliberately status-code-first (not a deep Meta error-subcode table) to match this codebase's existing
+ *  level of provider-error sophistication. */
+function metaStatusCode(status: number, data: Record<string, unknown>): string {
+  const error = data.error as Record<string, unknown> | undefined;
+  const type = typeof error?.type === "string" ? error.type : undefined;
+  const code = typeof error?.code === "number" ? error.code : undefined;
+  if (status === 401 || status === 403 || type === "OAuthException" || code === 190)
+    return "META_AUTH_FAILURE";
+  if (status === 429 || code === 4 || code === 80007) return "META_RATE_LIMITED";
+  if (status >= 500) return "META_PROVIDER_UNAVAILABLE";
+  // Meta's "recipient not on WhatsApp"/invalid-number family (131026, 131047, 100 with a "to" param error).
+  if (code === 131026 || code === 131047) return "META_INVALID_RECIPIENT";
+  // Unsupported/rejected media (document/type errors) — only relevant for document sends.
+  if (code === 131052 || code === 131009) return "META_MEDIA_REJECTED";
+  return "META_SEND_REJECTED";
+}
+
 /**
  * Verifies a Meta webhook payload signature using the App Secret.
  * Meta signs webhook POST bodies with HMAC-SHA256 using the app secret as the key.
@@ -74,7 +105,11 @@ export async function sendMetaWhatsAppText(
   const data = await response.json() as Record<string, unknown>;
   if (!response.ok) {
     const errMsg = (data.error as Record<string, unknown>)?.message ?? response.statusText;
-    throw new Error(`META_WHATSAPP_SEND_FAILED: ${errMsg}`);
+    throw new MetaProviderError(
+      `META_WHATSAPP_SEND_FAILED: ${errMsg}`,
+      metaStatusCode(response.status, data),
+      response.status
+    );
   }
   const messageId = (data.messages as Array<Record<string, unknown>>)?.[0]?.id as string | undefined;
   return {
@@ -114,7 +149,11 @@ export async function uploadMetaWhatsAppMedia(
   const data = (await response.json()) as Record<string, unknown>;
   if (!response.ok || typeof data.id !== "string") {
     const errMsg = (data.error as Record<string, unknown>)?.message ?? response.statusText;
-    throw new Error(`META_WHATSAPP_MEDIA_UPLOAD_FAILED: ${errMsg}`);
+    throw new MetaProviderError(
+      `META_WHATSAPP_MEDIA_UPLOAD_FAILED: ${errMsg}`,
+      metaStatusCode(response.status, data),
+      response.status
+    );
   }
   return { mediaId: data.id };
 }
@@ -156,7 +195,11 @@ export async function sendMetaWhatsAppDocument(
   const data = (await response.json()) as Record<string, unknown>;
   if (!response.ok) {
     const errMsg = (data.error as Record<string, unknown>)?.message ?? response.statusText;
-    throw new Error(`META_WHATSAPP_SEND_FAILED: ${errMsg}`);
+    throw new MetaProviderError(
+      `META_WHATSAPP_SEND_FAILED: ${errMsg}`,
+      metaStatusCode(response.status, data),
+      response.status
+    );
   }
   const messageId = (data.messages as Array<Record<string, unknown>>)?.[0]?.id as string | undefined;
   return { providerMessageId: messageId ?? "unknown", status: "sent" };

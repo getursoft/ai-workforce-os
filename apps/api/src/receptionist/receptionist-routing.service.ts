@@ -17,15 +17,23 @@ const RETURN_PATTERNS = [
 const GREETING = /^(?:hi|hello|hey|namaste|namaskar|good\s+(?:morning|afternoon|evening))[!.\s]*$/i;
 const DIRECTORY_QUESTION =
   /\b(?:what can (?:you|krevia) (?:do|help)|who can help|available (?:team|employee|specialist)|which departments?)\b/i;
-const MULTI_SIGNAL = /\b(?:and also|also|as well as|along with|and)\b/i;
+// Sprint 6.6 — Part 8: "aur"/"bhi" are the Hinglish equivalents of "and also"/"also" — same generic,
+// employee-agnostic multi-intent marker, not new vocabulary in kind.
+const MULTI_SIGNAL = /\b(?:and also|also|as well as|along with|and|aur|bhi)\b/i;
 // Sprint 6.3 — Part 3: a customer explicitly abandoning the current topic ("forget the trip", "never
 // mind that", "instead I need...") is a strong, generic (non-domain-specific) switch signal — but it has
 // a perverse side effect on pure keyword scoring: naming the OLD topic in order to reject it ("forget the
 // TRIP") makes the active specialist's own score go UP, not down, which can defeat the ordinary
 // margin-based switch check below. This pattern exists purely to recognize that pivot phrasing itself,
 // never any specific employee's vocabulary.
+//
+// Sprint 6.6 — Part 8: extended with Hinglish pivot phrasing ("trip rehne do", "travel chhodo", "ab
+// finance help chahiye", "HR se baat karni hai", "HR pe chalo") — like the English patterns above, these
+// only ever recognize the PIVOT LANGUAGE itself, never a specific employee's vocabulary; the actual
+// destination employee is still decided entirely by ordinary scoring (`alternative!.score >= 5`) at the
+// call site, so a loosely-matching Hinglish phrase can never by itself cause a false switch.
 const PIVOT_SIGNAL =
-  /\b(?:forget (?:it|that|this|about|the\s+\w+)|never\s?mind|nonetheless|instead[,]?\s+i\b|actually[,]?\s+i\s+(?:need|want)|not\s+(?:about|regarding)\s+(?:that|this|it))\b/i;
+  /\b(?:forget (?:it|that|this|about|the\s+\w+)|never\s?mind|nonetheless|instead[,]?\s+i\b|actually[,]?\s+i\s+(?:need|want)|not\s+(?:about|regarding)\s+(?:that|this|it)|\w+\s+rehne\s+do|chhodo|ab\s+\w+(?:\s+\w+)?\s+chahiye|se\s+baat\s+karni\s+hai|pe\s+chalo)\b/i;
 
 interface LlmClassification {
   employeeCapability: string | null;
@@ -240,6 +248,11 @@ export class ReceptionistRoutingService {
     return this.valid({
       ...decision("CLARIFY", "DETERMINISTIC", deterministic.confidence, deterministic.reasonCode),
       clarificationQuestion: clarification(candidates.map(({ employee }) => employee.displayName)),
+      // Sprint 6.6 — Part 9: reuses the decision's own existing `secondaryEmployeeInstallationIds` field
+      // (left empty for CLARIFY until now) to carry which employees the clarification question actually
+      // offered — the Receptionist persists this so the next turn's short disambiguating reply can be
+      // interpreted against the original message, not routed alone. Not a new field on the decision type.
+      secondaryEmployeeInstallationIds: candidates.map(({ employee }) => employee.pluginInstallationId),
       ...(routingUsage ? { usage: routingUsage } : {})
     });
   }

@@ -23,6 +23,7 @@ export interface ChannelConnection {
   onboardingMode?: string;
   hasAuthToken: boolean;
   webhookUrl: string;
+  voiceEnabled?: boolean;
   routingMode?: string;
   defaultEmployeeId?: string;
   allowedEmployeeIds?: string[];

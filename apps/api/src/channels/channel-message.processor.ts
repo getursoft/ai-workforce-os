@@ -26,8 +26,14 @@ import { AgentService } from "../agents/agent.service";
 import type { AgentExecutionInput, ChannelContact } from "../agents/agent.runtime";
 import { ObservabilityService } from "../observability/observability.service";
 import { rootedContext, type TraceContext } from "../observability/trace-context";
-import { normalizeWhatsAppAddress, TwilioClient, TwilioProviderError } from "./channel.runtime";
-import { sendMetaWhatsAppText } from "./whatsapp/meta-whatsapp.client";
+import {
+  classifyProviderError,
+  normalizeWhatsAppAddress,
+  resolveTwilioCredentials,
+  TwilioClient,
+  TwilioProviderError
+} from "./channel.runtime";
+import { MetaProviderError, sendMetaWhatsAppText } from "./whatsapp/meta-whatsapp.client";
 import { EmployeeRouterService } from "./employee-router.service";
 import type { ConversationRoutingState } from "./employee-router.types";
 import { DEFAULT_ACKNOWLEDGEMENT_MESSAGE, DEFAULT_FAILURE_MESSAGE } from "./employee-router.types";
@@ -110,6 +116,49 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** Sprint 6.7 — Part 25: a human operator's reply (see `HumanTakeoverService.sendAsHuman`) is delivered
+   *  through this SAME outbound `ChannelMessage` + `sendOutbound` pipeline as an AI-authored reply — not a
+   *  parallel send path — so it gets identical delivery status, retry, and attempt-history guarantees.
+   *  Returns `{ delivered: false, channelMessageId: null }` (never throws) when the conversation isn't
+   *  channel-bound (e.g. a dashboard-only conversation) — the message is still stored via
+   *  `ConversationMessage`, there's simply no WhatsApp channel to deliver it through. */
+  async sendHumanMessage(
+    organizationId: string,
+    conversationId: string,
+    body: string
+  ): Promise<{ delivered: boolean; channelMessageId: string | null }> {
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: conversationId, organizationId, deletedAt: null }
+    });
+    if (!conversation?.channelConnectionId || !conversation.externalUserId)
+      return { delivered: false, channelMessageId: null };
+    const channel = await this.prisma.channelConnection.findFirst({
+      where: { id: conversation.channelConnectionId, organizationId, deletedAt: null }
+    });
+    if (!channel || channel.status !== ChannelConnectionStatus.ACTIVE)
+      return { delivered: false, channelMessageId: null };
+    const isMeta = channel.provider === "META_CLOUD_API";
+    const outbound = await this.prisma.channelMessage.create({
+      data: {
+        organizationId,
+        channelConnectionId: channel.id,
+        conversationId,
+        provider: isMeta ? "META_CLOUD_API" : "TWILIO",
+        direction: ChannelMessageDirection.OUTBOUND,
+        status: ChannelMessageStatus.PROCESSING,
+        fromAddress: isMeta
+          ? (channel.displayPhoneNumber ?? channel.phoneNumberId ?? "")
+          : normalizeWhatsAppAddress(
+              ((channel.configuration as Record<string, unknown>)?.fromNumber as string) ?? ""
+            ).address,
+        toAddress: normalizeWhatsAppAddress(conversation.externalUserId).address,
+        body
+      } as unknown as Prisma.ChannelMessageCreateInput
+    });
+    const delivered = await this.sendOutbound(channel, outbound);
+    return { delivered, channelMessageId: outbound.id };
+  }
+
   async processOnce(limit = 10): Promise<number> {
     if (this.running) return 0;
     this.running = true;
@@ -144,6 +193,24 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   ): Promise<string[]> {
     const now = new Date();
     const stale = new Date(now.getTime() - STALE_PROCESSING_MS);
+    // Sprint 6.7 — per-conversation ordering (not a global lock): an INBOUND row is only offered as a
+    // candidate if no OTHER inbound row for the same external identity (channelConnectionId+fromAddress)
+    // is already PROCESSING and non-stale. Prevents two "book it" messages for the same conversation from
+    // being claimed by two different worker processes concurrently. Best-effort (a small race window
+    // remains between this read and `claim()`'s own atomic update) — the real correctness guarantee for
+    // irreversible actions is the check-then-transition guard inside TravelBookingService, not this filter.
+    const busyIdentities =
+      direction === "INBOUND"
+        ? await this.prisma.channelMessage.findMany({
+            where: {
+              direction: ChannelMessageDirection.INBOUND,
+              status: ChannelMessageStatus.PROCESSING,
+              updatedAt: { gt: stale }
+            },
+            select: { channelConnectionId: true, fromAddress: true },
+            distinct: ["channelConnectionId", "fromAddress"]
+          })
+        : [];
     const rows = await this.prisma.channelMessage.findMany({
       where: {
         direction,
@@ -155,7 +222,15 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
               : { OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] })
           },
           { status: ChannelMessageStatus.PROCESSING, updatedAt: { lte: stale } }
-        ]
+        ],
+        ...(busyIdentities.length
+          ? {
+              NOT: busyIdentities.map(({ channelConnectionId, fromAddress }) => ({
+                channelConnectionId,
+                fromAddress
+              }))
+            }
+          : {})
       },
       orderBy: { createdAt: "asc" },
       take: limit,
@@ -216,6 +291,15 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         this.audit(message.organizationId, message.channelConnectionId, "CHANNEL_MESSAGE_FAILED");
         return;
       }
+
+      // Sprint 6.7 — crash-safety resume: `computedResponseText` is only ever written AFTER the AI turn
+      // (or routing decision) has fully finished, in the same atomic update that also records
+      // agentExecutionId/conversationId (below). A stale-`PROCESSING` reclaim of THIS row therefore means
+      // a prior attempt already produced the answer and crashed only before/during delivery — resume
+      // straight to outbound composition instead of calling `agents.execute()` a second time (which would
+      // risk a duplicate booking, a duplicate PDF, or a duplicate outbound message).
+      const alreadyExecuted = message.computedResponseText != null;
+
       const externalUserId = normalizeWhatsAppAddress(message.fromAddress).externalUserId;
       let agentId = channel.pluginInstallationId;
       let conversationId = message.conversationId ?? undefined;
@@ -224,7 +308,7 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         "workforce.intake"
       );
 
-      if (!conversationId) {
+      if (!alreadyExecuted && !conversationId) {
         const prevConvo = await this.prisma.conversation.findFirst({
           where: {
             organizationId: message.organizationId,
@@ -238,6 +322,22 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         if (prevConvo) conversationId = prevConvo.id;
       }
 
+      let result: {
+        conversationId: string;
+        executionId: string | null;
+        response: string;
+        attachments?: unknown[];
+        aiPaused?: boolean;
+      } | null = null;
+      let responseText: string;
+      let responseAttachments: unknown[] | null;
+
+      if (alreadyExecuted) {
+        responseText = message.computedResponseText ?? "";
+        responseAttachments = Array.isArray(message.computedResponseAttachments)
+          ? (message.computedResponseAttachments as unknown[])
+          : null;
+      } else {
       if (channel.routingMode === "INTENT_ROUTER" && this.employeeRouter && !isReceptionist) {
         let conversation = await this.prisma.conversation.findFirst({
           where: {
@@ -332,8 +432,7 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
             } as ChannelContact)
           : undefined;
 
-      let result: { conversationId: string; executionId: string; response: string } | null = null;
-      let responseText = routingResponseText ?? "";
+      responseText = routingResponseText ?? "";
       if (!routingResponseText) {
         const ackEnabled =
           !isReceptionist &&
@@ -393,18 +492,41 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
         }
         if (ackEnabled && !responseText) responseText = DEFAULT_FAILURE_MESSAGE;
       }
-      const resolvedConversationId = result?.conversationId ?? conversationId;
-      const agentExecutionId = result?.executionId;
+      responseAttachments = Array.isArray(result?.attachments) ? (result.attachments as unknown[]) : null;
+      } // end !alreadyExecuted
+      const resolvedConversationId = alreadyExecuted
+        ? (message.conversationId ?? undefined)
+        : (result?.conversationId ?? conversationId);
+      const agentExecutionId = alreadyExecuted ? (message.agentExecutionId ?? undefined) : result?.executionId;
 
-      const updateData: Record<string, unknown> = {};
-      if (resolvedConversationId) updateData.conversationId = resolvedConversationId;
-      if (agentExecutionId) updateData.agentExecutionId = agentExecutionId;
-      if (Object.keys(updateData).length > 0) {
+      // Sprint 6.7 — durable checkpoint: written BEFORE any outbound send is attempted, so a crash after
+      // this point resumes via `alreadyExecuted` above instead of re-running `agents.execute()`. Skipped
+      // entirely when already resuming (there is nothing new to persist).
+      if (!alreadyExecuted) {
+        const checkpointData: Record<string, unknown> = { computedResponseText: responseText };
+        if (resolvedConversationId) checkpointData.conversationId = resolvedConversationId;
+        if (agentExecutionId) checkpointData.agentExecutionId = agentExecutionId;
+        if (responseAttachments) checkpointData.computedResponseAttachments = responseAttachments;
         await this.prisma.channelMessage.update({
           where: { id: message.id },
-          data: updateData as unknown as Prisma.ChannelMessageUpdateInput
+          data: checkpointData as unknown as Prisma.ChannelMessageUpdateInput
         });
       }
+
+      // Sprint 6.7 — human takeover: `AgentService.execute()` returns an empty response (no
+      // `agents.execute` call at all, or `aiPaused: true`) when a conversation is HUMAN_ACTIVE, or when a
+      // customer's inbound message has just been stored during an active takeover. No outbound message is
+      // ever created in that case — the customer's message is durably stored (already done above, via the
+      // USER ConversationMessage row) and simply awaits a human reply, which goes through the SAME
+      // ChannelMessage outbound pipeline via `HumanTakeoverService.sendAsHuman` once an operator responds.
+      if (!responseText.trim()) {
+        const finalizeData: Record<string, unknown> = { status: ChannelMessageStatus.SENT };
+        if (resolvedConversationId) finalizeData.conversationId = resolvedConversationId;
+        await this.prisma.channelMessage.update({ where: { id: message.id }, data: finalizeData });
+        this.audit(message.organizationId, channel.id, "CHANNEL_MESSAGE_AI_PAUSED");
+        return;
+      }
+
       const isMeta = channel.provider === "META_CLOUD_API";
       const outboundData: Prisma.ChannelMessageCreateInput = {
         organizationId: message.organizationId,
@@ -521,15 +643,20 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
       fromNumber?: string;
     };
     const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
-    if (!configuration.accountSid || !configuration.fromNumber || !secrets.authToken) {
+    const credentials = resolveTwilioCredentials({
+      accountSid: configuration.accountSid,
+      authToken: secrets.authToken,
+      fromNumber: configuration.fromNumber
+    });
+    if (!credentials) {
       await this.failOutbound(outbound, "CHANNEL_CREDENTIALS_REQUIRED");
       return false;
     }
     try {
       const sent = await this.twilio.sendWhatsAppMessage({
-        accountSid: configuration.accountSid,
-        authToken: secrets.authToken,
-        from: configuration.fromNumber,
+        accountSid: credentials.accountSid,
+        authToken: credentials.authToken,
+        from: credentials.fromNumber,
         to: outbound.toAddress,
         body: outbound.body ?? ""
       });
@@ -563,13 +690,52 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
       });
       await this.markSent(outbound, result.providerMessageId);
       return true;
-    } catch {
-      await this.failOrRetry(outbound, "META_SEND_FAILED");
+    } catch (error) {
+      const code = error instanceof MetaProviderError ? error.code : "META_PROVIDER_UNAVAILABLE";
+      await this.failOrRetry(outbound, code);
       return false;
     }
   }
 
+  /** Sprint 6.7 — one row per send attempt (success or failure), independent of the parent row's own
+   *  cheap "current status" summary fields. Never stores secrets/tokens — only the normalized outcome. */
+  private async recordDeliveryAttempt(
+    outbound: ChannelMessage,
+    success: boolean,
+    options: {
+      providerRequestId?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      retryable?: boolean;
+    } = {}
+  ): Promise<void> {
+    try {
+      const attemptNumber =
+        (await this.prisma.channelDeliveryAttempt.count({
+          where: { channelMessageId: outbound.id }
+        })) + 1;
+      await this.prisma.channelDeliveryAttempt.create({
+        data: {
+          organizationId: outbound.organizationId,
+          channelMessageId: outbound.id,
+          attemptNumber,
+          provider: outbound.provider,
+          success,
+          providerRequestId: options.providerRequestId ?? null,
+          errorCode: options.errorCode ?? null,
+          errorMessage: options.errorMessage ? options.errorMessage.slice(0, 500) : null,
+          retryable: options.retryable ?? false
+        }
+      });
+    } catch (error) {
+      // Attempt-history recording is diagnostic, never load-bearing — a failure here must never block the
+      // actual delivery outcome (status update, retry scheduling) from being persisted.
+      this.logger.warn({ event: "CHANNEL_DELIVERY_ATTEMPT_RECORD_FAILED", code: safeCode(error) });
+    }
+  }
+
   private async markSent(outbound: ChannelMessage, providerMessageSid: string): Promise<void> {
+    await this.recordDeliveryAttempt(outbound, true, { providerRequestId: providerMessageSid });
     await this.prisma.channelMessage.update({
       where: { id: outbound.id },
       data: { status: ChannelMessageStatus.SENT, providerMessageSid, sentAt: new Date() }
@@ -577,20 +743,28 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async failOutbound(outbound: ChannelMessage, errorCode: string): Promise<void> {
+    const { normalized } = classifyProviderError(errorCode);
+    await this.recordDeliveryAttempt(outbound, false, { errorCode: normalized, retryable: false });
     await this.prisma.channelMessage.update({
       where: { id: outbound.id },
-      data: { status: ChannelMessageStatus.FAILED, errorCode, nextAttemptAt: null }
+      data: { status: ChannelMessageStatus.FAILED, errorCode: normalized, nextAttemptAt: null }
     });
   }
 
   private async failOrRetry(outbound: ChannelMessage, errorCode: string): Promise<void> {
     const attempts = outbound.processingAttempts;
-    const retryable = attempts < MAX_ATTEMPTS;
+    const classification = classifyProviderError(errorCode);
+    const retryable = classification.retryable && attempts < MAX_ATTEMPTS;
+    await this.recordDeliveryAttempt(outbound, false, {
+      errorCode: classification.normalized,
+      errorMessage: "Outbound WhatsApp delivery failed",
+      retryable
+    });
     await this.prisma.channelMessage.update({
       where: { id: outbound.id },
       data: {
         status: ChannelMessageStatus.FAILED,
-        errorCode,
+        errorCode: classification.normalized,
         errorMessage: "Outbound WhatsApp delivery failed",
         nextAttemptAt: retryable ? backoff(attempts) : null
       }

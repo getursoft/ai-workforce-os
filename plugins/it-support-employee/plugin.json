@@ -78,7 +78,8 @@
       "wifi",
       "install",
       "device",
-      "ticket"
+      "ticket",
+      "system"
     ]
   }
 }

@@ -41,6 +41,7 @@ import {
   Sparkles,
   Cpu,
   Target,
+  Phone,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -135,6 +136,7 @@ export const ADMIN_ITEMS: readonly {
     permission: "support.config.read"
   },
   { href: "/channels", label: "Channels", icon: Radio, permission: "channel.read" },
+  { href: "/voice-calls", label: "Voice Calls", icon: Phone, permission: "channel.message.read" },
   { href: "/connectors", label: "Connectors", icon: Cable, permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", icon: Puzzle, permission: "plugin.read" },
   {

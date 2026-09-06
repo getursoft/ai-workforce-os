@@ -43,6 +43,15 @@ function safeOrigin(value: string): string {
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
+  // Dev-only: the dashboard is also reachable via a Cloudflare Tunnel at https://krevia.in, proxying
+  // to this same local dev server. Next.js's dev server blocks (403 "Unauthorized") any cross-origin
+  // request to its internal /_next/* dev resources (notably the Turbopack/webpack HMR websocket) whose
+  // Origin header doesn't match an allowed host — krevia.in isn't localhost, so every such request was
+  // being rejected, breaking the HMR handshake and, with it, client-side hydration for the whole page
+  // (observed as the login form falling back to a native, unhandled HTML GET submission instead of
+  // React's onSubmit firing). Has no effect in production builds (`next start`), where this dev-only
+  // check doesn't run.
+  allowedDevOrigins: ["krevia.in"],
   async redirects() {
     // Self-service signup was removed (the platform has one universal owner). Stale bookmarks/links
     // to /signup redirect to the login page instead of 404ing.

@@ -14,6 +14,8 @@ import {
   AgentExecutionStatus,
   AgentMemoryScope,
   AgentToolExecutionStatus,
+  ConversationAiControlState,
+  ConversationMessageActorType,
   ConversationMessageRole,
   ConversationStatus,
   PluginStatus,
@@ -308,6 +310,19 @@ const EMPLOYEE_PROVIDER_SETTINGS: ProviderSettings = {
   providerType: "DETERMINISTIC",
   timeoutMs: 15000
 };
+
+// Sprint 6.7 — Part 21: an explicit customer request to be connected to a human, checked before any
+// employee dispatch runs (the same gate point as the human-takeover pause check below). English and
+// Hinglish are matched with separate patterns so the acknowledgement can be returned in the same
+// register the customer used, mirroring this file's/travel.runtime.ts's existing convention of literal
+// phrase alternation rather than a generic combinator.
+const HUMAN_ESCALATION_REQUEST_PATTERN_EN =
+  /\b(?:speak|talk)\s+(?:to|with)\s+a\s+(?:person|human|representative|agent)\b|\bhuman\s+agent\b|\breal\s+person\b|\bconnect\s+me\s+(?:to|with)\s+a\s+(?:human|representative|agent)\b|\bi\s+want\s+a\s+human\b/i;
+const HUMAN_ESCALATION_REQUEST_PATTERN_HI =
+  /\bagent\s+se\s+baat\s+karni\s+hai\b|\bhuman\s+chahiye\b|\brepresentative\s+se\s+connect\s+karo\b|\bkisi\s+(?:insaan|vyakti)\s+se\s+baat\b|\bagent\s+se\s+baat\s+karo\b/i;
+const HUMAN_HANDOFF_ACKNOWLEDGEMENT_EN = "Sure — I'll hand this over to a team member.";
+const HUMAN_HANDOFF_ACKNOWLEDGEMENT_HI =
+  "Bilkul — main ye conversation team member ko hand over kar raha hoon.";
 
 // Travel Booking Closure Pass — Phase 7: natural ways a customer asks for an already-confirmed booking's
 // document again, in the SAME conversation — "share the pdf", "send my pdf", "send the ticket", "show my
@@ -935,9 +950,77 @@ export class AgentService {
         conversationId: conversation.id,
         organizationId,
         role: ConversationMessageRole.USER,
+        actorType: ConversationMessageActorType.USER,
         content: effectiveText
       }
     });
+
+    // Sprint 6.7 — human takeover gate. Placed immediately after the USER message is durably stored (so a
+    // human operator always sees every message, even one that arrives mid-takeover) and BEFORE any
+    // workflow dispatch, classification, or provider call — no downstream Receptionist/Travel/employee
+    // logic ever sees a turn while a human owns the conversation. Two cases:
+    //   (a) already HUMAN_ACTIVE from a prior turn — store-and-stop, no AI-authored reply at all (an
+    //       empty `response` signals the channel adapter to send nothing rather than a blank message).
+    //   (b) still AI_ACTIVE but this exact message is an explicit request to speak to a person — flip to
+    //       HUMAN_ACTIVE and return the one natural acknowledgement, in the same register (English/
+    //       Hinglish) the customer used. Reuses the existing per-conversation state field rather than a
+    //       second escalation mechanism; workflow-level pauses continue to use the pre-existing
+    //       WAITING_FOR_APPROVAL mechanism unchanged.
+    if (conversation.aiControlState === ConversationAiControlState.HUMAN_ACTIVE) {
+      return {
+        conversationId: conversation.id,
+        executionId: null,
+        messageId: null,
+        response: "",
+        status: "COMPLETED" as const,
+        aiPaused: true as const,
+        model: null,
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCost: null },
+        sources: []
+      };
+    }
+    const escalationMatch = HUMAN_ESCALATION_REQUEST_PATTERN_HI.test(effectiveText)
+      ? "HI"
+      : HUMAN_ESCALATION_REQUEST_PATTERN_EN.test(effectiveText)
+        ? "EN"
+        : null;
+    if (escalationMatch) {
+      await this.prisma.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          aiControlState: ConversationAiControlState.HUMAN_ACTIVE,
+          aiPausedReason: "ESCALATION_REQUEST",
+          takenOverAt: new Date()
+        }
+      });
+      const acknowledgement =
+        escalationMatch === "HI" ? HUMAN_HANDOFF_ACKNOWLEDGEMENT_HI : HUMAN_HANDOFF_ACKNOWLEDGEMENT_EN;
+      const handoffMessage = await this.prisma.conversationMessage.create({
+        data: {
+          conversationId: conversation.id,
+          organizationId,
+          role: ConversationMessageRole.ASSISTANT,
+          actorType: ConversationMessageActorType.AI,
+          content: acknowledgement
+        }
+      });
+      return {
+        conversationId: conversation.id,
+        executionId: null,
+        messageId: handoffMessage.id,
+        response: acknowledgement,
+        status: "COMPLETED" as const,
+        model: "human-handoff-v1",
+        usage: {
+          inputTokens: 0,
+          outputTokens: estimateTokens(acknowledgement),
+          totalTokens: estimateTokens(acknowledgement),
+          estimatedCost: null
+        },
+        sources: []
+      };
+    }
+
     // Sprint 4.5: capture durable memories from the user's message + trigger conversation summarization.
     // Fire-and-forget — memory capture must never affect the response or fail the turn.
     void this.captureTurnMemories(

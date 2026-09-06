@@ -6,7 +6,7 @@ import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
 import { SECURITY_CONFIG, type SecurityConfig } from "../identity/infrastructure/security/security-config";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../plugins/plugin.runtime";
-import { TwilioClient, TwilioProviderError } from "./channel.runtime";
+import { resolveTwilioCredentials, TwilioClient, TwilioProviderError } from "./channel.runtime";
 import { verifyMetaCredentials } from "./whatsapp/meta-whatsapp.client";
 import type { ChannelListQueryDto, ChannelConversationQueryDto, ChannelMessageQueryDto, CreateChannelDto, UpdateChannelDto, MetaWhatsAppConfigurationDto } from "./channel.dto";
 
@@ -187,11 +187,15 @@ export class ChannelService {
   }
 
   private async testTwilio(channel: ChannelConnectionRow, userId: string, requestId: string) {
-    const config = channel.configuration as Record<string, unknown>;
-    const accountSid = config.accountSid as string;
+    const config = channel.configuration as { accountSid?: string; fromNumber?: string };
     const decrypted = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
-    const authToken = decrypted.authToken;
-    if (!accountSid || !authToken) throw new BadRequestException("CHANNEL_CONFIGURATION_INCOMPLETE");
+    const credentials = resolveTwilioCredentials({
+      accountSid: config.accountSid,
+      authToken: decrypted.authToken,
+      fromNumber: config.fromNumber
+    });
+    if (!credentials) throw new BadRequestException("CHANNEL_CONFIGURATION_INCOMPLETE");
+    const { accountSid, authToken } = credentials;
     try {
       await this.twilio.verifyCredentials({ accountSid, authToken });
       await this.markTestResult(channel.id, "success", null, null);

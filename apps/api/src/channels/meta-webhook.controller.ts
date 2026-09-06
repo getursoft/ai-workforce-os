@@ -89,9 +89,17 @@ export class MetaWebhookController {
     const rawBody = JSON.stringify(body);
     const decrypted = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
     const appSecret = decrypted.appSecret;
-    if (appSecret && !verifyMetaWebhookSignature(rawBody, signature, appSecret)) {
-      this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_INVALID", channelId });
-      return {};
+    if (appSecret) {
+      if (!verifyMetaWebhookSignature(rawBody, signature, appSecret)) {
+        this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_INVALID", channelId });
+        return {};
+      }
+    } else {
+      // Sprint 6.7 — Part 31 security audit: an appSecret-less channel accepts an unsigned webhook body.
+      // Not tightened to a hard rejection here (would break any existing channel connected without one
+      // configured, a behavior change beyond this sprint's mandate) — flagged loudly instead so it's
+      // visible in logs/alerting, and documented in the sprint report as a real, narrow gap.
+      this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_VERIFICATION_SKIPPED", channelId });
     }
     const payload = body as Record<string, unknown>;
     const entries = payload.entry as Array<Record<string, unknown>> | undefined;
@@ -175,16 +183,45 @@ export class MetaWebhookController {
     return {};
   }
 
+  /** Sprint 6.7 — monotonic status guard: every branch's `where` only matches rows in a state this
+   *  transition may legally advance FROM, via a conditional `updateMany` (the same atomic-conditional-
+   *  update idiom `ChannelMessageProcessor.claim()` already uses). A duplicate or out-of-order callback
+   *  (Meta redelivers webhooks, "sent" can arrive after "delivered") therefore either no-ops or is ignored
+   *  — DELIVERED never regresses to SENT, and a FAILED/DELIVERED row is left alone by a later callback. */
   private async handleStatusUpdate(channelId: string, _organizationId: string, status: Record<string, unknown>) {
     const providerMessageId = status.id as string;
     const statusValue = status.status as string;
     if (!providerMessageId) return;
     const errors = status.errors as Array<Record<string, unknown>> | undefined;
+    const errorCode = errors?.[0]?.code != null ? String(errors[0].code) : null;
+    const errorMessage = (errors?.[0]?.title as string | undefined) ?? null;
     try {
-      await this.prisma.channelMessage.updateMany({
-        where: { channelConnectionId: channelId, providerMessageSid: providerMessageId },
-        data: { status: statusValue === "read" ? "SENT" : statusValue === "failed" ? "FAILED" : "SENT", errorCode: errors?.[0]?.code as string ?? null, errorMessage: errors?.[0]?.title as string ?? null }
-      });
+      if (statusValue === "delivered" || statusValue === "read") {
+        await this.prisma.channelMessage.updateMany({
+          where: {
+            channelConnectionId: channelId,
+            providerMessageSid: providerMessageId,
+            status: { in: ["PROCESSING", "SENT"] }
+          },
+          data: { status: "DELIVERED" }
+        });
+      } else if (statusValue === "failed") {
+        await this.prisma.channelMessage.updateMany({
+          where: {
+            channelConnectionId: channelId,
+            providerMessageSid: providerMessageId,
+            status: { in: ["PROCESSING", "SENT"] }
+          },
+          data: { status: "FAILED", errorCode, errorMessage }
+        });
+      } else {
+        // "sent" (or any other forward-looking status) — only relevant if our own send-path hasn't
+        // already marked the row SENT/DELIVERED/FAILED.
+        await this.prisma.channelMessage.updateMany({
+          where: { channelConnectionId: channelId, providerMessageSid: providerMessageId, status: "PROCESSING" },
+          data: { status: "SENT" }
+        });
+      }
     } catch {
       // best-effort status update
     }

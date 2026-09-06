@@ -755,6 +755,33 @@ button {
   background: var(--surface-strong);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
+.voice-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.voice-transcript__segment {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--surface-strong);
+  border: 1px solid var(--border);
+}
+.voice-transcript__segment strong {
+  flex: 0 0 auto;
+  min-width: 60px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.voice-transcript__segment--agent {
+  background: var(--surface);
+}
 .admin-table {
   width: 100%;
   border-collapse: collapse;

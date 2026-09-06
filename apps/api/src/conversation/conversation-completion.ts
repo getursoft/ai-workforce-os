@@ -35,8 +35,11 @@ export function formatSuggestedActions(actions: readonly SuggestedAction[], head
 // Deliberately plain, everyday consent words — not booking/domain-specific vocabulary (that stays with
 // whatever confirmation pattern the calling employee already uses for its own domain actions), so this
 // stays reusable for a "submit this appointment request?" or "file this claim?" style offer too.
-const AFFIRMATIVE_PATTERN = /\b(yes|yeah|yep|yup|sure|ok(?:ay)?|please\s+do|go\s+ahead|sounds?\s+good|why\s+not|do\s+it|submit\s+it|haan|ji\s+han)\b/i;
-const NEGATIVE_PATTERN = /\b(no|nah|nope|not\s+(?:now|yet|really|interested)|maybe\s+later|skip|don'?t|never\s?mind|nahi)\b/i;
+// Sprint 6.6 — Part 13/30: "han" (bare, without the doubled vowel) and "nahin"/"nhi" are common
+// Hinglish spelling variants of "haan"/"nahi" the platform must recognize identically — not new
+// vocabulary, just additional spellings of the same two words already handled here.
+const AFFIRMATIVE_PATTERN = /\b(yes|yeah|yep|yup|sure|ok(?:ay)?|please\s+do|go\s+ahead|sounds?\s+good|why\s+not|do\s+it|submit\s+it|haan|han|ji\s+han|ji)\b/i;
+const NEGATIVE_PATTERN = /\b(no|nah|nope|not\s+(?:now|yet|really|interested)|maybe\s+later|skip|don'?t|never\s?mind|nahi|nahin|nhi)\b/i;
 
 /** True only when the reply reads as a clear "yes" and not also a "no" (e.g. "no thanks" never counts as
  * affirmative even though "thanks" alone would). */

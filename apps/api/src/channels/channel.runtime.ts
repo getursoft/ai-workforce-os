@@ -29,6 +29,40 @@ export class TwilioProviderError extends Error {
   }
 }
 
+export interface TwilioCredentials {
+  accountSid: string;
+  authToken: string;
+  fromNumber: string;
+}
+
+/** Resolves the Twilio credentials actually used for a given channel. `TWILIO_ACCOUNT_SID` /
+ *  `TWILIO_AUTH_TOKEN` / `TWILIO_WHATSAPP_FROM` env vars — when ALL THREE are set — take priority over
+ *  the channel's own encrypted-in-database configuration, applied consistently everywhere Twilio
+ *  credentials are used (inbound signature verification, outbound send, the `/test` endpoint) so the
+ *  three never disagree about which credential set is authoritative. Falls back to the per-channel
+ *  database values (accountSid/fromNumber from `configuration`, authToken decrypted from
+ *  `encryptedSecrets`) when the env vars aren't fully set — e.g. for other organizations' channels. */
+export function resolveTwilioCredentials(
+  channelDb: {
+    accountSid?: string | undefined;
+    authToken?: string | undefined;
+    fromNumber?: string | undefined;
+  }
+): TwilioCredentials | null {
+  const envAccountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
+  const envAuthToken = process.env.TWILIO_AUTH_TOKEN?.trim();
+  const envFromNumber = process.env.TWILIO_WHATSAPP_FROM?.trim();
+  if (envAccountSid && envAuthToken && envFromNumber) {
+    return { accountSid: envAccountSid, authToken: envAuthToken, fromNumber: envFromNumber };
+  }
+  if (!channelDb.accountSid || !channelDb.authToken || !channelDb.fromNumber) return null;
+  return {
+    accountSid: channelDb.accountSid,
+    authToken: channelDb.authToken,
+    fromNumber: channelDb.fromNumber
+  };
+}
+
 /** Computes the Twilio request signature: HMAC-SHA1(url + sorted key+value pairs), base64 encoded. */
 export function computeTwilioSignature(
   authToken: string,
@@ -201,6 +235,52 @@ function statusCode(status: number, payload: Record<string, unknown>): string {
   if (status === 429) return "CHANNEL_PROVIDER_RATE_LIMITED";
   if (status >= 500) return "CHANNEL_PROVIDER_UNAVAILABLE";
   return "CHANNEL_PROVIDER_REJECTED";
+}
+
+export type NormalizedDeliveryErrorCode =
+  | "RATE_LIMITED"
+  | "INVALID_RECIPIENT"
+  | "AUTH_FAILURE"
+  | "MEDIA_REJECTED"
+  | "NETWORK_ERROR"
+  | "PROVIDER_UNAVAILABLE"
+  | "UNKNOWN";
+
+/** Sprint 6.7 — maps a provider-specific error code (Twilio's `statusCode()` output, Meta's
+ *  `metaStatusCode()` output, or one of this processor's own credential/timeout codes) into the brief's
+ *  normalized outcome set, plus whether it's worth retrying. Provider-specific codes never leak past this
+ *  boundary into the core delivery/workflow logic — only the normalized code and the boolean do. */
+export function classifyProviderError(code: string): {
+  normalized: NormalizedDeliveryErrorCode;
+  retryable: boolean;
+} {
+  switch (code) {
+    case "CHANNEL_PROVIDER_RATE_LIMITED":
+    case "META_RATE_LIMITED":
+      return { normalized: "RATE_LIMITED", retryable: true };
+    case "CHANNEL_PROVIDER_AUTHENTICATION_FAILED":
+    case "META_AUTH_FAILURE":
+    case "CHANNEL_CREDENTIALS_REQUIRED":
+    case "META_CREDENTIALS_REQUIRED":
+      return { normalized: "AUTH_FAILURE", retryable: false };
+    case "CHANNEL_PROVIDER_REJECTED":
+    case "META_INVALID_RECIPIENT":
+    case "META_SEND_REJECTED":
+      return { normalized: "INVALID_RECIPIENT", retryable: false };
+    case "META_MEDIA_REJECTED":
+      return { normalized: "MEDIA_REJECTED", retryable: false };
+    case "CHANNEL_PROVIDER_TIMEOUT":
+      return { normalized: "NETWORK_ERROR", retryable: true };
+    case "CHANNEL_PROVIDER_UNAVAILABLE":
+    case "META_PROVIDER_UNAVAILABLE":
+    case "CHANNEL_PROVIDER_RESPONSE_INVALID":
+      return { normalized: "PROVIDER_UNAVAILABLE", retryable: true };
+    default:
+      // Unrecognized codes (a new provider error class, a raw network exception message) fail open on the
+      // retryable side — bounded by MAX_ATTEMPTS, so an unknown-but-permanent error still terminates
+      // eventually rather than being silently swallowed as un-retryable on day one.
+      return { normalized: "UNKNOWN", retryable: true };
+  }
 }
 
 /** Small in-memory sliding-window limiter for the webhook endpoint (no dedicated rate-limiting infra exists yet). */

@@ -18,6 +18,14 @@ for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), 
     break;
   }
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
+// ConfigModule.forRoot() (no envFilePath) loads apps/api/.env from CWD by default, which may carry real
+// TWILIO_* credentials from local dev work. resolveTwilioCredentials() prefers env vars over the DB-
+// stored per-channel secret when all three are set — clear them so this suite deterministically exercises
+// the encrypted ChannelConnection credential path this test's own signatures are computed against,
+// instead of silently depending on whatever happens to be in a developer's local .env.
+delete process.env.TWILIO_ACCOUNT_SID;
+delete process.env.TWILIO_AUTH_TOKEN;
+delete process.env.TWILIO_WHATSAPP_FROM;
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 
 const realFetch = globalThis.fetch;
@@ -365,7 +373,8 @@ suite("Channels (Twilio WhatsApp) HTTP", () => {
       .get(`/api/v1/channels/${channelId}/messages`)
       .set({ Authorization: `Bearer ${otherToken}` })
       .expect(404);
-  });
+  }, 15_000); // registration sends a real verification email when SMTP is configured locally — the
+  // default 5s test timeout can be too tight for that round-trip, independent of anything under test here
 
   it("requires authentication for the configuration API but not for the Twilio webhook", async () => {
     await request(app.getHttpServer()).get("/api/v1/channels").expect(401);

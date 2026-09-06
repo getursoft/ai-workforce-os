@@ -120,6 +120,29 @@ export const DEFAULT_FIELDS: FieldSpec[] = [
   },
   { name: "TRUST_PROXY", group: "app", type: "boolean", default: "false" },
   { name: "RECEPTIONIST_VOICE_ENABLED", group: "app", type: "boolean", default: "false" },
+  // Sprint 7 — real-time voice calling. Master enable stays RECEPTIONIST_VOICE_ENABLED (above); these
+  // are additionally safe-by-default (VOICE_REALTIME_PROVIDER=mock requires no credentials) so a plain
+  // .env keeps the mock voice flow working end to end with zero extra configuration.
+  { name: "VOICE_PROVIDER", group: "app", type: "string", default: "twilio" },
+  { name: "VOICE_REALTIME_PROVIDER", group: "app", type: "string", default: "mock" },
+  // No default: derived from API_PUBLIC_URL (http->ws, https->wss) when unset. Deliberately typed as a
+  // plain string, not "url" — the "url" validator enforces an https: scheme in production, which would
+  // reject a correct wss:// value.
+  { name: "VOICE_PUBLIC_WS_URL", group: "app", type: "string" },
+  { name: "VOICE_MAX_CALL_DURATION_SECONDS", group: "app", type: "number", default: "1800", min: 30, max: 14_400 },
+  { name: "VOICE_IDLE_TIMEOUT_SECONDS", group: "app", type: "number", default: "30", min: 5, max: 600 },
+  { name: "VOICE_MAX_CONCURRENT_SESSIONS", group: "app", type: "number", default: "50", min: 1, max: 5000 },
+  // Sprint 7.11 — STEP 17: production must never silently run real calls against the mock provider.
+  // Off by default everywhere, including production — an operator must deliberately opt in, e.g. for a
+  // supervised production smoke test before real credentials are configured.
+  { name: "VOICE_ALLOW_MOCK_IN_PRODUCTION", group: "app", type: "boolean", default: "false" },
+  // Sprint 7.11 — STEP 14: privacy/retention config points. No automated deletion job runs on these
+  // yet (documented as an external operational step in docs/voice-calling.md) — they exist so a
+  // retention job can be added later without a schema or call-site change. Caller-ID masking IS
+  // enforced today, at read time in VoiceCallHistoryService.
+  { name: "VOICE_TRANSCRIPT_RETENTION_DAYS", group: "app", type: "number", default: "90", min: 1, max: 3650 },
+  { name: "VOICE_EVENT_RETENTION_DAYS", group: "app", type: "number", default: "90", min: 1, max: 3650 },
+  { name: "VOICE_MASK_CALLER_ID", group: "app", type: "boolean", default: "true" },
   // ------------------------------------------------------------------ Database
   {
     name: "DATABASE_URL",

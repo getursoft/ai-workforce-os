@@ -67,7 +67,7 @@ export interface Conversation {
   status: "ACTIVE" | "ARCHIVED";
   updatedAt: string;
   pluginInstallation: { displayName: string };
-  createdBy: { firstName: string; lastName: string | null };
+  createdBy: { firstName: string; lastName: string | null } | null;
   _count: { messages: number };
 }
 export interface ConversationMessage {

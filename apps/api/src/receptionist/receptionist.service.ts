@@ -149,9 +149,33 @@ export class ReceptionistService implements ReceptionistRuntime {
           customerName: capturedName,
           identityStatus: "RECEPTIONIST_CAPTURED",
           pendingReceptionistInput: null,
-          pendingOriginalRequest: null
+          pendingOriginalRequest: null,
+          pendingClarificationCandidateIds: null
         });
       }
+    }
+
+    // Sprint 6.6 — Part 9 (root cause): a CLARIFY exchange used to discard the original ambiguous
+    // message entirely — the next turn routed the customer's short disambiguating reply ("Travel") ALONE,
+    // with no memory of what it was even answering. Mirrors the CUSTOMER_NAME resumption immediately
+    // above: the original message survives in `pendingOriginalRequest` (no second store), and this turn's
+    // reply is appended to it before routing ever runs — never routed in isolation. A bare disambiguating
+    // reply, a domain pivot ("forget this, salary ka issue hai"), and a reply that merely confirms one of
+    // the offered candidates are all handled by the SAME mechanism: ordinary routing scoring against the
+    // combined text, not a special-cased lookup against `pendingClarificationCandidateIds` (which exists
+    // only as an observability/future-use record of what was actually offered, per the plan's "no second
+    // routing model").
+    if (intake.pendingReceptionistInput === "CLARIFY_ROUTE") {
+      effectiveText = intake.pendingOriginalRequest
+        ? `${intake.pendingOriginalRequest} ${input.text}`.trim()
+        : input.text;
+      await this.persistIntake(conversation.id, conversation.metadata, {
+        customerName: intake.customerName,
+        identityStatus: intake.identityStatus,
+        pendingReceptionistInput: null,
+        pendingOriginalRequest: null,
+        pendingClarificationCandidateIds: null
+      });
     }
 
     // Sprint 6.5 — Part 4/6: UNPROMPTED identity capture. Nobody asked "what's your name?" this turn —
@@ -176,7 +200,8 @@ export class ReceptionistService implements ReceptionistRuntime {
             customerName: candidate.name,
             identityStatus: "RECEPTIONIST_CAPTURED",
             pendingReceptionistInput: null,
-            pendingOriginalRequest: null
+            pendingOriginalRequest: null,
+            pendingClarificationCandidateIds: null
           });
           // A message that is JUST the identity ("Krishna", "I'm Krishna", "Krishna here") has nothing
           // left to route this turn — acknowledge and wait for the customer's actual request next turn.
@@ -332,11 +357,15 @@ export class ReceptionistService implements ReceptionistRuntime {
       // and above all the specialist's own `text` — must see the RESUMED original request, never the bare
       // name reply that answered "may I know your name?" (that reply already went into the conversation
       // transcript as its own USER message above; it must not also become the specialist's first turn).
-      const effectiveInput = justCapturedName ? { ...input, text: effectiveText } : input;
+      // Sprint 6.6: generalized from "only when a name was just captured" to "whenever effectiveText was
+      // actually resumed/combined" — the CLARIFY_ROUTE resumption above rewrites `effectiveText` the same
+      // way the CUSTOMER_NAME one does, and needs the same substitution here.
+      const effectiveInput = effectiveText !== input.text ? { ...input, text: effectiveText } : input;
       const outcome = await this.applyDecision({
         input: effectiveInput,
         plugin,
         conversationId: conversation.id,
+        conversationMetadata: conversation.metadata,
         customerProfileId: conversation.customerProfileId,
         customerIdentity,
         channel,
@@ -495,6 +524,7 @@ export class ReceptionistService implements ReceptionistRuntime {
     input: AgentExecutionInput;
     plugin: { id: string; displayName: string };
     conversationId: string;
+    conversationMetadata: unknown;
     customerProfileId: string | null;
     customerIdentity: SafeCustomerIdentity;
     channel: ReceptionistChannel;
@@ -546,6 +576,22 @@ export class ReceptionistService implements ReceptionistRuntime {
       };
     }
     if (decision.routeType === "CLARIFY") {
+      // Sprint 6.6 — Part 9: persist the ambiguous message (and which employees it might have meant) so
+      // the customer's next, short disambiguating reply is interpreted TOGETHER with it, not routed alone
+      // — mirrors the CUSTOMER_NAME deferral immediately below at the `deferForCustomerName` call site.
+      // `context.input.text` is already the fully-resumed text by this point (a CLARIFY-of-a-CLARIFY
+      // accumulates rather than losing the earlier context), and `secondaryEmployeeInstallationIds` is the
+      // decision's own existing field, now populated for CLARIFY too (see receptionist-routing.service.ts).
+      await this.persistIntake(context.conversationId, context.conversationMetadata, {
+        customerName: context.customerIdentity.displayName,
+        identityStatus:
+          context.customerIdentity.displayName != null ? "RECEPTIONIST_CAPTURED" : "UNKNOWN",
+        pendingReceptionistInput: "CLARIFY_ROUTE",
+        pendingOriginalRequest: context.input.text,
+        pendingClarificationCandidateIds: decision.secondaryEmployeeInstallationIds.length
+          ? decision.secondaryEmployeeInstallationIds
+          : null
+      });
       return {
         response:
           decision.clarificationQuestion ??
@@ -1073,7 +1119,8 @@ export class ReceptionistService implements ReceptionistRuntime {
       customerName: null,
       identityStatus: "UNKNOWN",
       pendingReceptionistInput: "CUSTOMER_NAME",
-      pendingOriginalRequest
+      pendingOriginalRequest,
+      pendingClarificationCandidateIds: null
     });
     const response = "Sure, I can help with that. Before I connect you, may I know your name?";
     const contentJson = {
@@ -1427,8 +1474,16 @@ function readIntakeState(metadata: unknown): ReceptionistIntakeState {
     identityStatus: (typeof raw.identityStatus === "string" && INTAKE_IDENTITY_STATUSES.has(raw.identityStatus)
       ? raw.identityStatus
       : "UNKNOWN") as ReceptionistIdentitySource,
-    pendingReceptionistInput: raw.pendingReceptionistInput === "CUSTOMER_NAME" ? "CUSTOMER_NAME" : null,
-    pendingOriginalRequest: typeof raw.pendingOriginalRequest === "string" ? raw.pendingOriginalRequest : null
+    pendingReceptionistInput:
+      raw.pendingReceptionistInput === "CUSTOMER_NAME"
+        ? "CUSTOMER_NAME"
+        : raw.pendingReceptionistInput === "CLARIFY_ROUTE"
+          ? "CLARIFY_ROUTE"
+          : null,
+    pendingOriginalRequest: typeof raw.pendingOriginalRequest === "string" ? raw.pendingOriginalRequest : null,
+    pendingClarificationCandidateIds: Array.isArray(raw.pendingClarificationCandidateIds)
+      ? raw.pendingClarificationCandidateIds.filter((id): id is string => typeof id === "string")
+      : null
   };
 }
 

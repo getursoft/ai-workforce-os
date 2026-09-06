@@ -113,6 +113,90 @@ describe("VoiceSessionService", () => {
       }
     });
   });
+
+  it("creates a RINGING session for a real inbound call only on a voice-enabled channel", async () => {
+    const { sessions, prisma } = service();
+    prisma.channelConnection.findFirst.mockResolvedValue({ id: "channel-1", voiceEnabled: true });
+    await sessions.createRinging({
+      organizationId: "tenant-a",
+      channelConnectionId: "channel-1",
+      provider: "TWILIO",
+      providerCallId: "CAxxxx",
+      transport: "WHATSAPP" as never
+    });
+    expect(prisma.voiceSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: "RINGING", providerCallId: "CAxxxx" })
+      })
+    );
+  });
+
+  it("rejects createRinging when the channel has not enabled voice", async () => {
+    const { sessions, prisma } = service();
+    prisma.channelConnection.findFirst.mockResolvedValue({ id: "channel-1", voiceEnabled: false });
+    await expect(
+      sessions.createRinging({
+        organizationId: "tenant-a",
+        channelConnectionId: "channel-1",
+        provider: "TWILIO",
+        providerCallId: "CAxxxx",
+        transport: "WHATSAPP" as never
+      })
+    ).rejects.toThrow("VOICE_SESSION_SCOPE_INVALID");
+    expect(prisma.voiceSession.create).not.toHaveBeenCalled();
+  });
+
+  it("links a conversation only if not already linked", async () => {
+    const { sessions, prisma } = service();
+    await sessions.linkConversation("tenant-a", "voice-1", "conversation-9");
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith({
+      where: { id: "voice-1", organizationId: "tenant-a", receptionistConversationId: null },
+      data: { receptionistConversationId: "conversation-9" }
+    });
+  });
+
+  it("walks the call state machine: stream started -> active -> interrupted -> resumed", async () => {
+    const { sessions, prisma } = service();
+    await sessions.markStreamStarted("tenant-a", "voice-1", "MZxxxx");
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "voice-1", organizationId: "tenant-a", status: { in: ["CREATED", "RINGING"] } },
+        data: expect.objectContaining({ status: "CONNECTING", providerStreamId: "MZxxxx" })
+      })
+    );
+    await sessions.markActive("tenant-a", "voice-1");
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "ACTIVE" }) })
+    );
+    await sessions.interrupt("tenant-a", "voice-1");
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "voice-1", organizationId: "tenant-a", status: "ACTIVE" },
+        data: expect.objectContaining({ status: "INTERRUPTED" })
+      })
+    );
+    await sessions.resume("tenant-a", "voice-1");
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "voice-1", organizationId: "tenant-a", status: "INTERRUPTED" },
+        data: expect.objectContaining({ status: "ACTIVE" })
+      })
+    );
+  });
+
+  it("treats a repeated end() as a harmless no-op instead of throwing", async () => {
+    const { sessions, prisma } = service();
+    prisma.voiceSession.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.voiceSession.findFirst.mockResolvedValueOnce({ id: "voice-1", status: "ENDED" });
+    await expect(sessions.end("tenant-a", "voice-1")).resolves.toBeUndefined();
+  });
+
+  it("still throws VOICE_SESSION_NOT_FOUND when end() targets a session that never existed", async () => {
+    const { sessions, prisma } = service();
+    prisma.voiceSession.updateMany.mockResolvedValueOnce({ count: 0 });
+    prisma.voiceSession.findFirst.mockResolvedValueOnce(null);
+    await expect(sessions.end("tenant-a", "does-not-exist")).rejects.toThrow("VOICE_SESSION_NOT_FOUND");
+  });
 });
 
 describe("VoiceReceptionistTurnService", () => {
@@ -203,5 +287,44 @@ describe("VoiceReceptionistTurnService", () => {
       })
     ).rejects.toThrow("VOICE_RECEPTIONIST_SCOPE_INVALID");
     expect(agents.execute).not.toHaveBeenCalled();
+  });
+
+  it("on the first turn of a real call, lets AgentService create the conversation and links it back", async () => {
+    const { sessions, prisma } = service();
+    prisma.voiceSession.findFirst.mockResolvedValue({
+      id: "voice-1",
+      organizationId: "tenant-a",
+      channelConnectionId: "channel-1",
+      receptionistConversationId: null,
+      provider: "TWILIO",
+      providerCallId: "call-1",
+      status: "ACTIVE"
+    });
+    prisma.channelConnection.findFirst.mockResolvedValue({
+      id: "channel-1",
+      pluginInstallationId: "receptionist-1",
+      pluginInstallation: { status: "ACTIVE", manifest: { capabilities: ["workforce.intake"] } }
+    });
+    const agents = {
+      execute: vi.fn().mockResolvedValue({
+        conversationId: "conversation-new",
+        response: "Hi, you've reached Krevia. How can I help you today?",
+        receptionist: { handoff: null }
+      })
+    };
+    const turns = new VoiceReceptionistTurnService(prisma as never, sessions, agents as never);
+    await turns.handleTranscript({
+      organizationId: "tenant-a",
+      sessionId: "voice-1",
+      transcript: "hello",
+      customerExternalId: "+919999999999",
+      requestId: "voice-turn-first"
+    });
+    expect(agents.execute).toHaveBeenCalledWith(expect.objectContaining({ agentId: "receptionist-1" }));
+    expect((agents.execute.mock.calls[0]?.[0] as { conversationId?: string }).conversationId).toBeUndefined();
+    expect(prisma.voiceSession.updateMany).toHaveBeenCalledWith({
+      where: { id: "voice-1", organizationId: "tenant-a", receptionistConversationId: null },
+      data: { receptionistConversationId: "conversation-new" }
+    });
   });
 });

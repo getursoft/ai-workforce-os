@@ -44,8 +44,28 @@ function parseEnvFile(contents: string): Record<string, string> {
 const envTestPath = resolve(__dirname, "../../.env.test");
 const testEnv = existsSync(envTestPath) ? parseEnvFile(readFileSync(envTestPath, "utf8")) : {};
 
+/**
+ * Sprint 7 (voice) discovery: the same "whichever loads first wins" hazard described above applies to
+ * apps/api/.env too — @nestjs/config's ConfigModule.forRoot() (called inside every e2e spec's own
+ * NestFactory.create(AppModule)) reads real local-dev credentials (Twilio, SMTP) straight off disk from
+ * apps/api/.env's CWD-relative default. Those credentials are legitimate for local manual testing against
+ * the real providers, but they silently hijack e2e specs that compute Twilio webhook signatures — or
+ * expect fast/no-op email delivery — against the DB-stored *test* fixtures those specs actually set up,
+ * causing 401s and real multi-second SMTP round-trips (test timeouts) unrelated to whatever the spec is
+ * actually asserting. Neutralizing them here (not in .env.test, which stays "unset" = intentionally
+ * absent) makes every e2e spec deterministic regardless of what a developer's local apps/api/.env holds.
+ */
+const externalProviderOverrides = {
+  TWILIO_ACCOUNT_SID: "",
+  TWILIO_AUTH_TOKEN: "",
+  TWILIO_WHATSAPP_FROM: "",
+  SMTP_HOST: "",
+  SMTP_USER: "",
+  SMTP_PASSWORD: ""
+};
+
 export default defineConfig({
   test: {
-    env: testEnv
+    env: { ...testEnv, ...externalProviderOverrides }
   }
 });

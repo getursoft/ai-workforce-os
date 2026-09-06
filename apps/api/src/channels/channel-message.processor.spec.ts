@@ -15,7 +15,7 @@ interface Row {
   conversationId?: string | null;
   agentExecutionId?: string | null;
   direction: "INBOUND" | "OUTBOUND";
-  status: "RECEIVED" | "PROCESSING" | "SENT" | "FAILED";
+  status: "RECEIVED" | "PROCESSING" | "SENT" | "DELIVERED" | "FAILED";
   providerMessageSid?: string | null;
   fromAddress: string;
   toAddress: string;
@@ -24,6 +24,8 @@ interface Row {
   nextAttemptAt: Date | null;
   updatedAt: Date;
   createdAt: Date;
+  computedResponseText?: string | null;
+  computedResponseAttachments?: unknown;
 }
 
 function claimable(row: Row, direction: "INBOUND" | "OUTBOUND", now: number): boolean {
@@ -47,16 +49,61 @@ function createFakePrisma(
   conversations: Record<string, unknown>[]
 ) {
   const store = new Map(rows.map((r) => [r.id, r]));
+  const deliveryAttempts: { channelMessageId: string; [key: string]: unknown }[] = [];
   let created = 0;
   return {
     channelMessage: {
-      findMany: vi.fn(async ({ where }: { where: { direction: "INBOUND" | "OUTBOUND" } }) => {
-        const now = Date.now();
-        return [...store.values()]
-          .filter((row) => claimable(row, where.direction, now))
-          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
-          .map((row) => ({ id: row.id }));
-      }),
+      findMany: vi.fn(
+        async ({
+          where,
+          distinct
+        }: {
+          where: {
+            direction: "INBOUND" | "OUTBOUND";
+            status?: string;
+            updatedAt?: { gt?: Date; lte?: Date };
+            OR?: unknown[];
+            NOT?: { channelConnectionId: string; fromAddress: string }[];
+          };
+          distinct?: string[];
+        }) => {
+          const now = Date.now();
+          // Sprint 6.7 — busy-identity pre-query (no OR clause): rows currently PROCESSING and non-stale,
+          // deduped by channelConnectionId+fromAddress when `distinct` is given.
+          if (!where.OR && where.status === "PROCESSING" && where.updatedAt?.gt) {
+            const gt = where.updatedAt.gt.getTime();
+            const rows = [...store.values()].filter(
+              (row) =>
+                row.direction === where.direction &&
+                row.status === "PROCESSING" &&
+                row.updatedAt.getTime() > gt
+            );
+            if (distinct) {
+              const seen = new Set<string>();
+              const result: { channelConnectionId: string; fromAddress: string }[] = [];
+              for (const row of rows) {
+                const key = `${row.channelConnectionId}::${row.fromAddress}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                result.push({ channelConnectionId: row.channelConnectionId, fromAddress: row.fromAddress });
+              }
+              return result;
+            }
+            return rows.map((row) => ({ id: row.id }));
+          }
+          const notList = where.NOT ?? [];
+          return [...store.values()]
+            .filter((row) => claimable(row, where.direction, now))
+            .filter(
+              (row) =>
+                !notList.some(
+                  (n) => n.channelConnectionId === row.channelConnectionId && n.fromAddress === row.fromAddress
+                )
+            )
+            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+            .map((row) => ({ id: row.id }));
+        }
+      ),
       updateMany: vi.fn(
         async ({
           where,
@@ -105,6 +152,16 @@ function createFakePrisma(
         return { ...row };
       })
     },
+    channelDeliveryAttempt: {
+      count: vi.fn(async ({ where: { channelMessageId } }: { where: { channelMessageId: string } }) =>
+        deliveryAttempts.filter((a) => a.channelMessageId === channelMessageId).length
+      ),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const attempt = { ...data };
+        deliveryAttempts.push(attempt as { channelMessageId: string; [key: string]: unknown });
+        return attempt;
+      })
+    },
     channelConnection: {
       findFirst: vi.fn(async ({ where: { id } }: { where: { id: string } }) => channels[id] ?? null)
     },
@@ -123,7 +180,8 @@ function createFakePrisma(
           ) ?? null
       )
     },
-    store
+    store,
+    deliveryAttempts
   };
 }
 
@@ -419,5 +477,106 @@ describe("ChannelMessageProcessor.processOnce", () => {
     );
     const processed = await processor.processOnce();
     expect(processed).toBe(0);
+  });
+
+  describe("Sprint 6.7 — crash-safety checkpoint", () => {
+    it("writes computedResponseText/agentExecutionId/conversationId BEFORE sending, so a stale reclaim can resume without re-running the agent", async () => {
+      const prisma = createFakePrisma([inboundRow()], { "channel-1": activeChannel() }, []);
+      const agents = {
+        execute: vi.fn().mockResolvedValue({
+          conversationId: "conversation-1",
+          executionId: "execution-1",
+          response: "Hi! How can I help?"
+        })
+      } as unknown as AgentService;
+      const processor = new ChannelMessageProcessor(
+        prisma as never,
+        agents,
+        encryption,
+        auditLogger,
+        security
+      );
+      (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
+        sendWhatsAppMessage: vi
+          .fn()
+          .mockResolvedValue({ providerMessageSid: "SM_OUT_1", status: "queued" })
+      };
+      await processor.processOnce();
+      const inbound = getRow(prisma.store, "inbound-1");
+      expect(inbound.computedResponseText).toBe("Hi! How can I help?");
+      expect(inbound.agentExecutionId).toBe("execution-1");
+      expect(inbound.conversationId).toBe("conversation-1");
+    });
+
+    it("resumes a reclaimed row that already has a computedResponseText WITHOUT calling agents.execute again", async () => {
+      const staleProcessing = new Date(Date.now() - STALE_MS - 1000);
+      const prisma = createFakePrisma(
+        [
+          inboundRow({
+            status: "PROCESSING",
+            updatedAt: staleProcessing,
+            processingAttempts: 1,
+            conversationId: "conversation-1",
+            agentExecutionId: "execution-1",
+            computedResponseText: "Hi! How can I help?"
+          })
+        ],
+        { "channel-1": activeChannel() },
+        []
+      );
+      const agents = { execute: vi.fn() } as unknown as AgentService;
+      const processor = new ChannelMessageProcessor(
+        prisma as never,
+        agents,
+        encryption,
+        auditLogger,
+        security
+      );
+      (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
+        sendWhatsAppMessage: vi
+          .fn()
+          .mockResolvedValue({ providerMessageSid: "SM_RESUMED", status: "queued" })
+      };
+      const processed = await processor.processOnce();
+      expect(processed).toBe(1);
+      expect(agents.execute).not.toHaveBeenCalled();
+      const outbound = getRow(prisma.store, "outbound-1");
+      expect(outbound.body).toBe("Hi! How can I help?");
+      expect(outbound.status).toBe("SENT");
+      const inbound = getRow(prisma.store, "inbound-1");
+      expect(inbound.status).toBe("SENT");
+    });
+
+    it("does not claim a second inbound message for the same conversation while an earlier one is still PROCESSING (non-stale)", async () => {
+      const prisma = createFakePrisma(
+        [
+          inboundRow({
+            id: "inbound-first",
+            status: "PROCESSING",
+            updatedAt: new Date(),
+            createdAt: new Date(Date.now() - 2000)
+          }),
+          inboundRow({
+            id: "inbound-second",
+            status: "RECEIVED",
+            createdAt: new Date(Date.now() - 1000)
+          })
+        ],
+        { "channel-1": activeChannel() },
+        []
+      );
+      const agents = { execute: vi.fn() } as unknown as AgentService;
+      const processor = new ChannelMessageProcessor(
+        prisma as never,
+        agents,
+        encryption,
+        auditLogger,
+        security
+      );
+      const processed = await processor.processOnce();
+      expect(processed).toBe(0);
+      expect(agents.execute).not.toHaveBeenCalled();
+      expect(getRow(prisma.store, "inbound-second").status).toBe("RECEIVED");
+    });
   });
 });

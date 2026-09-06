@@ -325,4 +325,80 @@ describe("ReceptionistService", () => {
       }
     );
   });
+
+  // Sprint 6.6 — Part 9/29: a CLARIFY exchange must preserve the original ambiguous message so the
+  // customer's short disambiguating reply is interpreted together with it, never routed alone.
+  describe("CLARIFY preserves the original message (Sprint 6.6)", () => {
+    function clarifyThenRouteHarness() {
+      const built = harness();
+      built.prisma.plugin.findFirst.mockImplementation(
+        async ({ where }: { where: { id: string } }) =>
+          ({
+            "receptionist-1": { id: "receptionist-1", displayName: "AI Receptionist", manifest: { capabilities: ["workforce.intake"] } },
+            "travel-1": { id: "travel-1", displayName: "Travel Employee" },
+            "finance-1": { id: "finance-1", displayName: "Finance Employee" }
+          })[where.id] ?? null
+      );
+      const clarifyDecision: ReceptionistRouteDecision = {
+        routeType: "CLARIFY",
+        primaryEmployeeInstallationId: null,
+        secondaryEmployeeInstallationIds: ["travel-1", "finance-1"],
+        capability: null,
+        intent: null,
+        confidence: 0.5,
+        decisionSource: "DETERMINISTIC",
+        reasonCode: "AMBIGUOUS_PROFILE_MATCH",
+        clarificationQuestion: "Sure. Is this about Travel Employee, or Finance Employee?",
+        handoffMode: null
+      };
+      built.routing.route.mockImplementation(async (routeInput: { message: string }) => {
+        // A cold-start "budget" message alone is ambiguous; once the original text is combined with a
+        // disambiguating reply that names one side, it's a clean ROUTE — exactly like the real deterministic
+        // scorer would behave (this mock exists only to prove `receptionist.service.ts`'s OWN combine-and-
+        // reroute mechanism works, not to reimplement scoring).
+        if (/travel/i.test(routeInput.message)) return { ...route, reasonCode: "PROFILE_SIGNAL_MATCH" };
+        if (/finance/i.test(routeInput.message))
+          return { ...route, primaryEmployeeInstallationId: "finance-1", reasonCode: "PROFILE_SIGNAL_MATCH" };
+        return clarifyDecision;
+      });
+      return built;
+    }
+
+    it("Test A: a bare disambiguating reply is combined with the original message, not routed alone", async () => {
+      const { receptionist, routing, agents } = clarifyThenRouteHarness();
+      // Identity captured first (Sprint 6.5 behavior) so the later ROUTE resolves straight to a handoff
+      // instead of detouring through "may I know your name?" — keeping this test focused on CLARIFY
+      // preservation specifically, not the (already separately tested) identity-defer flow.
+      await receptionist.execute(request("Krishna"));
+      const ambiguous = await receptionist.execute(
+        request("I need help with the budget", "receptionist-conversation")
+      );
+      expect(ambiguous.receptionist.routeType).toBe("CLARIFY");
+      expect(ambiguous.response).toContain("Travel Employee");
+
+      const reply = await receptionist.execute(request("Travel", "receptionist-conversation"));
+      // The routing call for the disambiguating turn must have seen the ORIGINAL message too, not "Travel"
+      // alone — a bare "Travel" alone carries almost no scoring signal on its own in the real scorer.
+      const secondRouteCall = routing.route.mock.calls[1]?.[0] as { message: string } | undefined;
+      expect(secondRouteCall?.message).toContain("I need help with the budget");
+      expect(secondRouteCall?.message).toContain("Travel");
+      expect(reply.receptionist.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(agents.execute).toHaveBeenCalledWith(
+        expect.objectContaining({ text: expect.stringContaining("I need help with the budget") })
+      );
+    });
+
+    it("Test D: a domain pivot mid-clarify resolves on the combined text's own strong signal, not the original candidates", async () => {
+      const { receptionist, routing } = clarifyThenRouteHarness();
+      await receptionist.execute(request("Krishna"));
+      await receptionist.execute(request("I need help with the budget", "receptionist-conversation"));
+      const pivot = await receptionist.execute(
+        request("Forget this, I need Finance instead", "receptionist-conversation")
+      );
+      const secondRouteCall = routing.route.mock.calls[1]?.[0] as { message: string } | undefined;
+      expect(secondRouteCall?.message).toContain("I need help with the budget");
+      expect(secondRouteCall?.message).toContain("Finance");
+      expect(pivot.receptionist.handoff?.targetDisplayName).toBe("Finance Employee");
+    });
+  });
 });

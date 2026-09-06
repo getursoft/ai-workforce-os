@@ -34,6 +34,13 @@ export interface InputSemanticContext {
   /** Optional extra words a caller knows are "value" words, not chatter (e.g. KNOWN_DESTINATIONS) —
    *  used only to strengthen the INFORMATION/ANSWER heuristic, never required. */
   knownValueWords?: readonly string[];
+  /** Sprint 6.6 — Part 14: whichever typed pending-question identifier the caller already tracks (e.g. a
+   *  `TravelPendingAction`/`TravelPendingInputAction` literal). Deliberately a bare `string`, not a new
+   *  enum — the brief is explicit that a caller's own existing pending-field metadata is the "question
+   *  type," not a second one defined here. Not consulted by `classifyUserInput` itself today (classifying
+   *  WHAT the user is doing stays independent of WHICH question is pending — see the module doc comment);
+   *  carried through purely so a caller can log/branch on it without a second lookup. */
+  pendingQuestionType?: string;
 }
 
 export interface InputSemanticResult {
@@ -67,8 +74,14 @@ export const CORRECTION_MARKER_PATTERN =
 // Explicit pivot language — coarse and employee-agnostic on purpose. Which employee the pivot goes to
 // is entirely `receptionist-routing.service.ts`'s job; this only flags "the user is stating a different
 // need," so a pending-field consumer knows not to force the text into its own field.
+//
+// Sprint 6.6 — Part 8/15: extended with Hinglish pivot markers ("X rehne do", "chhodo", "ab X chahiye",
+// "se baat karni hai", "pe chalo") and broadened "forget this/that/it"/"never mind this/that" to not
+// require a following "I need/have" — "Forget this, salary ka issue hai" (no "I need/have" at all) is a
+// brief-mandated example that the original English-only, English-grammar-anchored pattern would have
+// missed entirely.
 const DOMAIN_PIVOT_PATTERN =
-  /\b(?:i need (?:help with )?\w+(?:\s+\w+)?\s*(?:help|support|question|issue)?\s*instead|forget (?:this|that|it)[,.]?\s*i\s+(?:need|have)|never\s*mind\s+(?:that|this)[,.]?\s*i\s+(?:need|have)|instead\s+i\s+(?:need|have))\b/i;
+  /\bi need (?:help with )?\w+(?:\s+\w+)?\s*(?:help|support|question|issue)?\s*instead\b|\bforget\s+(?:this|that|it|about)\b|\bnever\s*mind\s+(?:that|this)\b|\binstead\s+i\s+(?:need|have)\b|\bleave\s+this\b|\b\w+\s+rehne\s+do\b|\bchhodo\b|\bab\s+\w+(?:\s+\w+)?\s+chahiye\b|\bse\s+baat\s+karni\s+hai\b|\bpe\s+chalo\b/i;
 
 const ACTION_PHRASE_PATTERN =
   /\b(?:book it|go ahead|show options|share (?:the )?pdf|show me options|let'?s book|confirm (?:it|the booking)|cancel (?:it|the booking))\b/i;

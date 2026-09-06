@@ -57,12 +57,21 @@ export type ReceptionistIdentitySource =
  *  (never on the specialist's conversation/entities — see the correction-pass spec's "Do NOT overload
  *  specialist workflow state unnecessarily"). Lets a bare name reply ("Krishna") be recognized as the
  *  answer to "may I know your name?" instead of being re-classified as a fresh routing request, and lets
- *  the original request resume once the name is known. */
+ *  the original request resume once the name is known.
+ *
+ *  Sprint 6.6 — Part 9: `"CLARIFY_ROUTE"` reuses this exact same mechanism for a CLARIFY exchange — a
+ *  short disambiguating reply ("Travel") must be interpreted TOGETHER with the original ambiguous
+ *  message it answered, not routed alone with that context discarded. `pendingOriginalRequest` (already
+ *  here for the name case) is reused verbatim rather than adding a second text store;
+ *  `pendingClarificationCandidateIds` is the one new field this needs, holding the plugin-installation
+ *  IDs of the employees the clarification question offered — sourced from `ReceptionistRouteDecision
+ *  .secondaryEmployeeInstallationIds`, a field that already exists on the decision type. */
 export interface ReceptionistIntakeState {
   customerName: string | null;
   identityStatus: ReceptionistIdentitySource;
-  pendingReceptionistInput: "CUSTOMER_NAME" | null;
+  pendingReceptionistInput: "CUSTOMER_NAME" | "CLARIFY_ROUTE" | null;
   pendingOriginalRequest: string | null;
+  pendingClarificationCandidateIds: string[] | null;
 }
 
 export interface ActiveReceptionistHandoff {

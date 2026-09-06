@@ -52,7 +52,12 @@ export class AgentController {
     try {
       const result = await this.agents.run(org(p), user(p), req.requestId, dto);
       if (!dto.conversationId) this.record("CONVERSATION_CREATED", req, p, result.conversationId);
-      this.record("AGENT_EXECUTION_COMPLETED", req, p, result.executionId);
+      this.record(
+                   "AGENT_EXECUTION_COMPLETED",
+                    req,
+                    p,
+                    result.executionId ?? undefined
+                   );
       return result;
     } catch (error) {
       this.record("AGENT_EXECUTION_FAILED", req, p);

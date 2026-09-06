@@ -28,6 +28,7 @@ import { ChannelMessageProcessor } from "./channel-message.processor";
 import { ObservabilityService } from "../observability/observability.service";
 import {
   normalizeInboundWhatsAppPayload,
+  resolveTwilioCredentials,
   verifyTwilioSignature,
   WebhookRateLimiter
 } from "./channel.runtime";
@@ -66,10 +67,16 @@ export class ChannelWebhookController {
     if (!channel) throw new NotFoundException("CHANNEL_NOT_FOUND");
 
     const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
-    if (!secrets.authToken) throw new UnauthorizedException();
+    const config = channel.configuration as { accountSid?: string; fromNumber?: string } | null;
+    const credentials = resolveTwilioCredentials({
+      accountSid: config?.accountSid,
+      authToken: secrets.authToken,
+      fromNumber: config?.fromNumber
+    });
+    if (!credentials) throw new UnauthorizedException();
     const url = `${this.security.apiPublicUrl}/api/v1/channels/twilio/whatsapp/webhook/${channelId}`;
     const params = stringParams(request.body);
-    if (!verifyTwilioSignature(secrets.authToken, url, params, request.header("x-twilio-signature")))
+    if (!verifyTwilioSignature(credentials.authToken, url, params, request.header("x-twilio-signature")))
       throw new UnauthorizedException();
 
     if (

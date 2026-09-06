@@ -1,33 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Prisma, VoiceSessionStatus } from "@prisma/client";
+import { Prisma, VoiceSessionStatus, VoiceTransport, VoiceDirection } from "@prisma/client";
 import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 import { AgentService } from "../agents/agent.service";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 
-export interface VoiceCallReference {
-  provider: string;
-  providerCallId: string;
-}
+// Sprint 7: the provider-neutral call-control/speech interfaces that used to live here
+// (VoiceChannelAdapter/SpeechToTextAdapter/TextToSpeechAdapter) had zero implementations and zero
+// consumers — superseded by the more precise VoiceTransportProvider/RealtimeSpeechProvider contracts in
+// ../voice/voice.types.ts, which are fitted to the actual Twilio Media Streams wire shape.
 
-/** Provider-neutral call control. Twilio, Meta, SIP, or another provider implements this boundary; the
- * receptionist routing domain never imports a provider SDK or wire format. */
-export interface VoiceChannelAdapter {
-  acceptCall(call: VoiceCallReference): Promise<void>;
-  startCall(input: { to: string; from?: string }): Promise<VoiceCallReference>;
-  receiveTranscript(call: VoiceCallReference): AsyncIterable<{ text: string; isFinal: boolean }>;
-  sendAudio(call: VoiceCallReference, audio: Uint8Array): Promise<void>;
-  speakText(call: VoiceCallReference, text: string): Promise<void>;
-  endCall(call: VoiceCallReference): Promise<void>;
-  getCallStatus(call: VoiceCallReference): Promise<string>;
-}
-
-export interface SpeechToTextAdapter {
-  transcribe(audio: Uint8Array, options?: { locale?: string }): Promise<string>;
-}
-
-export interface TextToSpeechAdapter {
-  synthesize(text: string, options?: { locale?: string; voice?: string }): Promise<Uint8Array>;
-}
+const LIVE_STATUSES = ["CREATED", "RINGING", "CONNECTING", "ACTIVE", "INTERRUPTED", "ENDING"] as const;
 
 @Injectable()
 export class VoiceSessionService {
@@ -91,6 +73,101 @@ export class VoiceSessionService {
     });
   }
 
+  /** Sprint 7: creates the durable session for a real inbound call at webhook-time, before any
+   * receptionist conversation exists — the conversation is linked once the first transcript turn
+   * creates/resolves it (see linkConversation). Idempotent on the provider call id via the existing
+   * @@unique([organizationId, provider, providerCallId]) constraint — a duplicate webhook delivery
+   * throws Prisma P2002, which callers should treat as "session already exists" and re-fetch. */
+  async createRinging(input: {
+    organizationId: string;
+    channelConnectionId: string;
+    provider: string;
+    providerCallId: string;
+    transport: VoiceTransport;
+    direction?: VoiceDirection;
+    externalCallerId?: string | null;
+    metadata?: Record<string, unknown>;
+  }) {
+    if (!this.enabled()) throw new Error("RECEPTIONIST_VOICE_DISABLED");
+    const channel = await this.prisma.channelConnection.findFirst({
+      where: {
+        id: input.channelConnectionId,
+        organizationId: input.organizationId,
+        status: "ACTIVE",
+        deletedAt: null
+      },
+      select: { id: true, voiceEnabled: true }
+    });
+    if (!channel || !channel.voiceEnabled) throw new Error("VOICE_SESSION_SCOPE_INVALID");
+    return this.prisma.voiceSession.create({
+      data: {
+        organizationId: input.organizationId,
+        channelConnectionId: input.channelConnectionId,
+        provider: input.provider,
+        providerCallId: input.providerCallId,
+        transport: input.transport,
+        direction: input.direction ?? VoiceDirection.INBOUND,
+        externalCallerId: input.externalCallerId ?? null,
+        status: VoiceSessionStatus.RINGING,
+        lastActivityAt: new Date(),
+        metadataJson: (input.metadata ?? {}) as Prisma.InputJsonValue
+      }
+    });
+  }
+
+  async findByProviderCallId(organizationId: string, provider: string, providerCallId: string) {
+    return this.prisma.voiceSession.findFirst({ where: { organizationId, provider, providerCallId } });
+  }
+
+  /** Sets the receptionist conversation once known — a no-op if already linked (idempotent under
+   * webhook/media-event retries), never overwrites an existing link with a different conversation. */
+  async linkConversation(organizationId: string, sessionId: string, conversationId: string) {
+    await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, receptionistConversationId: null },
+      data: { receptionistConversationId: conversationId }
+    });
+  }
+
+  async markStreamStarted(organizationId: string, sessionId: string, providerStreamId: string) {
+    const updated = await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: { in: ["CREATED", "RINGING"] } },
+      data: { status: VoiceSessionStatus.CONNECTING, providerStreamId, lastActivityAt: new Date() }
+    });
+    if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
+  }
+
+  async markActive(organizationId: string, sessionId: string) {
+    const updated = await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: { in: ["CREATED", "RINGING", "CONNECTING"] } },
+      data: { status: VoiceSessionStatus.ACTIVE, answeredAt: new Date(), lastActivityAt: new Date() }
+    });
+    if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
+  }
+
+  /** Barge-in: the caller started speaking while the agent's response was still being generated/played. */
+  async interrupt(organizationId: string, sessionId: string) {
+    const updated = await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: "ACTIVE" },
+      data: { status: VoiceSessionStatus.INTERRUPTED, lastActivityAt: new Date() }
+    });
+    if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
+  }
+
+  async resume(organizationId: string, sessionId: string) {
+    const updated = await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: "INTERRUPTED" },
+      data: { status: VoiceSessionStatus.ACTIVE, lastActivityAt: new Date() }
+    });
+    if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
+  }
+
+  async touchActivity(organizationId: string, sessionId: string) {
+    await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: { in: LIVE_STATUSES as unknown as VoiceSessionStatus[] } },
+      data: { lastActivityAt: new Date() }
+    });
+  }
+
   async attachHandoff(organizationId: string, sessionId: string, handoffId: string) {
     const handoff = await this.prisma.receptionistHandoff.findFirst({
       where: { id: handoffId, organizationId },
@@ -127,15 +204,31 @@ export class VoiceSessionService {
     if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
   }
 
-  async end(organizationId: string, sessionId: string, failed = false) {
+  /** Transitional state while the final transcript/turn is flushed before the session is fully closed —
+   * optional; callers that don't need it can go straight to end(). */
+  async beginEnding(organizationId: string, sessionId: string) {
+    await this.prisma.voiceSession.updateMany({
+      where: { id: sessionId, organizationId, status: { in: LIVE_STATUSES as unknown as VoiceSessionStatus[] } },
+      data: { status: VoiceSessionStatus.ENDING, lastActivityAt: new Date() }
+    });
+  }
+
+  /** Idempotent: repeated stop/end events (a normal provider-webhook-retry scenario) are harmless — a
+   * session already ENDED/FAILED simply matches zero rows and this returns without throwing. */
+  async end(organizationId: string, sessionId: string, failed = false, terminationReason?: string) {
     const updated = await this.prisma.voiceSession.updateMany({
-      where: { id: sessionId, organizationId, status: { in: ["RINGING", "ACTIVE"] } },
+      where: { id: sessionId, organizationId, status: { in: LIVE_STATUSES as unknown as VoiceSessionStatus[] } },
       data: {
         status: failed ? VoiceSessionStatus.FAILED : VoiceSessionStatus.ENDED,
-        endedAt: new Date()
+        endedAt: new Date(),
+        ...(terminationReason ? { terminationReason: terminationReason.slice(0, 200) } : {})
       }
     });
-    if (updated.count !== 1) throw new Error("VOICE_SESSION_NOT_FOUND");
+    if (updated.count === 0) {
+      const existing = await this.prisma.voiceSession.findFirst({ where: { id: sessionId, organizationId } });
+      if (!existing) throw new Error("VOICE_SESSION_NOT_FOUND");
+      // already terminal — idempotent no-op for a duplicate provider stop/end webhook
+    }
   }
 }
 
@@ -162,42 +255,57 @@ export class VoiceReceptionistTurnService {
     const transcript = input.transcript.trim().slice(0, 12_000);
     if (!transcript) throw new Error("VOICE_TRANSCRIPT_EMPTY");
     const session = await this.sessions.active(input.organizationId, input.sessionId);
-    const [conversation, channel] = await Promise.all([
-      this.prisma.conversation.findFirst({
-        where: {
-          id: session.receptionistConversationId,
-          organizationId: input.organizationId,
-          deletedAt: null
-        },
+    const channel = await this.prisma.channelConnection.findFirst({
+      where: {
+        id: session.channelConnectionId,
+        organizationId: input.organizationId,
+        status: "ACTIVE",
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        pluginInstallationId: true,
+        pluginInstallation: { select: { status: true, manifest: true } }
+      }
+    });
+    if (!channel) throw new Error("VOICE_RECEPTIONIST_SCOPE_INVALID");
+
+    // Continuing call: the conversation already exists — re-verify it's still a receptionist conversation
+    // (defence in depth against a channel's assigned agent changing mid-call). First turn of a brand-new
+    // call: no conversation yet — the channel's own assigned plugin must be the receptionist; AgentService
+    // creates the conversation for us (conversationId omitted), exactly the same as a fresh WhatsApp text.
+    const conversationId: string | undefined = session.receptionistConversationId ?? undefined;
+    let agentId: string;
+    if (conversationId) {
+      const conversation = await this.prisma.conversation.findFirst({
+        where: { id: conversationId, organizationId: input.organizationId, deletedAt: null },
         select: {
           id: true,
           pluginInstallationId: true,
           pluginInstallation: { select: { status: true, manifest: true } }
         }
-      }),
-      this.prisma.channelConnection.findFirst({
-        where: {
-          id: session.channelConnectionId,
-          organizationId: input.organizationId,
-          status: "ACTIVE",
-          deletedAt: null
-        },
-        select: { id: true }
-      })
-    ]);
-    if (
-      !conversation ||
-      !channel ||
-      conversation.pluginInstallation.status !== "ACTIVE" ||
-      !manifestCapabilities(conversation.pluginInstallation.manifest).includes("workforce.intake")
-    )
-      throw new Error("VOICE_RECEPTIONIST_SCOPE_INVALID");
+      });
+      if (
+        !conversation ||
+        conversation.pluginInstallation.status !== "ACTIVE" ||
+        !manifestCapabilities(conversation.pluginInstallation.manifest).includes("workforce.intake")
+      )
+        throw new Error("VOICE_RECEPTIONIST_SCOPE_INVALID");
+      agentId = conversation.pluginInstallationId;
+    } else {
+      if (
+        channel.pluginInstallation.status !== "ACTIVE" ||
+        !manifestCapabilities(channel.pluginInstallation.manifest).includes("workforce.intake")
+      )
+        throw new Error("VOICE_RECEPTIONIST_SCOPE_INVALID");
+      agentId = channel.pluginInstallationId;
+    }
 
     const acknowledgement = "Sure, I'm connecting you with the right specialist.";
     const result = await this.agents.execute({
       organizationId: input.organizationId,
-      agentId: conversation.pluginInstallationId,
-      conversationId: conversation.id,
+      agentId,
+      ...(conversationId ? { conversationId } : {}),
       actor: {
         type: "CHANNEL",
         channelConnectionId: channel.id,
@@ -212,6 +320,8 @@ export class VoiceReceptionistTurnService {
       requestId: input.requestId,
       metadata: { voiceSessionId: session.id }
     });
+    if (!conversationId && result.conversationId)
+      await this.sessions.linkConversation(input.organizationId, session.id, result.conversationId);
     const handoff = "receptionist" in result ? result.receptionist.handoff : null;
     if (handoff) await this.sessions.attachHandoff(input.organizationId, session.id, handoff.id);
     const finishedAt = Date.now();

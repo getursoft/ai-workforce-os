@@ -1,9 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService, type EncryptedPayload } from "../../plugins/plugin.runtime";
 import { EmailService, EmailNotConfiguredError } from "../../notifications/email.service";
 import { EmailConfigurationService } from "../../plugins/email-configuration.service";
-import { uploadMetaWhatsAppMedia, sendMetaWhatsAppDocument } from "../../channels/whatsapp/meta-whatsapp.client";
+import {
+  MetaProviderError,
+  sendMetaWhatsAppDocument,
+  uploadMetaWhatsAppMedia
+} from "../../channels/whatsapp/meta-whatsapp.client";
+import { classifyProviderError } from "../../channels/channel.runtime";
 import { TicketGeneratorService } from "./ticket-generator.service";
 
 export interface DeliveryRecord {
@@ -55,7 +61,15 @@ export class DeliveryRecorderService {
       ? await this.sendEmail(organizationId, booking.pluginInstallationId, booking.customerEmail, pkg.pnr, filename, pdf)
       : null;
     const whatsappDelivery = booking.customerPhone
-      ? await this.sendWhatsApp(organizationId, booking.pluginInstallationId, booking.customerPhone, pkg.pnr, filename, pdf)
+      ? await this.sendWhatsApp(
+          organizationId,
+          booking.pluginInstallationId,
+          booking.customerPhone,
+          pkg.pnr,
+          filename,
+          pdf,
+          bookingId
+        )
       : null;
 
     await this.prisma.travelBooking.update({
@@ -103,24 +117,70 @@ export class DeliveryRecorderService {
     }
   }
 
+  /** Sprint 6.7 — Part 26/57: WhatsApp document delivery now goes through a durable `ChannelMessage`
+   *  (OUTBOUND, `attachmentRef`) row and records a `ChannelDeliveryAttempt` for every send, giving ticket
+   *  attachments the same delivery-status-callback correlation, audit trail, and idempotency guarantee the
+   *  text-message pipeline already has — instead of a synchronous, unrecorded, unretried side call. The
+   *  PDF bytes themselves are never persisted (generated fresh by the caller each time, exactly as before)
+   *  — only the send OUTCOME is durable, so an automatic poller-driven retry of a failed attachment send
+   *  is not implemented (a genuine, documented limitation; see the sprint report). */
   private async sendWhatsApp(
     organizationId: string,
     pluginInstallationId: string,
     to: string,
     pnr: string,
     filename: string,
-    pdf: Buffer
+    pdf: Buffer,
+    bookingId: string
   ): Promise<DeliveryRecord> {
     const sentAt = new Date().toISOString();
     const channel = await this.findWhatsAppChannel(organizationId, pluginInstallationId);
     if (!channel) {
       return { channel: "whatsapp", recipient: to, status: "SKIPPED", messageId: null, errorCode: "WHATSAPP_CHANNEL_NOT_CONFIGURED", sentAt };
     }
+    const attachmentRef = { bookingId, kind: "TRAVEL_TICKET_PDF" as const };
+    // Idempotency: a send already in flight or completed for this EXACT booking's ticket is never
+    // resent — protects against `recordTicketDelivery` being invoked twice for the same booking (a
+    // duplicate webhook/booking-confirmation retry) without blocking the explicit chat "resend ticket"
+    // action, which always targets a booking whose prior attempt already reached a terminal state.
+    const existing = await this.prisma.channelMessage.findFirst({
+      where: {
+        channelConnectionId: channel.id,
+        direction: "OUTBOUND",
+        attachmentRef: { equals: attachmentRef as unknown as Prisma.InputJsonValue },
+        status: { in: ["PROCESSING", "SENT", "DELIVERED"] }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+    if (existing) {
+      return {
+        channel: "whatsapp",
+        recipient: to,
+        status: "SENT",
+        messageId: existing.providerMessageSid ?? null,
+        errorCode: null,
+        sentAt
+      };
+    }
+    const outbound = await this.prisma.channelMessage.create({
+      data: {
+        organizationId,
+        channelConnectionId: channel.id,
+        provider: "META_CLOUD_API",
+        direction: "OUTBOUND",
+        status: "PROCESSING",
+        fromAddress: channel.displayPhoneNumber ?? channel.phoneNumberId ?? "",
+        toAddress: to,
+        body: `Your ticket — PNR ${pnr}`,
+        attachmentRef: attachmentRef as unknown as Prisma.InputJsonValue
+      }
+    });
     try {
       const secrets = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
       const accessToken = secrets.accessToken;
       const phoneNumberId = channel.phoneNumberId;
       if (!accessToken || !phoneNumberId) {
+        await this.recordAttemptAndFail(outbound, "META_CREDENTIALS_REQUIRED");
         return { channel: "whatsapp", recipient: to, status: "SKIPPED", messageId: null, errorCode: "WHATSAPP_CREDENTIALS_MISSING", sentAt };
       }
       const { mediaId } = await uploadMetaWhatsAppMedia({
@@ -129,11 +189,57 @@ export class DeliveryRecorderService {
       const result = await sendMetaWhatsAppDocument({
         phoneNumberId, accessToken, to, mediaId, filename, caption: `Your ticket — PNR ${pnr}`,
       });
+      await this.recordAttemptAndMarkSent(outbound, result.providerMessageId);
       return { channel: "whatsapp", recipient: to, status: "SENT", messageId: result.providerMessageId, errorCode: null, sentAt };
     } catch (error) {
+      const code = error instanceof MetaProviderError ? error.code : "META_SEND_FAILED";
+      const { normalized } = classifyProviderError(code);
+      await this.recordAttemptAndFail(outbound, normalized);
       this.logger.warn({ event: "TICKET_WHATSAPP_DELIVERY_FAILED", to, error: error instanceof Error ? error.message : "unknown" });
       return { channel: "whatsapp", recipient: to, status: "FAILED", messageId: null, errorCode: "WHATSAPP_SEND_FAILED", sentAt };
     }
+  }
+
+  private async recordAttemptAndMarkSent(
+    outbound: { id: string; organizationId: string; provider: string },
+    providerMessageSid: string
+  ): Promise<void> {
+    await this.prisma.channelDeliveryAttempt.create({
+      data: {
+        organizationId: outbound.organizationId,
+        channelMessageId: outbound.id,
+        attemptNumber: 1,
+        provider: outbound.provider as never,
+        success: true,
+        providerRequestId: providerMessageSid,
+        retryable: false
+      }
+    });
+    await this.prisma.channelMessage.update({
+      where: { id: outbound.id },
+      data: { status: "SENT", providerMessageSid, sentAt: new Date() }
+    });
+  }
+
+  private async recordAttemptAndFail(
+    outbound: { id: string; organizationId: string; provider: string },
+    errorCode: string
+  ): Promise<void> {
+    await this.prisma.channelDeliveryAttempt.create({
+      data: {
+        organizationId: outbound.organizationId,
+        channelMessageId: outbound.id,
+        attemptNumber: 1,
+        provider: outbound.provider as never,
+        success: false,
+        errorCode,
+        retryable: false
+      }
+    });
+    await this.prisma.channelMessage.update({
+      where: { id: outbound.id },
+      data: { status: "FAILED", errorCode, nextAttemptAt: null }
+    });
   }
 
   /** Prefers a WhatsApp channel assigned to the booking's own plugin installation (the Travel Employee

@@ -79,7 +79,8 @@
       "subscription",
       "order",
       "status",
-      "track"
+      "track",
+      "customer ka issue"
     ]
   }
 }

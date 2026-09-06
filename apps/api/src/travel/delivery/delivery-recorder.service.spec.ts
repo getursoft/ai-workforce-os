@@ -6,11 +6,19 @@ import type { EmailConfigurationService } from "../../plugins/email-configuratio
 import type { TicketGeneratorService } from "./ticket-generator.service";
 import { DeliveryRecorderService } from "./delivery-recorder.service";
 
-vi.mock("../../channels/whatsapp/meta-whatsapp.client", () => ({
-  uploadMetaWhatsAppMedia: vi.fn(async () => ({ mediaId: "media-123" })),
-  sendMetaWhatsAppDocument: vi.fn(async () => ({ providerMessageId: "wamid.abc", status: "sent" }))
-}));
-import { uploadMetaWhatsAppMedia, sendMetaWhatsAppDocument } from "../../channels/whatsapp/meta-whatsapp.client";
+vi.mock("../../channels/whatsapp/meta-whatsapp.client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../channels/whatsapp/meta-whatsapp.client")>();
+  return {
+    ...actual,
+    uploadMetaWhatsAppMedia: vi.fn(async () => ({ mediaId: "media-123" })),
+    sendMetaWhatsAppDocument: vi.fn(async () => ({ providerMessageId: "wamid.abc", status: "sent" }))
+  };
+});
+import {
+  MetaProviderError,
+  sendMetaWhatsAppDocument,
+  uploadMetaWhatsAppMedia
+} from "../../channels/whatsapp/meta-whatsapp.client";
 
 const BOOKING = {
   id: "booking-1",
@@ -23,6 +31,24 @@ const BOOKING = {
 function harness(overrides: Partial<typeof BOOKING> = {}, channel: Record<string, unknown> | null = null) {
   const booking = { ...BOOKING, ...overrides };
   const updateMock = vi.fn(async () => booking);
+  const channelMessages: Record<string, unknown>[] = [];
+  const deliveryAttempts: Record<string, unknown>[] = [];
+  let channelMessageIdCounter = 0;
+  const channelMessageFindFirst = vi.fn(
+    async ({ where }: { where: { status: { in: string[] } } }) =>
+      channelMessages.find((row) => where.status.in.includes(row.status as string)) ?? null
+  );
+  const channelMessageCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    channelMessageIdCounter++;
+    const row = { id: `channel-message-${channelMessageIdCounter}`, ...data };
+    channelMessages.push(row);
+    return row;
+  });
+  const channelMessageUpdate = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+    const row = channelMessages.find((r) => r.id === where.id);
+    if (row) Object.assign(row, data);
+    return row;
+  });
   const prisma = {
     travelBooking: {
       findFirst: vi.fn(async () => booking),
@@ -30,6 +56,17 @@ function harness(overrides: Partial<typeof BOOKING> = {}, channel: Record<string
     },
     channelConnection: {
       findFirst: vi.fn(async () => channel),
+    },
+    channelMessage: {
+      findFirst: channelMessageFindFirst,
+      create: channelMessageCreate,
+      update: channelMessageUpdate,
+    },
+    channelDeliveryAttempt: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        deliveryAttempts.push(data);
+        return data;
+      }),
     },
   } as unknown as PrismaService;
 
@@ -48,7 +85,7 @@ function harness(overrides: Partial<typeof BOOKING> = {}, channel: Record<string
   const emailConfig = { resolve } as unknown as EmailConfigurationService;
 
   const service = new DeliveryRecorderService(prisma, ticketGenerator, email, emailConfig, secrets);
-  return { service, prisma, ticketGenerator, sendMail, updateMock, decrypt, resolve };
+  return { service, prisma, ticketGenerator, sendMail, updateMock, decrypt, resolve, channelMessages, deliveryAttempts };
 }
 
 describe("DeliveryRecorderService.recordTicketDelivery", () => {
@@ -122,6 +159,70 @@ describe("DeliveryRecorderService.recordTicketDelivery", () => {
     const { service } = harness({ customerEmail: undefined as unknown as string }, null);
     const result = await service.recordTicketDelivery("booking-1", "org-1");
     expect(result.whatsapp).toMatchObject({ status: "SKIPPED", errorCode: "WHATSAPP_CHANNEL_NOT_CONFIGURED" });
+  });
+
+  describe("Sprint 6.7 — durable delivery record + idempotency", () => {
+    const channel = {
+      id: "channel-1",
+      pluginInstallationId: "plugin-1",
+      phoneNumberId: "PHONE_ID",
+      encryptedSecrets: {},
+    };
+
+    it("creates an OUTBOUND ChannelMessage with an attachmentRef and ONE successful ChannelDeliveryAttempt", async () => {
+      const { service, channelMessages, deliveryAttempts } = harness(
+        { customerEmail: undefined as unknown as string },
+        channel
+      );
+      await service.recordTicketDelivery("booking-1", "org-1");
+
+      expect(channelMessages).toHaveLength(1);
+      expect(channelMessages[0]).toMatchObject({
+        direction: "OUTBOUND",
+        status: "SENT",
+        attachmentRef: { bookingId: "booking-1", kind: "TRAVEL_TICKET_PDF" },
+        providerMessageSid: "wamid.abc",
+      });
+      expect(deliveryAttempts).toHaveLength(1);
+      expect(deliveryAttempts[0]).toMatchObject({ success: true, providerRequestId: "wamid.abc" });
+    });
+
+    it("does not re-send (or re-generate the PDF a second time on the wire) when a send for this booking is already SENT", async () => {
+      const { service, channelMessages } = harness({ customerEmail: undefined as unknown as string }, channel);
+      channelMessages.push({
+        id: "existing-1",
+        channelConnectionId: "channel-1",
+        direction: "OUTBOUND",
+        status: "SENT",
+        attachmentRef: { bookingId: "booking-1", kind: "TRAVEL_TICKET_PDF" },
+        providerMessageSid: "wamid.original",
+      });
+      vi.mocked(uploadMetaWhatsAppMedia).mockClear();
+      vi.mocked(sendMetaWhatsAppDocument).mockClear();
+
+      const result = await service.recordTicketDelivery("booking-1", "org-1");
+
+      expect(uploadMetaWhatsAppMedia).not.toHaveBeenCalled();
+      expect(sendMetaWhatsAppDocument).not.toHaveBeenCalled();
+      expect(channelMessages).toHaveLength(1); // no second row created
+      expect(result.whatsapp).toMatchObject({ status: "SENT", messageId: "wamid.original" });
+    });
+
+    it("records a FAILED ChannelDeliveryAttempt with a normalized error code when the send throws", async () => {
+      const { service, deliveryAttempts, channelMessages } = harness(
+        { customerEmail: undefined as unknown as string },
+        channel
+      );
+      vi.mocked(sendMetaWhatsAppDocument).mockRejectedValueOnce(
+        new MetaProviderError("META_WHATSAPP_SEND_FAILED: bad number", "META_INVALID_RECIPIENT", 400)
+      );
+
+      const result = await service.recordTicketDelivery("booking-1", "org-1");
+
+      expect(result.whatsapp).toMatchObject({ status: "FAILED" });
+      expect(channelMessages[0]).toMatchObject({ status: "FAILED", errorCode: "INVALID_RECIPIENT" });
+      expect(deliveryAttempts[0]).toMatchObject({ success: false, errorCode: "INVALID_RECIPIENT" });
+    });
   });
 
   it("marks the booking TICKETS_DELIVERED regardless of notification outcome — a failed notification never blocks the booking from being recognized as ticketed", async () => {

@@ -331,6 +331,14 @@ export function ChannelDetailPage() {
           ) : null}
         </Card>
 
+        <Card>
+          <h2>Voice</h2>
+          <div className="admin-grid">
+            <div><Label>Voice calling</Label><p>{item.voiceEnabled ? "Enabled" : "Disabled"}</p></div>
+          </div>
+          <Link href={`/voice-calls?channelConnectionId=${item.id}`}>View call history</Link>
+        </Card>
+
         {item.lastErrorCode ? <Card><h3>Last error</h3><p className="danger-text">{item.lastErrorCode}: {item.lastErrorMessage ?? "Unknown"}</p></Card> : null}
 
         <Can permission="channel.delete">

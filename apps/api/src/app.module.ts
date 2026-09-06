@@ -37,6 +37,7 @@ import { ObservabilityCoreModule } from "./observability/observability-core.modu
 import { ObservabilityModule } from "./observability/observability.module";
 import { SchedulerModule } from "./scheduler/scheduler.module";
 import { ReceptionistModule } from "./receptionist/receptionist.module";
+import { VoiceModule } from "./voice/voice.module";
 import { AiConfigurationModule } from "./ai-configuration/ai-configuration.module";
 import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
 
@@ -81,6 +82,7 @@ import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
     ObservabilityModule,
     SchedulerModule,
     ReceptionistModule,
+    VoiceModule,
     OnboardingModule,
     SkillPlatformModule,
     PlatformLeadsModule

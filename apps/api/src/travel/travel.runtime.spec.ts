@@ -246,6 +246,25 @@ describe("slot extraction", () => {
     // A bare number with no currency word at all still falls back to the caller's fallback currency.
     expect(extractBudget("budget is 5000", "USD")).toEqual({ amount: 5000, currency: "USD" });
   });
+  it("Sprint 6.6 — Part 22: 'lac'/'lacs' is accepted as the same multiplier as 'lakh'/'lakhs'", () => {
+    expect(extractBudget("budget 1 lac")).toEqual({ amount: 100_000, currency: "INR" });
+    expect(extractBudget("budget 1.5 lacs")).toEqual({ amount: 150_000, currency: "INR" });
+  });
+  it("Sprint 6.6 — Part 22: 'k'/'hazar'/'thousand' resolve to a x1000 amount, currency-conservative", () => {
+    expect(extractBudget("budget 10k")).toEqual({ amount: 10_000, currency: null });
+    expect(extractBudget("budget 10 K")).toEqual({ amount: 10_000, currency: null });
+    expect(extractBudget("budget 10 thousand")).toEqual({ amount: 10_000, currency: null });
+    expect(extractBudget("budget 10 hazar")).toEqual({ amount: 10_000, currency: "INR" });
+    // NOTE: Devanagari-script "हजार" is deliberately NOT asserted here — JavaScript's `\b` word-boundary
+    // is ASCII-only (`\w` = [a-zA-Z0-9_]) and does not reliably anchor after a Devanagari character run,
+    // the same systemic limitation already found in the Receptionist routing layer's `normalize()` (see
+    // the Sprint 6.6 report) — Romanized "hazar" is the reliable, supported form.
+    expect(extractBudget("budget Rs 10k")).toEqual({ amount: 10_000, currency: "INR" });
+    // An explicit trailing currency code always wins over the rupee-leaning defaults above.
+    expect(extractBudget("budget 10k AED")).toEqual({ amount: 10_000, currency: "AED" });
+    // Falls back to the caller's own fallback currency exactly like a bare number would, never guessing.
+    expect(extractBudget("budget 10k", "USD")).toEqual({ amount: 10_000, currency: "USD" });
+  });
   it("merges slots across messages without overwriting already-known values", () => {
     const slots = extractTravelSlots([
       "I want to go to Dubai",

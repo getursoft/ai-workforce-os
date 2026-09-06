@@ -1013,7 +1013,9 @@ export function ConversationsPage() {
                     </td>
                     <td>{item.pluginInstallation.displayName}</td>
                     <td>
-                      {item.createdBy.firstName} {item.createdBy.lastName}
+                      {item.createdBy
+                        ? `${item.createdBy.firstName} ${item.createdBy.lastName ?? ""}`.trim()
+                        : "—"}
                     </td>
                     <td>{item._count.messages}</td>
                     <td>

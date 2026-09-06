@@ -661,7 +661,23 @@ export function arbitrateConversationTurn(
         confidence: 1,
         source: "DETERMINISTIC"
       };
-    if (isNegativeResponse(text) || isFarewellMessage(text))
+    // Sprint 6.6 — Part 15/16/38: a pending question is EVIDENCE about what the assistant expects, never
+    // authority to force-fit unrelated text into it. `isNegativeResponse` matches "no"/"nahi" ANYWHERE in
+    // the message — "Dubai nahi, Singapore kar do" would otherwise be misread as declining the contact
+    // confirmation, silently dropping the correction. Classifying the message first and skipping this
+    // branch entirely on CORRECTION/DOMAIN_PIVOT/ACTION lets it fall through to the function's own
+    // existing generic tail (below), which already preserves `pendingInputAction` and hands the message to
+    // ordinary extraction/routing — the fix is not a one-off `if (text === "nahi")` special case, it's not
+    // entering this special case at all when the message is plainly about something else.
+    const pendingContactSemantic = classifyUserInput(text, {
+      hasPendingQuestion: true,
+      pendingQuestionType: context.pendingInputAction
+    }).semantic;
+    const overridesPendingContact =
+      pendingContactSemantic === "CORRECTION" ||
+      pendingContactSemantic === "DOMAIN_PIVOT" ||
+      pendingContactSemantic === "ACTION";
+    if (!overridesPendingContact && (isNegativeResponse(text) || isFarewellMessage(text)))
       return {
         intent: "DECLINE_STANDALONE_CONTACT_USE",
         entities: {},
@@ -730,7 +746,20 @@ export function arbitrateConversationTurn(
         confidence: 1,
         source: "DETERMINISTIC"
       };
-    if (isNegativeResponse(text) && !isFarewellMessage(text))
+    // Sprint 6.6 — Part 15/16/23/38: same guard as CONFIRM_STANDALONE_CONTACT_USE above — a correction or
+    // domain pivot stated while a phone number is pending must never be swallowed as "the customer
+    // declined to share a number." See that block's comment for the full reasoning; this is the other of
+    // the two pending-contact states that shared the exact same bug (both gated on the same unanchored
+    // `isNegativeResponse` word match).
+    const pendingLeadSemantic = classifyUserInput(text, {
+      hasPendingQuestion: true,
+      pendingQuestionType: context.pendingInputAction
+    }).semantic;
+    const overridesPendingLead =
+      pendingLeadSemantic === "CORRECTION" ||
+      pendingLeadSemantic === "DOMAIN_PIVOT" ||
+      pendingLeadSemantic === "ACTION";
+    if (!overridesPendingLead && isNegativeResponse(text) && !isFarewellMessage(text))
       return {
         intent: "PAUSE_PENDING_ACTION",
         entities: {},
@@ -740,7 +769,7 @@ export function arbitrateConversationTurn(
         confidence: 1,
         source: "DETERMINISTIC"
       };
-    if (isFarewellMessage(text))
+    if (!overridesPendingLead && isFarewellMessage(text))
       return {
         intent: "ACKNOWLEDGEMENT",
         entities: {},
@@ -1670,9 +1699,30 @@ export function extractBudget(
   text: string,
   fallbackCurrency: string | null = null
 ): { amount: number; currency: string | null } | null {
-  const lakh = /(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*lakhs?/i.exec(text);
+  // Sprint 6.6 — Part 22: "lac"/"lacs" is the other common spelling of "lakh"/"lakhs" — same multiplier,
+  // same branch.
+  const lakh = /(?:₹|rs\.?|inr)?\s*([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lacs?)\b/i.exec(text);
   if (lakh?.[1])
     return { amount: Math.round(parseFloat(lakh[1].replace(/,/g, "")) * 100_000), currency: "INR" };
+  // Sprint 6.6 — Part 22: "10k"/"10 K"/"10 thousand"/"10 hazar"/"10 हज़ार" — a safe, explicit x1000
+  // multiplier suffix, mirroring the lakh branch above. An explicit ₹/Rs/INR prefix (or the Hindi word
+  // itself, which is unambiguously a rupee term) resolves the currency to INR; otherwise the caller's
+  // `fallbackCurrency` is used, exactly like the generic bare-number branch at the bottom of this function
+  // already does — this never guesses a currency the traveler didn't actually state or imply.
+  const thousand =
+    /((?:₹|rs\.?|inr)\s*)?([\d,]+(?:\.\d+)?)\s*(?:k|hazar|हज़ार|हजार|thousand)\s*(usd|inr|eur|aed|gbp|sgd|cad|aud|thb|jpy)?\b/i.exec(
+      text
+    );
+  if (thousand?.[2]) {
+    // A trailing currency code ("10k AED") always wins — never overridden by the rupee-leaning defaults
+    // below, which only apply when the traveler didn't actually state a currency at all.
+    const trailingCurrency = thousand[3] ? thousand[3].toUpperCase() : null;
+    const isRupee = Boolean(thousand[1]) || /hazar|हज़ार|हजार/i.test(thousand[0]);
+    return {
+      amount: Math.round(parseFloat(thousand[2].replace(/,/g, "")) * 1_000),
+      currency: trailingCurrency ?? (isRupee ? "INR" : fallbackCurrency)
+    };
+  }
   const dollars = /\$\s*(\d[\d,]*(?:\.\d+)?)|(?:usd)\s*(\d[\d,]*(?:\.\d+)?)/i.exec(text);
   if (dollars)
     return {
@@ -3359,6 +3409,20 @@ export class TravelEmployeeProvider implements AiProvider {
         )
       );
     }
+    // Sprint 6.6 — Part 7 (root cause): this kind was never handled here at all — a genuine decline of
+    // "would you like me to use this number?" silently fell through this whole method instead of ending
+    // the offer gracefully, unlike TravelEmployeeLlmOrchestrator's equivalent branch below (search this
+    // file for the same `STANDALONE_CONTACT_DECLINED` check), which already does exactly this. Mirrored
+    // verbatim for engine parity rather than inventing a different response here.
+    if (resolvedInput.kind === "STANDALONE_CONTACT_DECLINED") {
+      this.memory = { ...this.memory, pendingInputAction: null, pendingContactValue: null };
+      return textResult(
+        buildFarewellMessage(
+          mergedEntities.customerName ?? extractCustomerName(userMessages),
+          detectResponseLanguage(currentText)
+        )
+      );
+    }
     if (isFarewellMessage(currentText)) {
       this.memory = {
         ...this.memory,
@@ -3668,7 +3732,17 @@ export class TravelEmployeeProvider implements AiProvider {
         }
       }
       if (wasItineraryPresented(messages)) {
-        if (isBookingConfirmation(currentText)) {
+        // Sprint 6.6 — Part 38 (root cause): `isBookingConfirmation`'s `CONFIRMATION_PATTERN` treats a
+        // bare Hinglish "kar do" ANYWHERE in the message as "yes, book it" — a general-purpose imperative
+        // marker ("do this"), not a confirmation-specific one. "Actually 3 adults kar do" is a CORRECTION
+        // that merely happens to end with "kar do", and was being misread as confirming the plan,
+        // prematurely jumping to lead-capture and burying the correction. Guarded here (not by narrowing
+        // `CONFIRMATION_PATTERN` itself, which several other call sites also rely on for genuine
+        // confirmations like bare "kar do" alone) so a correction always falls through to the normal
+        // re-prompt below instead.
+        const overridesBookingConfirmation =
+          classifyUserInput(currentText, { hasPendingQuestion: true }).semantic === "CORRECTION";
+        if (isBookingConfirmation(currentText) && !overridesBookingConfirmation) {
           const phone = extractPhoneNumber(currentText);
           if (phone)
             return toolResult(
@@ -9455,7 +9529,33 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // to `resolveCityClarificationYes`, which only resumes a pending action the user separately asked for.
     if (this.pendingClarification) {
       const pending = this.pendingClarification;
-      if (/^\s*(no|nope|not\s+quite|wrong|incorrect)\b/i.test(currentText)) {
+      const declinesCandidate = /^\s*(no|nope|not\s+quite|wrong|incorrect)\b/i.test(currentText);
+      // Sprint 6.6 — Part 12/29 (Test C): "No, Dubai" supplies the replacement in the SAME breath as the
+      // decline — re-asking blindly (the old behavior) discarded "Dubai" entirely. A literal match against
+      // the known-city catalog needs no further confidence gate (nothing else in this codebase re-gates a
+      // catalog hit), so when the decline message itself names a recognizable city, treat it the same way
+      // the "anything else" branch below already does: drop the pending clarification and let this turn's
+      // own extraction pick it up, rather than taking the blind re-ask early return.
+      const declineReplacementCity = declinesCandidate
+        ? pending.field === "originCity"
+          ? extractOriginCity(currentText)
+          : normalizeCityName(extractDestination(currentText))
+        : null;
+      if (declinesCandidate && declineReplacementCity) {
+        // A literal catalog-known city named in the SAME decline message ("No, Dubai") is committed
+        // directly here — deterministically, with no LLM re-extraction round-trip needed — rather than
+        // falling through and hoping a later extraction pass re-derives it (which, in a no-LLM
+        // environment or a minimal LLM response, may not happen at all). Reuses the exact same
+        // commit-and-resume-any-pending-action logic the "yes" path already uses.
+        return this.tag(
+          "city_clarify_declined_with_replacement",
+          await this.resolveCityClarificationYes(pending, request.tools, {
+            value: declineReplacementCity,
+            confidence: 1
+          })
+        );
+      }
+      if (declinesCandidate) {
         this.pendingClarification = null;
         return this.tag(
           "city_clarify_declined",
@@ -9464,8 +9564,9 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
       }
       if (/^\s*(yes|yeah|yep|correct|that'?s\s+right|right|confirm(?:ed)?|haan|ji|theek)\b/i.test(currentText))
         return this.tag("clarification_confirmed", await this.resolveCityClarificationYes(pending, request.tools));
-      // Anything else drops the pending clarification and lets this turn's own extraction reinterpret
-      // the message fresh, rather than forcing a yes/no reading onto an unrelated reply.
+      // Anything else — including a decline that also stated a replacement — drops the pending
+      // clarification and lets this turn's own extraction reinterpret the message fresh, rather than
+      // forcing a yes/no reading onto an unrelated (or richer) reply.
       this.pendingClarification = null;
     }
 
@@ -10358,7 +10459,15 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         return this.tag("execute_search", this.searchOrBelowMinimumHandoff(merged, feasibility, request.tools));
       }
       if (itineraryAlreadyPresented) {
-        if (intent === "confirm_plan" || isBookingConfirmation(currentText)) {
+        // Sprint 6.6 — Part 38/19 (parity with the no-LLM engine's equivalent fix above): `intent ===
+        // "modify_trip"` already wins ahead of this branch in the normal case (Sprint 6.5's
+        // `detectExplicitFieldCorrection` forces it whenever a differing literal value is found), but this
+        // is a defense-in-depth guard for the same "kar do" ⇒ universal-confirmation false positive —
+        // never treat an actual CORRECTION as a booking confirmation just because `isBookingConfirmation`'s
+        // pattern also happens to match.
+        const overridesBookingConfirmation =
+          classifyUserInput(currentText, { hasPendingQuestion: true }).semantic === "CORRECTION";
+        if (intent === "confirm_plan" || (isBookingConfirmation(currentText) && !overridesBookingConfirmation)) {
           this.lastWorkflowPhase = "AWAITING_CONFIRMATION";
           return this.tag("confirm_booking_lead_capture", this.beginOrResumeLeadCapture(currentText));
         }
@@ -10942,13 +11051,24 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
    */
   private async resolveCityClarificationYes(
     pending: PendingCityClarification,
-    tools: readonly AiToolDefinition[] | undefined
+    tools: readonly AiToolDefinition[] | undefined,
+    // Sprint 6.6 — Part 12/29: when a decline supplied its own replacement in the same breath ("No,
+    // Dubai"), the caller commits THAT value here instead of `pending.proposedValue` — a literal
+    // catalog-known city match, so `source: "USER_EXPLICIT"` (not "llm") and full confidence, matching
+    // the convention explicit corrections already use elsewhere in this file.
+    override?: { value: string; confidence: number }
   ): Promise<AiCompletionResult> {
     const now = new Date().toISOString();
-    this.lastEntities = { ...this.lastEntities, [pending.field]: pending.proposedValue };
+    const resolvedValue = override?.value ?? pending.proposedValue;
+    this.lastEntities = { ...this.lastEntities, [pending.field]: resolvedValue };
     this.confirmation = {
       ...this.confirmation,
-      [pending.field]: { source: "llm", confidence: pending.confidence, confirmed: true, updatedAt: now }
+      [pending.field]: {
+        source: override ? "USER_EXPLICIT" : "llm",
+        confidence: override?.confidence ?? pending.confidence,
+        confirmed: true,
+        updatedAt: now
+      }
     };
     this.pendingClarification = null;
 
@@ -10974,7 +11094,7 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     }
     if (this.pendingAction === "GENERATE_ITINERARY" && hasItineraryFields(merged)) {
       this.pendingAction = null;
-      const itinerary = await this.safeGenerateItinerary(merged, pending.proposedValue);
+      const itinerary = await this.safeGenerateItinerary(merged, resolvedValue);
       this.lastGeneratedItinerary = itinerary;
       return textResult(itinerary);
     }
@@ -10991,10 +11111,10 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
         this.budgetMode === "USER_DEFINED" && merged.budget !== null
           ? classifyBudgetFeasibility(merged.budget, estimateBudgetRange(merged, this.config))
           : null;
-      return this.continueBookingFlow(kind, merged, feasibilityForBooking, tools, [], pending.proposedValue, false);
+      return this.continueBookingFlow(kind, merged, feasibilityForBooking, tools, [], resolvedValue, false);
     }
     // No pending action to resume — acknowledge the field update and stop there.
-    return textResult(buildClarificationConfirmedMessage(pending.field, pending.proposedValue, this.responseLanguage));
+    return textResult(buildClarificationConfirmedMessage(pending.field, resolvedValue, this.responseLanguage));
   }
 
   /**
