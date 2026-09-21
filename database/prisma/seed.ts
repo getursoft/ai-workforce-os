@@ -15,7 +15,7 @@ const argon2 = requireFromApi("argon2") as typeof import("argon2");
 export const PLATFORM_OWNER_EMAIL =
   process.env.PLATFORM_OWNER_EMAIL?.trim().toLowerCase() || "krpandey25646@gmail.com";
 const PLATFORM_OWNER_PASSWORD =
-  process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
+  process.env.PLATFORM_OWNER_PASSWORD || (process.env.NODE_ENV === "production" ? undefined : "PlatformOwner@25646");
 const PLATFORM_OWNER_FIRST_NAME = process.env.PLATFORM_OWNER_FIRST_NAME || "Krishna";
 const PLATFORM_OWNER_LAST_NAME = process.env.PLATFORM_OWNER_LAST_NAME || "Pandey";
 
@@ -58,6 +58,7 @@ export const DEFAULT_PERMISSIONS = {
     "ai.profile.manage",
     "ai.assignment.read",
     "ai.assignment.manage",
+    "agents.read",
     "agents.run",
     "agents.conversations.read",
     "agents.executions.read",
@@ -194,6 +195,7 @@ export const DEFAULT_PERMISSIONS = {
     "ai.profile.manage",
     "ai.assignment.read",
     "ai.assignment.manage",
+    "agents.read",
     "agents.run",
     "agents.conversations.read",
     "agents.executions.read",
@@ -313,6 +315,7 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.read",
     "plugin.email.manage",
     "plugin.execute",
+    "agents.read",
     "agents.run",
     "agents.conversations.read",
     "agents.executions.read",
@@ -382,6 +385,7 @@ export const DEFAULT_PERMISSIONS = {
     "plugin.read",
     "plugin.execute",
     "plugin.email.manage",
+    "agents.read",
     "agents.run",
     "agents.conversations.read",
     "agents.memory.read",
@@ -397,6 +401,7 @@ export const DEFAULT_PERMISSIONS = {
     "TEAM_READ",
     "plugin.read",
     "plugin.email.manage",
+    "agents.read",
     "connector.read",
     "knowledge.read",
     "channel.read",
@@ -443,6 +448,7 @@ const descriptions: Record<string, string> = {
   "plugin.update": "Update plugin state and configuration",
   "plugin.delete": "Remove plugins",
   "plugin.execute": "Execute plugin tools",
+  "agents.read": "View installed AI employees",
   "agents.run": "Run enabled AI employees",
   "agents.conversations.read": "View agent conversations",
   "agents.executions.read": "View agent execution history",
@@ -707,5 +713,8 @@ async function seedSubscription(client: PrismaClient = prisma): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  if (process.env.NODE_ENV === "production" && !process.env.PLATFORM_OWNER_PASSWORD) {
+    throw new Error("PLATFORM_OWNER_PASSWORD is required in production");
+  }
   seedRbac().finally(() => prisma.$disconnect());
 }

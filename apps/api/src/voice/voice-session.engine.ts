@@ -11,6 +11,8 @@
  */
 import { Injectable, Logger } from "@nestjs/common";
 import { VoiceSessionService, VoiceReceptionistTurnService } from "../receptionist/voice-channel.adapter";
+import { InteractionService } from "../interaction/interaction.service";
+import { InteractionCompletionService } from "../interaction/interaction-completion.service";
 import { voiceLogContext } from "./voice-log-context";
 import { VoiceMetricsService } from "./voice-metrics.service";
 import { VoiceTranscriptService } from "./voice-transcript.service";
@@ -114,7 +116,9 @@ export class VoiceSessionEngine {
     private readonly turns: VoiceReceptionistTurnService,
     private readonly transcripts: VoiceTranscriptService,
     private readonly metrics: VoiceMetricsService,
-    private readonly config: VoiceEngineConfig
+    private readonly config: VoiceEngineConfig,
+    private readonly interactions?: InteractionService,
+    private readonly interactionCompletion?: InteractionCompletionService
   ) {
     this.turnDetection = config.turnDetection ?? DEFAULT_TURN_DETECTION;
   }
@@ -142,6 +146,35 @@ export class VoiceSessionEngine {
       sampleRateHz: input.sampleRateHz
     });
     await this.sessions.markActive(input.organizationId, input.voiceSessionId);
+
+    // Sprint 7.12 STEP 6 — the Interaction must exist from call start (RINGING/ACTIVE), not only once the
+    // caller says something: a call that rings and hangs up before speaking still deserves a case record.
+    // findOrCreate() is idempotent — the Receptionist's own turn-time hook (ReceptionistService.execute(),
+    // via input.metadata.voiceSessionId) finds and reuses THIS SAME Interaction rather than creating a
+    // second one once the first transcript arrives.
+    if (this.interactions) {
+      try {
+        const voiceSession = await this.sessions.active(input.organizationId, input.voiceSessionId);
+        await this.interactions.findOrCreate({
+          organizationId: input.organizationId,
+          channel: "VOICE",
+          transport: voiceSession.transport,
+          voiceSessionId: input.voiceSessionId,
+          channelConnectionId: voiceSession.channelConnectionId,
+          externalUserId: input.externalCallerId,
+          phoneNumber: input.externalCallerId
+        });
+      } catch (error) {
+        this.logger.warn(
+          voiceLogContext({
+            event: "VOICE_INTERACTION_LINK_FAILED",
+            organizationId: input.organizationId,
+            voiceSessionId: input.voiceSessionId,
+            errorCode: error instanceof Error ? error.message : "unknown"
+          })
+        );
+      }
+    }
 
     const state: CallState = {
       organizationId: input.organizationId,
@@ -286,6 +319,28 @@ export class VoiceSessionEngine {
           errorCode: (error as Error).message
         })
       );
+    }
+    // Sprint 7.12 STEP 9 — a call ending is a completion signal in its own right, independent of whether
+    // an explicit closing phrase was ever spoken (the primary path — see AgentService.execute's
+    // applyInteractionCompletion — already completes+speaks the reference when the customer says
+    // goodbye mid-call; this is the fallback for a call that simply hangs up). Idempotent either way.
+    if (this.interactions && this.interactionCompletion) {
+      try {
+        const interaction = await this.interactions.findByVoiceSessionId(state.organizationId, voiceSessionId);
+        if (interaction) {
+          if (failed) await this.interactionCompletion.fail(state.organizationId, interaction.id, `Call ended: ${reason}`);
+          else await this.interactionCompletion.complete(state.organizationId, interaction.id, `Call ended: ${reason}`);
+        }
+      } catch (error) {
+        this.logger.warn(
+          voiceLogContext({
+            event: "VOICE_INTERACTION_COMPLETION_FAILED",
+            organizationId: state.organizationId,
+            voiceSessionId,
+            errorCode: error instanceof Error ? error.message : "unknown"
+          })
+        );
+      }
     }
     this.metrics.increment(failed ? "voice_calls_failed_total" : "voice_calls_completed_total");
     this.metrics.observe("voice_call_duration_seconds", (Date.now() - state.startedAtEpochMs) / 1000);

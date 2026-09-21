@@ -40,6 +40,14 @@ import { ReceptionistModule } from "./receptionist/receptionist.module";
 import { VoiceModule } from "./voice/voice.module";
 import { AiConfigurationModule } from "./ai-configuration/ai-configuration.module";
 import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
+import { InteractionModule } from "./interaction/interaction.module";
+import { RetentionService } from "./retention/retention.service";
+import { DiskHealthService } from "./production/disk-health.service";
+import { ObservabilityRetentionService } from "./observability/observability-retention.service";
+import { QueueHealthService } from "./queue/queue-worker";
+import { SchedulerWorkerHealth } from "./scheduler/scheduler-worker.health";
+import { ObservabilityHealthService } from "./observability/observability-health.service";
+import { NotificationJobHandler } from "./queue/notification-job-handler";
 
 @Module({
   imports: [
@@ -83,9 +91,19 @@ import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
     SchedulerModule,
     ReceptionistModule,
     VoiceModule,
+    InteractionModule,
     OnboardingModule,
     SkillPlatformModule,
     PlatformLeadsModule
+  ],
+  providers: [
+    RetentionService,
+    DiskHealthService,
+    QueueHealthService,
+    SchedulerWorkerHealth,
+    ObservabilityHealthService,
+    ObservabilityRetentionService,
+    NotificationJobHandler
   ]
 })
 export class AppModule {}

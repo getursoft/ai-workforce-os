@@ -13,6 +13,8 @@ import { PrismaModule } from "../infrastructure/prisma/prisma.module";
 import { PluginModule } from "../plugins/plugin.module";
 import { ReceptionistModule } from "../receptionist/receptionist.module";
 import { VoiceReceptionistTurnService, VoiceSessionService } from "../receptionist/voice-channel.adapter";
+import { InteractionService } from "../interaction/interaction.service";
+import { InteractionCompletionService } from "../interaction/interaction-completion.service";
 import { buildVoiceEngineConfig, validateVoiceRealtimeProviderSelection } from "./voice-config";
 import { VoiceMetricsService } from "./voice-metrics.service";
 import { VoiceSessionEngine } from "./voice-session.engine";
@@ -66,8 +68,21 @@ import {
         turns: VoiceReceptionistTurnService,
         transcripts: VoiceTranscriptService,
         metrics: VoiceMetricsService,
-        config: AppConfig
-      ) => new VoiceSessionEngine(transport, realtime, sessions, turns, transcripts, metrics, buildVoiceEngineConfig(config)),
+        config: AppConfig,
+        interactions: InteractionService,
+        interactionCompletion: InteractionCompletionService
+      ) =>
+        new VoiceSessionEngine(
+          transport,
+          realtime,
+          sessions,
+          turns,
+          transcripts,
+          metrics,
+          buildVoiceEngineConfig(config),
+          interactions,
+          interactionCompletion
+        ),
       inject: [
         VOICE_TRANSPORT_PROVIDER,
         VOICE_REALTIME_SPEECH_PROVIDER,
@@ -75,7 +90,9 @@ import {
         VoiceReceptionistTurnService,
         VoiceTranscriptService,
         VoiceMetricsService,
-        APP_CONFIG
+        APP_CONFIG,
+        InteractionService,
+        InteractionCompletionService
       ]
     },
     VoiceStreamGateway

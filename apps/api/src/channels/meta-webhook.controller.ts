@@ -83,23 +83,19 @@ export class MetaWebhookController {
       where: { id: channelId, provider: "META_CLOUD_API", deletedAt: null },
       include: { pluginInstallation: { select: { id: true, displayName: true, status: true } } }
     });
-    if (!channel) return {};
-    if (channel.status !== "ACTIVE" && channel.status !== "CONNECTED") return {};
-    if (channel.pluginInstallation.status !== "ACTIVE") return {};
+    if (!channel) throw new Error("CHANNEL_NOT_FOUND");
+    if (channel.status !== "ACTIVE" && channel.status !== "CONNECTED") throw new Error("CHANNEL_UNAVAILABLE");
+    if (channel.pluginInstallation.status !== "ACTIVE") throw new Error("PLUGIN_UNAVAILABLE");
     const rawBody = JSON.stringify(body);
     const decrypted = this.secrets.decrypt(channel.encryptedSecrets as unknown as EncryptedPayload);
     const appSecret = decrypted.appSecret;
-    if (appSecret) {
-      if (!verifyMetaWebhookSignature(rawBody, signature, appSecret)) {
-        this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_INVALID", channelId });
-        return {};
-      }
-    } else {
-      // Sprint 6.7 — Part 31 security audit: an appSecret-less channel accepts an unsigned webhook body.
-      // Not tightened to a hard rejection here (would break any existing channel connected without one
-      // configured, a behavior change beyond this sprint's mandate) — flagged loudly instead so it's
-      // visible in logs/alerting, and documented in the sprint report as a real, narrow gap.
-      this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_VERIFICATION_SKIPPED", channelId });
+    if (!appSecret) {
+      this.logger.warn({ event: "META_WEBHOOK_APP_SECRET_MISSING_REJECTING", channelId });
+      throw new Error("META_WEBHOOK_SIGNATURE_VERIFICATION_FAILED");
+    }
+    if (!verifyMetaWebhookSignature(rawBody, signature, appSecret)) {
+      this.logger.warn({ event: "META_WEBHOOK_SIGNATURE_INVALID", channelId });
+      throw new Error("META_WEBHOOK_SIGNATURE_VERIFICATION_FAILED");
     }
     const payload = body as Record<string, unknown>;
     const entries = payload.entry as Array<Record<string, unknown>> | undefined;

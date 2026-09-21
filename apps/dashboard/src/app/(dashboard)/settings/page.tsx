@@ -17,7 +17,7 @@ export default function SettingsPage() {
       <EmptyState
         title="Session management is not available yet"
         description="The backend for listing and revoking individual sessions has not been exposed in Sprint 1.1."
-        action={<Link href="/dashboard/profile">Open profile</Link>}
+        action={<Link href="/profile">Open profile</Link>}
       />
     </div>
   );

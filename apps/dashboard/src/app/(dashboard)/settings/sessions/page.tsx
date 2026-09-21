@@ -19,7 +19,7 @@ export default function SessionsPage() {
       <EmptyState
         title="Session management is not supported yet"
         description="Sprint 1.1 keeps logout and refresh-token rotation secure, but it does not expose session inventory endpoints."
-        action={<Link href="/dashboard/profile">Open profile</Link>}
+        action={<Link href="/profile">Open profile</Link>}
       />
     </div>
   );

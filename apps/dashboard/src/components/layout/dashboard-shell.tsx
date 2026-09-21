@@ -42,6 +42,7 @@ import {
   Cpu,
   Target,
   Phone,
+  Hash,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -137,6 +138,7 @@ export const ADMIN_ITEMS: readonly {
   },
   { href: "/channels", label: "Channels", icon: Radio, permission: "channel.read" },
   { href: "/voice-calls", label: "Voice Calls", icon: Phone, permission: "channel.message.read" },
+  { href: "/interactions", label: "Interactions", icon: Hash, permission: "agents.conversations.read" },
   { href: "/connectors", label: "Connectors", icon: Cable, permission: "connector.read" },
   { href: "/dashboard/plugins", label: "Plugins", icon: Puzzle, permission: "plugin.read" },
   {

@@ -895,6 +895,7 @@ model Organization {
   skillPipelineExecutions               SkillPipelineExecution[]
   skillPackInstallations                SkillPackInstallation[]
   skillTemplateInstallations            SkillTemplateInstallation[]
+  interactions                          Interaction[]
 
   @@map("organizations")
 }
@@ -2644,6 +2645,143 @@ model VoiceTranscriptSegment {
   @@unique([voiceSessionId, sequenceNumber])
   @@index([organizationId, voiceSessionId, sequenceNumber])
   @@map("voice_transcript_segments")
+}
+
+/// Sprint 7.12: lifecycle of a single customer interaction/case, independent of which channel it started
+/// on. OPEN/ACTIVE are both "not yet finished" — kept distinct for future use (e.g. OPEN before an agent
+/// has actually picked up the very first turn) even though today's flows move straight to ACTIVE.
+enum InteractionStatus {
+  OPEN
+  ACTIVE
+  WAITING
+  COMPLETED
+  FAILED
+  CANCELLED
+
+  @@map("interaction_status")
+}
+
+/// The channel the interaction ORIGINATED on. Deliberately coarser than ChannelType/VoiceTransport (which
+/// describe transport/provider detail) — this only needs to answer "where did this customer first show
+/// up," for reference-communication policy (Sprint 7.12 STEP 17).
+enum InteractionChannel {
+  WEB_CHAT
+  WHATSAPP
+  VOICE
+
+  @@map("interaction_channel")
+}
+
+enum InteractionNotificationType {
+  EMAIL
+  SMS
+  WHATSAPP
+
+  @@map("interaction_notification_type")
+}
+
+enum InteractionNotificationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+
+  @@map("interaction_notification_status")
+}
+
+/// Sprint 7.12 — a first-class, cross-channel case/interaction record. Created at the FIRST inbound
+/// activity on any channel (web chat message, WhatsApp message, inbound voice call) and carries one
+/// customer-facing `referenceId` across Receptionist routing, specialist handoff, tool calls, and
+/// workflows — all of which continue to write their OWN truth (ConversationMessage, AgentExecution,
+/// WorkflowExecution, VoiceTranscriptSegment, ...) unchanged; this table never duplicates that data, it
+/// only tracks the case as a whole.
+///
+/// `conversationId`/`voiceSessionId`/`channelConnectionId` are deliberately NOT formal Prisma relations —
+/// same reasoning as `VoiceSession.receptionistConversationId`: an Interaction can (and for WhatsApp/voice,
+/// normally does) exist before the Conversation/VoiceSession it will end up linked to has been created, so
+/// a real FK would make insertion order fight the domain instead of describing it.
+model Interaction {
+  id                      String                     @id @default(uuid()) @db.Uuid
+  organizationId          String                     @map("organization_id") @db.Uuid
+  /// Customer-facing case reference (e.g. "KRV-842731"). Globally unique by design (Sprint 7.12 STEP 44)
+  /// — never derived from `id`, never exposed as authentication.
+  referenceId             String                     @unique @map("reference_id") @db.VarChar(20)
+  conversationId          String?                    @map("conversation_id") @db.Uuid
+  voiceSessionId          String?                    @map("voice_session_id") @db.Uuid
+  channelConnectionId     String?                    @map("channel_connection_id") @db.Uuid
+  customerProfileId       String?                    @map("customer_profile_id") @db.Uuid
+  /// The channel-specific address used for identity/continuity lookups (WhatsApp E.164 number, voice
+  /// caller id) — same concept as Conversation.externalUserId, copied here so an Interaction can be
+  /// found-or-created before a Conversation necessarily exists yet.
+  externalUserId          String?                    @map("external_user_id") @db.VarChar(64)
+  /// Best-known contact details for reference notification (Sprint 7.12 STEP 12-19) — populated from the
+  /// originating channel identity and/or captured later by the agent asking naturally. Not a substitute
+  /// for CustomerProfile; this is "where to send this one reference," not verified customer contact data.
+  phoneNumber             String?                    @map("phone_number") @db.VarChar(24)
+  email                   String?                    @db.VarChar(160)
+  channel                 InteractionChannel
+  /// Free-text, not an FK to VoiceTransport — e.g. "PSTN"/"WHATSAPP"/"WEBRTC"/"SIMULATOR" when
+  /// channel=VOICE, null for WEB_CHAT/WhatsApp-text.
+  transport               String?                    @db.VarChar(40)
+  status                  InteractionStatus          @default(ACTIVE)
+  /// Plugin installation id (loose reference, same convention as ReceptionistHandoff.*InstallationId) of
+  /// whichever employee first answered — normally the AI Receptionist.
+  entryAgentId            String?                    @map("entry_agent_id") @db.Uuid
+  /// Plugin installation id of whichever employee is (or last was) actively handling the case — updated on
+  /// every handoff so it always reflects "who owns this right now," without duplicating
+  /// ReceptionistHandoff's own history.
+  currentAgentId          String?                    @map("current_agent_id") @db.Uuid
+  startedAt               DateTime                   @default(now()) @map("started_at")
+  lastActivityAt          DateTime                   @default(now()) @map("last_activity_at")
+  completedAt             DateTime?                  @map("completed_at")
+  resolutionSummary       String?                    @map("resolution_summary") @db.Text
+  /// Sprint 7.12 STEP 10/31 double-send guard — set the first (and only) time the agent/voice turn
+  /// communicates the reference to the customer, so a retried turn or a second completion signal never
+  /// repeats it.
+  referenceCommunicatedAt DateTime?                  @map("reference_communicated_at")
+  metadataJson            Json                       @default("{}") @map("metadata_json")
+  createdAt               DateTime                   @default(now()) @map("created_at")
+  updatedAt               DateTime                   @updatedAt @map("updated_at")
+  organization            Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  notifications           InteractionNotification[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, conversationId])
+  @@index([organizationId, voiceSessionId])
+  @@index([organizationId, channelConnectionId, externalUserId, status])
+  @@index([organizationId, createdAt])
+  @@map("interactions")
+}
+
+/// Sprint 7.12 — one row per notification delivery ATTEMPT (not per Interaction) so a retry never
+/// overwrites the record of what was already tried. Mirrors ChannelDeliveryAttempt's per-attempt shape.
+model InteractionNotification {
+  id                String                         @id @default(uuid()) @db.Uuid
+  interactionId     String                         @map("interaction_id") @db.Uuid
+  organizationId    String                         @map("organization_id") @db.Uuid
+  type              InteractionNotificationType
+  /// Masked at write time (Sprint 7.12 STEP 30) — e.g. "kr***@example.com" / "+91******1193". The
+  /// unmasked destination is never persisted here; it is read fresh from Interaction/Conversation/
+  /// VoiceSession identity fields at send time and discarded after use.
+  destinationMasked String                         @map("destination_masked") @db.VarChar(160)
+  /// e.g. "mock", "twilio", "smtp" — never a business-logic branch, purely an audit/debug label.
+  provider          String                         @db.VarChar(40)
+  status            InteractionNotificationStatus  @default(PENDING)
+  providerMessageId String?                        @map("provider_message_id") @db.VarChar(200)
+  /// Normalized failure code, never a raw provider error message/stack (same convention as
+  /// VoiceSession.terminationReason / ChannelMessage.errorCode).
+  failureReason     String?                        @map("failure_reason") @db.VarChar(200)
+  requestedAt       DateTime                       @default(now()) @map("requested_at")
+  sentAt            DateTime?                      @map("sent_at")
+  deliveredAt       DateTime?                      @map("delivered_at")
+  createdAt         DateTime                       @default(now()) @map("created_at")
+  updatedAt         DateTime                       @updatedAt @map("updated_at")
+  interaction       Interaction                    @relation(fields: [interactionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, interactionId])
+  @@index([organizationId, status])
+  @@map("interaction_notifications")
 }
 
 /// Sprint 4.6 — Multi-Employee Collaboration & Delegation Engine.

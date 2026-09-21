@@ -35,7 +35,8 @@ const message = (error: unknown) =>
         EMAIL_ALREADY_EXISTS: "An account with this email already exists.",
         CONFLICT: "This item conflicts with existing data.",
         AUTHORIZATION_FAILED: "You do not have permission to perform this action.",
-        USER_NOT_FOUND: "The requested item was not found."
+        USER_NOT_FOUND: "The requested item was not found.",
+        RESOURCE_NOT_FOUND: "The requested item was not found."
       }[error.code] ?? error.message)
     : "Something went wrong. Please try again.";
 const date = (value: string | null) =>

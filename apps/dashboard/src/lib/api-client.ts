@@ -122,6 +122,13 @@ export class ApiClient {
     return currentUserResult(await this.request<unknown>("/auth/me", { method: "GET" }));
   }
 
+  // Self-scoped: any signed-in user can read their own effective permission set (no admin permission
+  // required, same as `/auth/me`) — the correct source for client-side AccessGate/Can checks, unlike
+  // deriving them from the admin-only `/users/:id` + `/roles` endpoints.
+  async myPermissions(): Promise<string[]> {
+    return myPermissionsResult(await this.request<unknown>("/auth/me/permissions", { method: "GET" }));
+  }
+
   async logout(): Promise<LogoutResult> {
     try {
       return await this.request<LogoutResult>(
@@ -334,6 +341,12 @@ function authenticationResult(value: unknown): AuthenticationResult {
   )
     throw malformedResponse();
   return result;
+}
+
+function myPermissionsResult(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.permissions)) throw malformedResponse();
+  if (!value.permissions.every((permission) => typeof permission === "string")) throw malformedResponse();
+  return value.permissions;
 }
 
 function currentUserResult(value: unknown): CurrentUserResult {

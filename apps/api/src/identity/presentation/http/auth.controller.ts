@@ -36,6 +36,7 @@ import {
   readRefreshTokenFromRequest,
   setRefreshTokenCookie
 } from "./browser-cookie";
+import { AuthorizationService } from "../../application/services/authorization.service";
 import { CurrentPrincipal } from "./current-principal.decorator";
 import type { IdentityRequest, IdentityResponse } from "./request-context";
 import { JwtAccessGuard } from "./jwt-access.guard";
@@ -58,7 +59,8 @@ export class AuthController {
     private readonly emailVerification: EmailVerificationService,
     private readonly emailService: EmailService,
     private readonly securityLogger: SecurityEventLogger,
-    private readonly auditLogger: AuditEventLogger
+    private readonly auditLogger: AuditEventLogger,
+    private readonly authorization: AuthorizationService
   ) {}
 
   @Post("register")
@@ -167,6 +169,22 @@ export class AuthController {
       this.logFailure("me_unauthorized", request.requestId, error);
       throw error;
     }
+  }
+
+  // Self-scoped by design: a signed-in user is always allowed to know their own effective permission
+  // set, the same way `/auth/me` needs no admin permission to return your own identity. This is the
+  // only correct source for the dashboard's own AccessGate/Can checks — the alternative (deriving them
+  // from `GET /users/:id` + `GET /roles`) requires the admin-only `users.read`/`roles.read` permissions,
+  // which every role below Owner lacks, so every non-Owner user's UI silently saw "Access denied" on
+  // every permission-gated page regardless of what they could actually do.
+  @Get("me/permissions")
+  @UseGuards(JwtAccessGuard)
+  async myPermissions(@CurrentPrincipal() principal: AuthenticatedPrincipal) {
+    const permissions = await this.authorization.getEffectivePermissions(
+      principal.userId.toString(),
+      principal.organizationId.toString()
+    );
+    return { data: { permissions } };
   }
 
   @Post("forgot-password")

@@ -21,6 +21,11 @@ import { ObservabilityController } from "./observability.controller";
   imports: [PrismaModule, IdentityModule, WorkforceModule, ChannelModule],
   controllers: [ObservabilityController],
   providers: [ObservabilityMetricsService, ObservabilityAlertsService, ObservabilityOperationsService, ObservabilityHealthService, ObservabilityRetentionService],
-  exports: [ObservabilityMetricsService, ObservabilityAlertsService]
+  exports: [
+    ObservabilityMetricsService,
+    ObservabilityAlertsService,
+    ObservabilityHealthService,
+    ObservabilityRetentionService
+  ]
 })
 export class ObservabilityModule {}

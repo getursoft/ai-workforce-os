@@ -27,6 +27,7 @@ export function emailConfigurationErrorMessage(error: unknown): string {
     AUTHORIZATION_FAILED: "Only organization Owners and Admins can change this configuration.",
     PLUGIN_NOT_FOUND: "This plugin installation is no longer available.",
     USER_NOT_FOUND: "This plugin installation is no longer available.",
+    RESOURCE_NOT_FOUND: "This plugin installation is no longer available.",
     INTERNAL_ERROR: "The server could not save this configuration."
   };
   return messages[code] ?? "Your saved values remain unchanged. Check the fields and try again.";

@@ -253,7 +253,7 @@ export function EmployeesPage() {
     }
   });
   return (
-    <AccessGate permission="agents.run">
+    <AccessGate permission={["agents.read", "agents.run"]}>
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
@@ -287,12 +287,14 @@ export function EmployeesPage() {
                   </Badge>
                 </div>
                 <div className="employee-card__actions">
-                  <Button
-                    onClick={() => router.push(`/ai-employees/${item.id}`)}
-                    aria-label={`Run ${item.displayName}`}
-                  >
-                    Run
-                  </Button>
+                  <Can permission="agents.run">
+                    <Button
+                      onClick={() => router.push(`/ai-employees/${item.id}`)}
+                      aria-label={`Run ${item.displayName}`}
+                    >
+                      Run
+                    </Button>
+                  </Can>
                   {(() => {
                     const configureHref = EMPLOYEE_CONFIGURE_ROUTES[item.slug];
                     return configureHref ? (

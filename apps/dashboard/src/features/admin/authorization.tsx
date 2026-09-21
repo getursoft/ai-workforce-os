@@ -13,17 +13,15 @@ export function PermissionProvider({ children }: Readonly<{ children: ReactNode 
   const { client, state } = useAuth();
   const api = useMemo(() => createAdminApi(client), [client]);
   const isPlatformOwner = state.user?.isPlatformOwner === true;
-  const userQuery = useQuery({
-    queryKey: ["admin", "current-user", state.user?.id],
-    queryFn: () =>
-      state.user
-        ? api.getUser(state.user.id)
-        : Promise.reject(new Error("Current user is unavailable")),
-    enabled: Boolean(state.user?.id) && !isPlatformOwner
-  });
-  const rolesQuery = useQuery({
-    queryKey: ["admin", "roles", "permission-source"],
-    queryFn: api.listRoles,
+  // Self-scoped — `GET /auth/me/permissions` needs only a valid session, unlike the admin-only
+  // `GET /users/:id` + `GET /roles` this used to derive permissions from (both require `users.read`/
+  // `roles.read`, permissions only the Owner *role* happens to hold — every other role, including
+  // Member and Viewer, would 403 on both calls and silently see "Access denied" everywhere in the
+  // dashboard regardless of what they could actually do). See UAT-007 in
+  // docs/production/full-platform-uat-defects.md for the full trace of this.
+  const myPermissionsQuery = useQuery({
+    queryKey: ["auth", "me", "permissions", state.user?.id],
+    queryFn: () => client.myPermissions(),
     enabled: Boolean(state.user?.id) && !isPlatformOwner
   });
   // The platform owner is a superadmin in every organization on the backend (see
@@ -39,16 +37,14 @@ export function PermissionProvider({ children }: Readonly<{ children: ReactNode 
     () =>
       isPlatformOwner
         ? allPermissionKeys(permissionsCatalogueQuery.data)
-        : extractEffectivePermissions(userQuery.data, rolesQuery.data),
-    [isPlatformOwner, permissionsCatalogueQuery.data, rolesQuery.data, userQuery.data]
+        : new Set(myPermissionsQuery.data ?? []),
+    [isPlatformOwner, permissionsCatalogueQuery.data, myPermissionsQuery.data]
   );
   return (
     <PermissionContext.Provider
       value={{
         values: permissions,
-        loading: isPlatformOwner
-          ? permissionsCatalogueQuery.isLoading
-          : permissionsAreLoading(userQuery.isLoading, rolesQuery.isLoading)
+        loading: isPlatformOwner ? permissionsCatalogueQuery.isLoading : myPermissionsQuery.isLoading
       }}
     >
       {children}
@@ -99,7 +95,7 @@ export function Can({
 export function AccessGate({
   permission,
   children
-}: Readonly<{ permission: string; children: ReactNode }>) {
+}: Readonly<{ permission: string | readonly string[]; children: ReactNode }>) {
   const context = useContext(PermissionContext);
   if (context.loading)
     return (
@@ -107,7 +103,13 @@ export function AccessGate({
         <div className="ui-skeleton" />
       </div>
     );
-  return context.values.has(permission) ? (
+  // An array means "any of these" (e.g. a read-only permission alongside the broader one it was split
+  // out of, so a role holding either can still see the page) — a single string keeps its original exact
+  // meaning for every other call site.
+  const allowed = Array.isArray(permission)
+    ? hasAnyPermission(context.values, permission)
+    : context.values.has(permission as string);
+  return allowed ? (
     children
   ) : (
     <div className="admin-state" role="alert">

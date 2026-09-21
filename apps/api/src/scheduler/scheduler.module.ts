@@ -36,6 +36,6 @@ import { SchedulerEventsModule } from "./scheduler-event-bus";
     SchedulerDeliveryService,
     SchedulerEventBridge
   ],
-  exports: [SchedulerService, JobHistoryService, JobLockService, JobRegistry, SchedulerEventBridge]
+  exports: [SchedulerService, JobHistoryService, JobLockService, JobRegistry, SchedulerEventBridge, SchedulerWorkerHealth]
 })
 export class SchedulerModule {}

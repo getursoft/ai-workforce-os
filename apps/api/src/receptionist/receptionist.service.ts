@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
 import {
   AgentExecutionStatus,
   ConversationMessageRole,
@@ -15,6 +15,7 @@ import {
 import { classifyIdentityCandidate } from "../conversation/identity-capture";
 import { classifyUserInput } from "../conversation/input-semantics";
 import { CustomerIdentityService } from "../customer-identity/customer-identity.service";
+import { InteractionService } from "../interaction/interaction.service";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ObservabilityService } from "../observability/observability.service";
 import type { TraceContext } from "../observability/trace-context";
@@ -80,7 +81,8 @@ export class ReceptionistService implements ReceptionistRuntime {
     private readonly workforce: WorkforceOrchestratorService,
     private readonly customerIdentities: CustomerIdentityService,
     private readonly observability: ObservabilityService,
-    private readonly pendingInputRegistry: SpecialistPendingInputRegistry
+    private readonly pendingInputRegistry: SpecialistPendingInputRegistry,
+    @Optional() private readonly interactions?: InteractionService
   ) {}
 
   async execute(
@@ -99,6 +101,27 @@ export class ReceptionistService implements ReceptionistRuntime {
       conversation.customerProfileId
     );
     const channel = channelFor(input);
+
+    // Sprint 7.12 STEP 3/6/7 — the Receptionist is the TRUE first-contact point for WhatsApp/voice/
+    // web-via-receptionist (this method returns before AgentService.executeTraced's own conversation
+    // resolution ever runs for these — see AgentService.executeTraced's own comment on this), so the
+    // Interaction must be created/linked here, not there. A subsequent specialist handoff dispatch
+    // reaches AgentService.executeTraced directly and finds this SAME Interaction via shared channel
+    // identity — never a duplicate.
+    if (this.interactions) {
+      const voiceSessionId =
+        typeof input.metadata?.voiceSessionId === "string" ? input.metadata.voiceSessionId : null;
+      const interaction = await this.interactions.findOrCreate({
+        organizationId: input.organizationId,
+        channel: channel === "WEB" ? "WEB_CHAT" : channel,
+        conversationId: conversation.id,
+        voiceSessionId,
+        channelConnectionId: input.actor.type === "CHANNEL" ? input.actor.channelConnectionId : null,
+        externalUserId: input.actor.type === "CHANNEL" ? input.actor.externalUserId : null,
+        entryAgentId: plugin.id
+      });
+      await this.interactions.setCurrentAgent(input.organizationId, interaction.id, plugin.id);
+    }
 
     const historyCount = await this.prisma.conversationMessage.count({
       where: { organizationId: input.organizationId, conversationId: conversation.id }

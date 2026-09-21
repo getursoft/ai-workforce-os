@@ -30,6 +30,10 @@ import type { TraceContext } from "../observability/trace-context";
 import { TraceContextStore } from "../observability/trace-context.store";
 import { summarizeText } from "../observability/observability-sanitizer";
 import { RECEPTIONIST_RUNTIME, type ReceptionistRuntime } from "../receptionist/receptionist.types";
+import { InteractionService, TERMINAL_INTERACTION_STATUSES } from "../interaction/interaction.service";
+import { InteractionCompletionService } from "../interaction/interaction-completion.service";
+import { InteractionReferenceLookupService } from "../interaction/interaction-reference-lookup.service";
+import { spokenReferenceId } from "../interaction/reference-id.generator";
 import {
   composeChannelResponse,
   resolveConversationChannel
@@ -449,7 +453,10 @@ export class AgentService {
     @Optional() private readonly traceContextStore?: TraceContextStore,
     @Optional() private readonly billingEnforcement?: BillingEnforcementService,
     @Optional() private readonly skillsRuntime?: SkillsRuntimeService,
-    @Optional() private readonly skillRegistry?: SkillRegistryService
+    @Optional() private readonly skillRegistry?: SkillRegistryService,
+    @Optional() private readonly interactions?: InteractionService,
+    @Optional() private readonly interactionCompletion?: InteractionCompletionService,
+    @Optional() private readonly interactionLookup?: InteractionReferenceLookupService
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -463,6 +470,7 @@ export class AgentService {
     this.registerTravelTools();
     this.registerEmployeeTools();
     this.registerSkillTools();
+    this.registerInteractionTools();
     for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
   }
 
@@ -546,7 +554,47 @@ export class AgentService {
       },
       async (span) => this.executeTraced(input, span)
     );
-    return this.applyChannelPolicy(input, result);
+    const shaped = this.applyChannelPolicy(input, result);
+    return this.applyInteractionCompletion(input, shaped);
+  }
+
+  /** Sprint 7.12 STEP 9/10/11 — the single choke point (mirrors applyChannelPolicy's own reasoning
+   *  above) where a closing remark is detected and, if this turn is the one that ends the interaction,
+   *  the reference is appended to the ALREADY-composed response — never scattered across executeTraced's
+   *  many internal branches, and applied uniformly whether this turn came from the Receptionist or a
+   *  direct employee execution. Never throws: any failure here degrades to returning the response
+   *  unchanged, exactly like a notification failure never blocks completion. */
+  private async applyInteractionCompletion<T extends { response: string; conversationId?: string }>(
+    input: AgentExecutionInput,
+    result: T
+  ): Promise<T> {
+    if (!this.interactions || !this.interactionCompletion) return result;
+    const conversationId = result.conversationId ?? input.conversationId;
+    if (!conversationId) return result;
+    try {
+      const interaction = await this.interactions.findByConversationId(input.organizationId, conversationId);
+      if (!interaction) return result;
+      if (this.interactionCompletion.detectsClosing(input.text)) {
+        await this.interactionCompletion.complete(input.organizationId, interaction.id);
+      }
+      const refreshed = await this.interactions.get(input.organizationId, interaction.id);
+      if (!refreshed || !TERMINAL_INTERACTION_STATUSES.includes(refreshed.status)) return result;
+      const claimed = await this.interactions.claimReferenceCommunication(input.organizationId, interaction.id);
+      if (!claimed) return result;
+      const sentence =
+        input.source.type === "VOICE"
+          ? ` Before we finish, your reference is ${spokenReferenceId(refreshed.referenceId)}.`
+          : ` You're all set — I've saved this under reference ${refreshed.referenceId}. If you contact us again, just share that reference.`;
+      return { ...result, response: `${result.response}${sentence}` };
+    } catch (error) {
+      this.logger.error({
+        event: "INTERACTION_COMPLETION_HOOK_FAILED",
+        organizationId: input.organizationId,
+        conversationId,
+        error: error instanceof Error ? error.message : "unknown"
+      });
+      return result;
+    }
   }
 
   /** Sprint 6.4 — Part 1/6: the pipeline trace found that only Receptionist-routed turns ever ran through
@@ -679,6 +727,40 @@ export class AgentService {
     if (conversation.status === ConversationStatus.ARCHIVED)
       throw new ConflictException("CONVERSATION_ARCHIVED");
     if (span) await this.observability?.linkTrace(span, { conversationId: conversation.id });
+    // Sprint 7.12 STEP 3/4/7 — the single, channel-agnostic Interaction creation/link point for every
+    // DIRECT execution (a dashboard chat or handoff dispatch pointed straight at this specific plugin).
+    // Receptionist-fronted turns are created inside ReceptionistService.execute() instead (that path
+    // returns above, at the `workforce.intake` branch, before conversation resolution ever reaches here)
+    // — a handoff dispatch reaching this point resolves to the SAME Interaction the Receptionist already
+    // created, via the shared channel identity (see InteractionService.findOrCreate's resolution order),
+    // never a fresh one.
+    if (this.interactions) {
+      const responseChannel = resolveConversationChannel({
+        sourceType: input.source.type,
+        requestedChannel: input.requestedChannel
+      });
+      const voiceSessionId =
+        typeof input.metadata?.voiceSessionId === "string" ? input.metadata.voiceSessionId : null;
+      // A handoff dispatch (ReceptionistService.startHandoff/continueHandoff) always lands here with a
+      // brand-new specialist conversation, so neither the conversationId nor the CHANNEL-actor checks above
+      // can find the Interaction the Receptionist already created — this is the only signal available for
+      // web-chat/dashboard handoffs (WhatsApp/voice already resolve via the CHANNEL actor / voiceSessionId).
+      const linkedConversationId =
+        typeof input.metadata?.receptionistConversationId === "string"
+          ? input.metadata.receptionistConversationId
+          : null;
+      const interaction = await this.interactions.findOrCreate({
+        organizationId,
+        channel: responseChannel === "WEB" ? "WEB_CHAT" : responseChannel,
+        conversationId: conversation.id,
+        voiceSessionId,
+        channelConnectionId: input.actor.type === "CHANNEL" ? input.actor.channelConnectionId : null,
+        externalUserId: input.actor.type === "CHANNEL" ? input.actor.externalUserId : null,
+        entryAgentId: plugin.id,
+        linkedConversationId
+      });
+      await this.interactions.setCurrentAgent(organizationId, interaction.id, plugin.id);
+    }
     let travelOrchestrator: TravelEmployeeLlmOrchestrator | null = null;
     let deterministicTravelProvider: TravelEmployeeProvider | null = null;
     const persistedTravelState = travelConfig
@@ -979,11 +1061,23 @@ export class AgentService {
         sources: []
       };
     }
-    const escalationMatch = HUMAN_ESCALATION_REQUEST_PATTERN_HI.test(effectiveText)
-      ? "HI"
-      : HUMAN_ESCALATION_REQUEST_PATTERN_EN.test(effectiveText)
-        ? "EN"
-        : null;
+    // UAT-009: Travel Employee has its own complete, self-contained escalation flow (travel.runtime.ts —
+    // detects the same "talk to a human" phrasing, advances its own state machine to the ESCALATED
+    // stage, and replies with a message that includes the organization's actually-configured
+    // `escalationContact`). The generic gate below only ever has a fixed, contact-free acknowledgement,
+    // so letting it intercept first silently discarded that richer, more useful response and left
+    // Travel's own stage machine never advancing. Carved out narrowly (Travel only, not every
+    // employeeConfig-bearing domain) since Travel is the one case with a verified, working alternative
+    // flow already in place — this does not touch the HUMAN_ACTIVE pause case above, which still applies
+    // to every employee, Travel included, once a human has actually taken the conversation over.
+    const escalationMatch =
+      isTravelEmployee
+        ? null
+        : HUMAN_ESCALATION_REQUEST_PATTERN_HI.test(effectiveText)
+          ? "HI"
+          : HUMAN_ESCALATION_REQUEST_PATTERN_EN.test(effectiveText)
+            ? "EN"
+            : null;
     if (escalationMatch) {
       await this.prisma.conversation.update({
         where: { id: conversation.id },
@@ -3031,6 +3125,47 @@ export class AgentService {
         }
       });
     }
+  }
+
+  /** Sprint 7.12 STEP 24 — registered as a normal ToolRegistry tool (not brittle regex-only routing) so
+   *  the Receptionist can recognize "my reference is KRV-842731" and retrieve the case through the same
+   *  tool-calling pipeline every other employee tool already uses. Tenant-scoped via
+   *  ToolExecutionContext.organizationId — never a cross-tenant lookup. */
+  private registerInteractionTools() {
+    const interactionLookup = this.interactionLookup;
+    if (!interactionLookup) return;
+    this.tools.register({
+      definition: {
+        name: "platform.interaction.lookup_reference",
+        version: "1.0.0",
+        description:
+          "Look up a prior interaction/case by its customer-facing reference id (e.g. KRV-842731) so the " +
+          "conversation can be safely resumed with context from before.",
+        requiredPermissions: ["agents.conversations.read"],
+        timeoutMs: 3000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["referenceId"],
+          properties: {
+            referenceId: { type: "string", minLength: 4, maxLength: 32 }
+          }
+        }
+      },
+      execute: async (input, context: ToolExecutionContext) => {
+        const result = await interactionLookup.lookup(context.organizationId, String(input.referenceId));
+        if (!result) return { found: false };
+        return {
+          found: true,
+          referenceId: result.referenceId,
+          status: result.status,
+          channel: result.channel,
+          startedAt: result.startedAt.toISOString(),
+          completedAt: result.completedAt?.toISOString() ?? null,
+          summary: result.summary
+        };
+      }
+    });
   }
 
   /**

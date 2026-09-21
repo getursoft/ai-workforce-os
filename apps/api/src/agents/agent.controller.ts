@@ -16,7 +16,7 @@ import { AuditEventLogger } from "../identity/presentation/http/audit-event.logg
 import { CurrentPrincipal } from "../identity/presentation/http/current-principal.decorator";
 import { JwtAccessGuard } from "../identity/presentation/http/jwt-access.guard";
 import { PermissionGuard } from "../identity/presentation/http/permission.guard";
-import { RequirePermission } from "../identity/presentation/http/permission.decorators";
+import { RequireAnyPermission, RequirePermission } from "../identity/presentation/http/permission.decorators";
 import type { IdentityRequest } from "../identity/presentation/http/request-context";
 import { RateLimit } from "../security/rate-limit.decorator";
 import { RateLimitGuard } from "../security/rate-limit.guard";
@@ -32,12 +32,16 @@ export class AgentController {
     private readonly agents: AgentService,
     private readonly audit: AuditEventLogger
   ) {}
-  @Get("agents") @RequirePermission("agents.run") employees(
+  // Read-only listings — accept the dedicated `agents.read` permission (so a read-only role like
+  // "Viewer" can see which AI Employees exist without also being granted execute access) as well as
+  // the pre-existing `agents.run` (so any custom, non-system role that already only has `agents.run`
+  // keeps working unchanged — DEFAULT_PERMISSIONS re-seeding only syncs the built-in system roles).
+  @Get("agents") @RequireAnyPermission("agents.read", "agents.run") employees(
     @CurrentPrincipal() p: AuthenticatedPrincipal
   ) {
     return this.agents.employees(org(p));
   }
-  @Get("agents/tools") @RequirePermission("agents.run") tools() {
+  @Get("agents/tools") @RequireAnyPermission("agents.read", "agents.run") tools() {
     return this.agents.toolCatalog();
   }
   // Sprint 5.0 Phase 9: the global RateLimitGuard already applies AI_EXECUTION per-IP (pre-auth layer);

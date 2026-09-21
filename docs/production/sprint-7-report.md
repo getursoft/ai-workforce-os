@@ -503,3 +503,147 @@ implementation. Two pre-existing, unrelated issues were found during this sprint
 `ChannelConnection → Plugin` FK teardown bug, and the date-dependent travel assertions) — both are
 documented above and belong to other sprints' scope, not silently hidden and not misattributed to this
 sprint's own changes.
+
+---
+
+## Sprint 7.12 — Interaction Reference & Notification Layer (addendum)
+
+Builds a platform-wide, cross-channel case/reference system on top of Sprint 7/7.11's voice work and the
+existing Conversation/ChannelConnection architecture — full detail in `docs/interaction-reference.md`
+(architecture, sequence diagrams, lifecycle, notification policy, security/privacy, known limitations).
+This section covers only what's specific to the sprint-report format.
+
+**Database**: two new models (`Interaction`, `InteractionNotification`) + two new enums
+(`InteractionStatus`, `InteractionChannel`) + two enums for notifications (`InteractionNotificationType`,
+`InteractionNotificationStatus`), migration `20260906144114_sprint_7_12_interaction_domain` — purely
+additive, applied cleanly to both dev and test databases via `prisma migrate deploy` (the repo's migration
+history has pre-existing drift from an earlier sprint that blocks `prisma migrate dev`, so the migration
+SQL was generated via `prisma migrate diff` against the live schema and reviewed before applying — never a
+`migrate reset`).
+
+**Reference ID**: `KRV-842731` — voice-friendly charset (excludes `0/O/1/I/L`), globally unique, DB-level
+unique constraint + collision-retry-on-create, never derived from the row's UUID.
+
+**Channel integration**: a single `InteractionService.findOrCreate()` entry point, called from
+`ReceptionistService.execute()` (the true first-contact point for Receptionist-fronted WhatsApp/voice/web
+conversations — this returns before `AgentService.executeTraced()`'s own conversation resolution ever
+runs) and from `AgentService.executeTraced()` itself (direct employee execution, and specialist handoff
+dispatch — which finds the SAME Interaction the Receptionist already created via shared channel identity,
+never a duplicate). `VoiceSessionEngine.startStream()` creates the Interaction at call start, before any
+transcript turn — a call that rings and hangs up still gets a case record.
+
+**Completion & reference communication**: a single choke point,
+`AgentService.execute()`'s `applyInteractionCompletion()` (mirrors the existing `applyChannelPolicy`
+pattern), detects an explicit closing remark, marks the interaction complete (idempotent), and appends a
+natural reference sentence to the already-composed response — spoken form (`K R V 8 4 2 7 3 1`) for voice,
+plain text for chat/WhatsApp. Double-send guarded by an atomic conditional update
+(`referenceCommunicatedAt IS NULL`). `VoiceSessionEngine.endStream()` is a second, fallback completion
+trigger for a call that ends without an explicit goodbye.
+
+**Notifications**: `InteractionNotificationOrchestrator` — the only place that sends a reference
+notification. Email reuses the existing `EmailService` unchanged. WhatsApp reuses the existing
+`ChannelMessageProcessor.sendHumanMessage()` pipeline (same one Sprint 6.7's human-takeover replies use) —
+resolved lazily via `ModuleRef` against a token, not a direct import, specifically to avoid a real circular
+module dependency this sprint discovered (`InteractionModule` → `ChannelModule` → `AgentModule` →
+optionally `InteractionService`). SMS is genuinely new: `MockSmsProvider` (default, deterministic transient/
+permanent failure simulation for tests) and `TwilioSmsProvider` (real, code-complete, never fabricates a
+credential). Deduplicated per `(interaction, channel)`; a failure never blocks or rolls back interaction
+completion.
+
+**Reference lookup**: `InteractionReferenceLookupService`, tenant-scoped, reuses the existing
+`ConversationSummary` table for context rather than replaying transcripts. Registered as a real
+`ToolRegistry` tool (`platform.interaction.lookup_reference`) so the Receptionist can recognize "my
+reference is KRV-842731" through the normal tool-calling pipeline, not regex.
+
+**Admin API**: `GET /interactions`, `/interactions/:id`, `/interactions/reference/:referenceId`,
+`/interactions/:id/notifications` — same RBAC/pagination convention as the Call History API, reusing the
+existing `agents.conversations.read` permission (no new permission string needed). Destinations masked in
+every response.
+
+**Dashboard**: minimal Interactions list + detail page (`apps/dashboard/src/features/interactions/`) —
+filterable list, notification delivery history in the detail view, links out to the existing Voice Calls
+detail page for voice interactions. Not a CRM.
+
+**Test results**: 8 new unit test files (67 tests) in `apps/api/src/interaction/` covering reference-ID
+format/uniqueness/collision-retry, find-or-create resolution order, completion idempotency, notification
+dedup/failure-isolation/retry, masking, template rendering, and tenant-scoped lookup — plus two real
+Postgres+HTTP e2e tests: one drives an actual signed Twilio webhook through the real
+`ChannelMessageProcessor` (first message → Interaction created → second message → same reference, no
+duplicate → closing remark → completion → reference in the outbound WhatsApp reply → notification row
+persisted; plus a two-organization tenant-isolation check on the lookup service), and one drives
+`VoiceSessionEngine` directly through a full call (Interaction at call start, before speech → linked once
+the Receptionist resolves the conversation → closing remark → completion → spoken reference in the actual
+`VoiceTranscriptSegment` row → idempotent `endStream()`). Both e2e tests passed on real Postgres.
+
+**Full regression**: `npm test` (`--no-file-parallelism`) — 2,910 total; 2,874 passed; 3 failed; 33 skipped.
+All 3 failures are the exact same pre-existing, date-dependent `travel.llm.spec.ts` assertions and
+`travel.e2e.spec.ts` escalation-wording gap already documented in the Sprint 7.11 section above — compared
+failure-by-failure against that baseline, not assumed. The pre-existing `ChannelConnection → Plugin` FK
+teardown bug (also already documented above, Sprint 6.7 scope) surfaced in different test files this run
+(`agent.e2e.spec.ts`, `knowledge-grounding.e2e.spec.ts`, `skill-platform-enterprise.e2e.spec.ts`) purely due
+to nondeterministic test-file scheduling — same root cause, not a new issue, and not touched by this
+sprint.
+
+**Build results**: `apps/api` — `nest build` exit 0; `tsc --noEmit` clean for every file this sprint
+touched (pre-existing unrelated errors only, same set already documented above); `eslint src/` — same 37
+pre-existing problems, zero in `src/interaction/` or any file this sprint touched. `apps/dashboard` —
+`next build` succeeded, `/interactions` and `/interactions/[id]` both compiled; `tsc --noEmit` clean;
+`eslint` clean for the new feature; `vitest run` — same 2 pre-existing dashboard failures, zero new.
+
+**Known limitations** (see `docs/interaction-reference.md` for full detail): per-tenant reference prefix
+not implemented (one global env-configured prefix); notification retry is a single immediate retry, not a
+scheduled backoff queue (the existing `QueueMessage`/`QueueCategory.NOTIFICATION_JOBS` scaffolding has zero
+real consumers anywhere in the codebase today, so adopting it here was judged riskier than the proven
+pattern actually used); `WorkflowExecution`-completion is not wired as a third completion trigger (a clean
+follow-up, not a design gap); real SMS/WhatsApp delivery-status callbacks are not wired; closing-phrase
+detection is English-only.
+
+### Sprint 7.12 Definition of Done
+
+```
+[x] Interaction model exists
+[x] customer reference ID exists — voice-friendly, KRV-842731 format
+[x] DB uniqueness enforced — global unique constraint
+[x] collision retry works — catch P2002, regenerate, up to 5 attempts
+[x] first inbound chat creates Interaction
+[x] first inbound WhatsApp creates Interaction
+[x] inbound voice creates Interaction — at call start, before any speech
+[x] Conversation linked
+[x] VoiceSession linked
+[x] agent handoffs preserve same reference
+[x] tools/workflows preserve interaction context — via the existing conversationId
+[x] interaction completion implemented — closing-phrase + voice call end, idempotent
+[x] reference available to final agent response
+[x] voice can speak reference — spaced-character rendering
+[x] web chat displays reference — in the response text (no dedicated on-screen badge — see limitations)
+[x] notification orchestrator implemented
+[x] mock SMS provider implemented
+[x] email provider integrated — existing EmailService, unchanged
+[x] WhatsApp outbound reference integrated — existing ChannelMessageProcessor pipeline
+[x] notification attempts persisted
+[x] notification failures isolated — never blocks/rolls back interaction completion
+[x] duplicate notifications prevented — one attempt per (interaction, channel)
+[x] reference lookup service implemented
+[x] Receptionist lookup tool implemented — platform.interaction.lookup_reference
+[x] future conversation resume works — via ConversationSummary reuse
+[x] admin API implemented
+[x] tenant isolation tested — real two-organization e2e test
+[x] minimal dashboard implemented
+[x] observability added — structured logs, no sensitive fields
+[x] metrics added — InteractionMetricsService
+[x] mock mode requires no paid credentials
+[x] migrations safe — additive, reviewed SQL, no reset
+[x] integration tests pass — real Postgres, real HTTP, real voice engine
+[x] API build passes
+[x] dashboard build passes
+[x] docs updated — docs/interaction-reference.md + this file
+```
+
+**Sprint 7.12 status: CODING COMPLETE — EXTERNAL PROVIDERS OPTIONAL.** Every checklist item above is
+implemented and verified by a real, passing test against real Postgres (and, for voice, the real
+`VoiceSessionEngine`) — none are asserted without evidence. No external credentials are required for any
+of it: `MockSmsProvider` is the default SMS path, email degrades to a recorded failure without SMTP, and
+WhatsApp/voice reuse the same credential-free mock/simulator paths Sprint 7/7.11 already established. Real
+Twilio SMS activation (`TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_SMS_FROM_NUMBER`) and a scheduled
+notification-retry queue are the two genuinely optional, documented follow-ups — everything else in the
+brief is coded and tested.

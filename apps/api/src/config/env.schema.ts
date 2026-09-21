@@ -143,6 +143,22 @@ export const DEFAULT_FIELDS: FieldSpec[] = [
   { name: "VOICE_TRANSCRIPT_RETENTION_DAYS", group: "app", type: "number", default: "90", min: 1, max: 3650 },
   { name: "VOICE_EVENT_RETENTION_DAYS", group: "app", type: "number", default: "90", min: 1, max: 3650 },
   { name: "VOICE_MASK_CALLER_ID", group: "app", type: "boolean", default: "true" },
+  // Sprint 7.12 — Interaction reference IDs. One global prefix/length rather than per-organization
+  // config (no existing arbitrary org-settings table fits without a schema stretch — see
+  // docs/interaction-reference.md). Mock notification providers always work with no configuration;
+  // these three toggles only gate whether the orchestrator ATTEMPTS a given channel at all.
+  { name: "INTERACTION_REFERENCE_PREFIX", group: "app", type: "string", default: "KRV" },
+  { name: "INTERACTION_REFERENCE_LENGTH", group: "app", type: "number", default: "6", min: 4, max: 10 },
+  { name: "REFERENCE_NOTIFICATION_ENABLED", group: "app", type: "boolean", default: "true" },
+  { name: "REFERENCE_EMAIL_ENABLED", group: "app", type: "boolean", default: "true" },
+  { name: "REFERENCE_SMS_ENABLED", group: "app", type: "boolean", default: "true" },
+  { name: "REFERENCE_WHATSAPP_ENABLED", group: "app", type: "boolean", default: "true" },
+  // Real Twilio SMS credentials for TwilioSmsProvider (Sprint 7.12 STEP 14) — a new, standalone pair
+  // specific to this provider; the WhatsApp channel runtime resolves its own Twilio credentials
+  // per-ChannelConnection, not from process.env, so these do not overlap or duplicate that path.
+  { name: "TWILIO_ACCOUNT_SID", group: "app", type: "string", default: "" },
+  { name: "TWILIO_AUTH_TOKEN", group: "app", type: "string", default: "", secret: true },
+  { name: "TWILIO_SMS_FROM_NUMBER", group: "app", type: "string", default: "" },
   // ------------------------------------------------------------------ Database
   {
     name: "DATABASE_URL",

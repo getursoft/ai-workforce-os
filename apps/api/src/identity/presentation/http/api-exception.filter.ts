@@ -44,6 +44,7 @@ const STATUS: Record<IdentityErrorCode, number> = {
   ORGANIZATION_SWITCH_DENIED: HttpStatus.FORBIDDEN,
   EMAIL_ALREADY_EXISTS: HttpStatus.CONFLICT,
   USER_NOT_FOUND: HttpStatus.NOT_FOUND,
+  RESOURCE_NOT_FOUND: HttpStatus.NOT_FOUND,
   ORGANIZATION_NOT_FOUND: HttpStatus.NOT_FOUND,
   USER_INACTIVE: HttpStatus.FORBIDDEN,
   ORGANIZATION_INACTIVE: HttpStatus.FORBIDDEN,
@@ -205,7 +206,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
     }
     if (exception instanceof NotFoundException) {
       return new IdentityApplicationError(
-        "USER_NOT_FOUND",
+        "RESOURCE_NOT_FOUND",
         "The requested resource was not found."
       );
     }
