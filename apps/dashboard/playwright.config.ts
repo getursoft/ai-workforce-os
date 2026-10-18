@@ -28,20 +28,22 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
         headless: false,
-        slowMo: 500,
         launchOptions: {
+          slowMo: 500,
           args: ["--start-maximized"]
         }
       }
     },
     {
       name: "recruitment-diagnostic",
+      retries: 2,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1440, height: 900 },
         headless: true,
-        slowMo: 0,
-        retries: 2
+        launchOptions: {
+          slowMo: 0
+        }
       }
     }
   ],
