@@ -1,0 +1,127 @@
+{
+  "sprint": "7.17",
+  "phase": "4 — Cross-Platform Consistency Validation",
+  "generatedAt": "2026-10-16",
+  "testEnvironment": {
+    "backendSpec": "apps/api/src/recruitment/recruitment-cross-platform.e2e.spec.ts",
+    "backendSpecResult": "10/10 PASSED (real Postgres TEST_DATABASE_URL, deterministic synthetic dataset, cleaned up after run)",
+    "playwrightSpec": "apps/dashboard/tests/uat/specs/05-sprint-7.17-cross-platform.spec.ts",
+    "playwrightSpecResult": "3/3 PASSED (real headless Chrome against the real running dev stack)",
+    "iosSpec": "apps/ios/KreviaCore/Tests/KreviaCoreTests/RecruitmentCandidateQuerySchemaCompatibilityTests.swift",
+    "iosSpecResult": "1/1 PASSED, full KreviaCoreTests suite 59/59 PASSED (0 regressions)",
+    "regressionSuites": [
+      "apps/api/src/recruitment/recruitment.e2e.spec.ts — 17 tests PASSED",
+      "apps/api/src/recruitment/recruitment-scoring.service.spec.ts — passed",
+      "apps/api/src/recruitment/recruitment-export-worker.e2e.spec.ts — 6 tests PASSED"
+    ]
+  },
+  "whatsappProviderStatus": {
+    "inspected": true,
+    "finding": "RecruitmentWhatsAppSenderService.isConfigured() returns false in this environment — confirmed by real code execution during the CP-002/CP-010 test runs (logged event: RecruitmentWhatsAppSendSkipped / NOT_CONFIGURED). No TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_WHATSAPP_FROM env vars are present in .env. This is a step further blocked than the prior report's 'Twilio trial expired (20003)' finding — the credentials that produced that error are no longer present in this environment at all. A separate, unrelated META_CLOUD_API channel connection exists in the generic channel_connections table (phone +15550001234, a reserved fictional NANP test number), but Recruitment's own WhatsApp sender is a deliberately independent code path (apps/api/src/recruitment/whatsapp/recruitment-whatsapp-sender.service.ts) that only ever reads the three TWILIO_* env vars, never that table — so this other channel's state is irrelevant to Recruitment's WhatsApp capability.",
+    "remediationRequired": "Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_FROM in .env to a Twilio account/number with an active (non-trial-expired) WhatsApp sender, per the user's own stated plan to upgrade the Twilio account.",
+    "liveRoundTripStatus": "BLOCKED — not attempted, not claimed. No mocked webhook event is reported as a live-round-trip pass anywhere in this phase.",
+    "deterministicCoverageStillExecuted": "CP-002, CP-008, CP-010 all exercise WhatsApp's REAL in-process code path (RecruitmentCandidateQueryService.query() called exactly as RecruitmentWhatsAppMenuService calls it; RecruitmentWhatsAppLinkService.resolveAuthorizedUser()/revokeLink() called directly) against the real database — this is genuine verification of WhatsApp's query/authorization logic, independent of whether outbound message sending is configured."
+  },
+  "scenarios": [
+    {
+      "id": "CP-001",
+      "name": "Job visibility",
+      "status": "PASSED",
+      "queryParameters": { "jobId": "seeded job A" },
+      "expected": "Website HTTP GET /recruitment/jobs/:id and the persisted RecruitmentJob row (the same row WhatsApp's menu service and iOS's identical HTTP path both read) report the same id and status.",
+      "actual": "id and status (OPEN) matched exactly.",
+      "evidence": ["apps/dashboard/test-results/evidence/PHASE4_CP001_JobVisibility_PASSED.png"]
+    },
+    {
+      "id": "CP-002",
+      "name": "Candidate ingestion",
+      "status": "PASSED",
+      "queryParameters": { "jobId": "seeded job A", "search": "Neha Verma" },
+      "expected": "HTTP search (website/iOS) and WhatsApp's direct RecruitmentCandidateQueryService.query() call return the identical candidate id, job id and ATS score (90.0) for the same seeded candidate.",
+      "actual": "Both paths returned matchScore=90, same candidateId and jobId.",
+      "evidence": ["recruitment-cross-platform.e2e.spec.ts backend assertion output"]
+    },
+    {
+      "id": "CP-003",
+      "name": "Score boundary (>80 vs >=80)",
+      "status": "PASSED",
+      "queryParameters": { "scoreGreaterThan": 80, "scoreGreaterThanOrEqual": 80 },
+      "expected": "scoreGreaterThan excludes the exact-80.00 candidate; scoreGreaterThanOrEqual includes it. Both operators return identical id sets on the HTTP path and WhatsApp's direct call.",
+      "actual": "scoreGreaterThan=80 returned 4 ids, excluding the exact-80.00 candidates. scoreGreaterThanOrEqual=80 returned 6 ids, including both exact-80.00 candidates. Identical id sets on both call paths in both cases.",
+      "evidence": ["PHASE4_CP003_004_005_FilterPanel_PASSED.png (UI evidence)", "backend spec evidence block"]
+    },
+    {
+      "id": "CP-004",
+      "name": "Location filtering (Noida / Delhi NCR region)",
+      "status": "PASSED",
+      "queryParameters": { "currentCity": ["Noida"], "region": ["Delhi NCR"] },
+      "expected": "City and region filters return identical id sets across both call paths; the Delhi NCR region taxonomy expansion is a strict superset of the single-city Noida result.",
+      "actual": "26 ids for city=Noida; 48 ids for region=Delhi NCR (superset confirmed, includes Gurugram etc.). Identical id sets on both call paths for each filter.",
+      "evidence": ["PHASE4_CP003_004_005_FilterPanel_PASSED.png", "backend spec evidence block"]
+    },
+    {
+      "id": "CP-005",
+      "name": "Combined filters",
+      "status": "PASSED",
+      "queryParameters": { "scoreGreaterThanOrEqual": 80, "region": ["Delhi NCR"], "anySkills": ["Python"], "minRelevantExperienceYears": 1 },
+      "expected": "score + region + skills + experience applied together return the identical id set on both call paths.",
+      "actual": "3 ids returned, identical on both call paths.",
+      "evidence": ["backend spec evidence block"]
+    },
+    {
+      "id": "CP-006",
+      "name": "Sorting determinism",
+      "status": "PASSED",
+      "queryParameters": { "sortBy": "score_desc" },
+      "expected": "score_desc is a true non-increasing sequence; the two exact-80.00 ties break deterministically by ascending application id, per RecruitmentCandidateQueryService.buildOrdering's documented secondary sort key.",
+      "actual": "Sequence was non-increasing throughout; the two tied candidates appeared adjacent, in ascending-id order (positions 4 and 5 of the page).",
+      "evidence": ["backend spec evidence block"]
+    },
+    {
+      "id": "CP-007",
+      "name": "Pagination correctness",
+      "status": "PASSED",
+      "queryParameters": { "limit": 20, "sortBy": "score_desc" },
+      "expected": "Walking all pages with a 20-row page size yields no duplicate ids and the full totalCount; a filter change on a fresh request (no stale cursor) returns exactly the new filtered set.",
+      "actual": "6 pages walked, 120 distinct ids, totalCount=120 (exact match, no duplicates, no gaps). The filter-changed request returned exactly the 6 expected score>=80 ids with no contamination from the prior cursor's position.",
+      "evidence": ["backend spec evidence block"]
+    },
+    {
+      "id": "CP-008",
+      "name": "Human review state propagation",
+      "status": "PASSED",
+      "queryParameters": { "applicationId": "seeded 'unknownLocation' candidate's application" },
+      "expected": "A recruiterDecision change via POST /recruitment/applications/:id/review is visible, identically, via both the HTTP search path and WhatsApp's direct query call, with no per-client cache to go stale.",
+      "actual": "Both paths returned recruiterDecision=SHORTLISTED immediately after the review call. Website UI also confirmed via a real page reload.",
+      "evidence": ["PHASE4_CP008_ReviewStatePersists_PASSED.png", "backend spec evidence block"]
+    },
+    {
+      "id": "CP-009",
+      "name": "Export consistency at scale",
+      "status": "PASSED",
+      "queryParameters": { "scope": "CURRENT_JOB", "format": ["CSV", "XLSX"] },
+      "expected": "Exported row count (CSV and XLSX) equals the live filtered total, exceeding the query service's 100-row page size — re-verifying the Phase 3 truncation-bug fix from Phase 4's independent cross-platform lens.",
+      "actual": "liveTotalCount=120, csvRowCount=120, xlsxRowCount=120 — exact match for both formats.",
+      "evidence": ["backend spec evidence block"]
+    },
+    {
+      "id": "CP-010",
+      "name": "Authorization and revocation",
+      "status": "PASSED",
+      "queryParameters": { "whatsappNumber": "synthetic test number" },
+      "expected": "resolveAuthorizedUser (the gate every inbound WhatsApp message passes through) resolves before revocation and returns null after; website JWT auth is unaffected by the WhatsApp-specific revocation; a cross-tenant jobId filter exposes zero candidates.",
+      "actual": "Resolved to the correct org/user/link before revocation; returned null immediately after revokeLink(). Website search still worked identically post-revocation. Cross-tenant search for the same jobId returned totalCount=0.",
+      "evidence": ["backend spec evidence block"]
+    }
+  ],
+  "definitionOfDoneCheck": {
+    "allExecutableScenariosPassed": true,
+    "candidateIdsAndScoresAgree": true,
+    "filterBoundariesCorrect": true,
+    "sortingAndPaginationConsistent": true,
+    "exportedDataMatchesFullFilteredDataset": true,
+    "tenantIsolationAndRevocationPass": true,
+    "noCriticalRegressionIntroduced": true,
+    "providerDependentBlockersReportedHonestly": true
+  }
+}

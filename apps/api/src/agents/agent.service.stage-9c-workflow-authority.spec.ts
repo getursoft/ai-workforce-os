@@ -9,6 +9,7 @@ import type { SecurityConfig } from "../identity/infrastructure/security/securit
 import { TRAVEL_EMPLOYEE_PLUGIN_SLUG, entitiesToStoredState, EMPTY_TRAVEL_ENTITIES } from "../travel/travel.runtime";
 import { AgentService, type MemoryService } from "./agent.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import type { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import { resolveCustomerIdentity } from "../customer-identity/customer-identity.types";
 import type { InputCollectionService } from "../skills/travel/input-collection.service";
@@ -224,7 +225,7 @@ function harness(options: { inputCollection?: InputCollectionService } = {}) {
   };
   const connectors = { toolHandlers: () => [], availableToolNames: vi.fn().mockResolvedValue([]) };
   const workflows = new WorkflowExecutionService(built.prisma);
-  const travelLeadService = new TravelLeadService(built.prisma);
+  const travelLeadService = new TravelLeadService(built.prisma, new LeadService(built.prisma));
   const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
   const bookingHandoff = new BookingHandoffWorkflowService(workflows);
   const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);
@@ -366,7 +367,7 @@ describe("AgentService Stage 9C: BOOKING_HANDOFF via a real READY_FOR_BOOKING tu
         })
       };
       const workflows = new WorkflowExecutionService(built.prisma);
-      const travelLeadService = new TravelLeadService(built.prisma);
+      const travelLeadService = new TravelLeadService(built.prisma, new LeadService(built.prisma));
       const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
       const bookingHandoff = new BookingHandoffWorkflowService(workflows);
       const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);

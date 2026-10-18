@@ -2,6 +2,7 @@ import { Prisma, type WorkflowExecution } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import type { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { TravelLeadService } from "../../travel/travel-lead.service";
+import { LeadService } from "../../leads/lead.service";
 import { EMPTY_TRAVEL_ENTITIES, type TravelEntities } from "../../travel/travel.runtime";
 import { WorkflowExecutionService } from "../workflow-execution.service";
 import type { WorkflowExecutionScope } from "../workflow-runtime.contracts";
@@ -127,7 +128,7 @@ function harness() {
   const workflowPrisma = fakeWorkflowPrisma();
   const leadPrisma = fakeLeadPrisma();
   const workflows = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-  const travelLeadService = new TravelLeadService(leadPrisma as unknown as PrismaService);
+  const travelLeadService = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
   const service = new TripSubmissionWorkflowService(workflows, travelLeadService);
   return { service, workflows, travelLeadService, workflowPrisma, leadPrisma };
 }
@@ -471,12 +472,12 @@ describe("TripSubmissionWorkflowService: resuming", () => {
   it("restart durability: a freshly constructed service resumes a workflow persisted by a previous instance", async () => {
     const { workflowPrisma, leadPrisma } = harness();
     const workflowsA = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-    const leadServiceA = new TravelLeadService(leadPrisma as unknown as PrismaService);
+    const leadServiceA = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
     const serviceA = new TripSubmissionWorkflowService(workflowsA, leadServiceA);
     await serviceA.start(scope, "turn-1", TRIP_CONTEXT, "CONFIRM_SUBMISSION", "yes, please confirm");
 
     const workflowsB = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-    const leadServiceB = new TravelLeadService(leadPrisma as unknown as PrismaService);
+    const leadServiceB = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
     const serviceB = new TripSubmissionWorkflowService(workflowsB, leadServiceB);
     const active = must(await workflowsB.findActiveWorkflow(scope));
     const result = await serviceB.resume(active, "8380031193", "turn-2", TRIP_CONTEXT);

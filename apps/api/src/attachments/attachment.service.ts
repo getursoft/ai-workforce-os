@@ -234,4 +234,16 @@ export class ConversationAttachmentService {
     if (!row) throw new NotFoundException("CONVERSATION_ATTACHMENT_NOT_FOUND");
     return row;
   }
+
+  /** The raw bytes behind an already-uploaded attachment — for a tool (e.g. recruitment.upload_resume)
+   *  that needs the original file, not just its extracted text. Reads from the same `store` every upload
+   *  already wrote to, so this always succeeds for any attachment `get()` can resolve. */
+  async readBytes(
+    organizationId: string,
+    attachmentId: string
+  ): Promise<{ buffer: Buffer; originalFilename: string; mimeType: string }> {
+    const row = await this.get(organizationId, attachmentId);
+    const buffer = await this.store.read(row.storageKey);
+    return { buffer, originalFilename: row.originalFilename, mimeType: row.mimeType };
+  }
 }

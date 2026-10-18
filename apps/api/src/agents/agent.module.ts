@@ -32,6 +32,8 @@ import { BookingHandoffWorkflowService } from "../workflows/booking-handoff/book
 import { TripSubmissionWorkflowService } from "../workflows/trip-submission/trip-submission.service";
 import { WorkflowCoordinator } from "../workflows/workflow-coordinator";
 import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "../workflows/workflow-signal-registry";
+import { RecruitmentModule } from "../recruitment/recruitment.module";
+import { AttachmentsModule } from "../attachments/attachment.module";
 
 @Module({
   imports: [
@@ -44,6 +46,8 @@ import { buildDefaultWorkflowSignalProviders, WORKFLOW_SIGNAL_PROVIDERS } from "
     MemoryModule,
     CustomerIdentityModule,
     SkillPlatformModule,
+    RecruitmentModule,
+    AttachmentsModule,
     forwardRef(() => TravelModule),
     forwardRef(() => EmployeesModule)
   ],

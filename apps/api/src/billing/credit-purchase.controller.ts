@@ -21,6 +21,12 @@ export class CreditPurchaseController {
     return this.purchases.listPackages(p.organizationId.toString());
   }
 
+  @Get("orders")
+  @RequirePermission("billing.manage")
+  listOrders(@CurrentPrincipal() p: AuthenticatedPrincipal) {
+    return this.purchases.listOrders(p.organizationId.toString());
+  }
+
   @Post("orders")
   @RequirePermission("billing.manage")
   createOrder(@CurrentPrincipal() p: AuthenticatedPrincipal, @Body() dto: CreateCreditPurchaseOrderDto) {

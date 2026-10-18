@@ -41,6 +41,9 @@ import { VoiceModule } from "./voice/voice.module";
 import { AiConfigurationModule } from "./ai-configuration/ai-configuration.module";
 import { PlatformLeadsModule } from "./platform-leads/platform-leads.module";
 import { InteractionModule } from "./interaction/interaction.module";
+import { LeadModule } from "./leads/lead.module";
+import { RecruitmentModule } from "./recruitment/recruitment.module";
+import { RecruitmentWhatsAppModule } from "./recruitment/whatsapp/recruitment-whatsapp.module";
 import { RetentionService } from "./retention/retention.service";
 import { DiskHealthService } from "./production/disk-health.service";
 import { ObservabilityRetentionService } from "./observability/observability-retention.service";
@@ -92,6 +95,9 @@ import { NotificationJobHandler } from "./queue/notification-job-handler";
     ReceptionistModule,
     VoiceModule,
     InteractionModule,
+    LeadModule,
+    RecruitmentModule,
+    RecruitmentWhatsAppModule,
     OnboardingModule,
     SkillPlatformModule,
     PlatformLeadsModule

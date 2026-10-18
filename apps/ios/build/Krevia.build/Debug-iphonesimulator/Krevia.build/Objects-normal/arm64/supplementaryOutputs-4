@@ -1,0 +1,30 @@
+{
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Recruitment/CreateJobView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/CreateJobView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/CreateJobView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/CreateJobView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/CreateJobView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/CreateJobView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Recruitment/RecruitmentCandidateDetailView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentCandidateDetailView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentCandidateDetailView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentCandidateDetailView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentCandidateDetailView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentCandidateDetailView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Recruitment/RecruitmentJobDetailView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobDetailView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobDetailView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobDetailView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobDetailView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobDetailView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Recruitment/RecruitmentJobsListView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobsListView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobsListView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobsListView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobsListView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/RecruitmentJobsListView.swiftdeps"
+  }
+}

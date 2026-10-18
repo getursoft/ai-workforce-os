@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { TravelLeadService, type CreateInternalLeadInput } from "./travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 
 function fakePrisma() {
   const rows: Array<Record<string, unknown>> = [];
@@ -58,7 +59,7 @@ function baseInput(overrides: Partial<CreateInternalLeadInput> = {}): CreateInte
 describe("TravelLeadService.createInternalLead", () => {
   it("stamps consentGivenAt and a PENDING crmSyncStatus on every new lead", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const lead = await service.createInternalLead(baseInput());
     expect(lead.consentGivenAt).toBeInstanceOf(Date);
     expect(lead.crmSyncStatus).toBe("PENDING");
@@ -67,7 +68,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("never requires every optional journey field — only phoneNumber and conversationSummary", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     await expect(service.createInternalLead(baseInput())).resolves.toMatchObject({
       phoneNumber: "+919876543210",
       journeyId: null,
@@ -78,7 +79,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("duplicate phone submission in the SAME conversation collapses onto one lead (idempotency key)", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const first = await service.createInternalLead(baseInput());
     const second = await service.createInternalLead(baseInput());
     expect(second.id).toBe(first.id);
@@ -87,7 +88,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("a repeated 'ji'/'haan' style resubmission (same conversation, same journey) never creates a duplicate lead", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     await service.createInternalLead(baseInput({ journeyId: "journey-1" }));
     await service.createInternalLead(baseInput({ journeyId: "journey-1" }));
     await service.createInternalLead(baseInput({ journeyId: "journey-1" }));
@@ -96,7 +97,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("a duplicate runtime retry (identical inputs, concurrent-style re-invocation) still resolves to a single lead", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const [first, second] = await Promise.all([
       service.createInternalLead(baseInput()),
       service.createInternalLead(baseInput())
@@ -109,7 +110,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("a genuinely new journey (a different journeyId) creates a separate lead, not suppressed by idempotency", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const first = await service.createInternalLead(baseInput({ journeyId: "journey-1" }));
     const second = await service.createInternalLead(baseInput({ journeyId: "journey-2" }));
     expect(second.id).not.toBe(first.id);
@@ -118,7 +119,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("a different conversation (same organization) also creates a separate lead", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const first = await service.createInternalLead(baseInput({ conversationId: "conversation-1" }));
     const second = await service.createInternalLead(baseInput({ conversationId: "conversation-2" }));
     expect(second.id).not.toBe(first.id);
@@ -126,7 +127,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("tenant isolation: two organizations with the same conversationId never collide on the same idempotency key or lead", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const tenantA = await service.createInternalLead(
       baseInput({ organizationId: "org-A", conversationId: "shared-conversation-id" })
     );
@@ -143,7 +144,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("retries once with a freshly generated reference on a plain reference collision (not an idempotency-key collision)", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     await service.createInternalLead(baseInput({ conversationId: "conversation-1" }));
     // Force a reference collision on the second, otherwise-independent lead by pre-seeding the same
     // reference the generator would need to avoid.
@@ -162,7 +163,7 @@ describe("TravelLeadService.createInternalLead", () => {
 
   it("multi-city lead summary: the destination field carries the COMPLETE route, not just the active leg", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const lead = await service.createInternalLead(
       baseInput({
         journeyId: "journey-multi",
@@ -180,7 +181,7 @@ describe("TravelLeadService.createInternalLead", () => {
 describe("TravelLeadService.markCrmSyncStatus", () => {
   it("updates the row's crmSyncStatus and never throws even if the update fails", async () => {
     const prisma = fakePrisma();
-    const service = new TravelLeadService(prisma as unknown as PrismaService);
+    const service = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const lead = await service.createInternalLead(baseInput());
     await service.markCrmSyncStatus(lead.id, "SYNCED" as never);
     expect(prisma.rows[0]?.crmSyncStatus).toBe("SYNCED");

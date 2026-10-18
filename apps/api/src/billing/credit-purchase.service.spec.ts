@@ -24,7 +24,7 @@ function harness(overrides: { isConfigured?: boolean; verifySignature?: boolean 
     creditPurchaseOrder: {
       create: vi.fn().mockImplementation(({ data }: { data: Record<string, unknown> }) => {
         const id = `order-${++seq}`;
-        const row = { id, gatewayOrderId: null, gatewayPaymentId: null, paidAt: null, ...data };
+        const row = { id, gatewayOrderId: null, gatewayPaymentId: null, paidAt: null, createdAt: new Date(), ...data };
         orders.set(id, row);
         return Promise.resolve(row);
       }),
@@ -38,6 +38,12 @@ function harness(overrides: { isConfigured?: boolean; verifySignature?: boolean 
       findFirst: vi.fn().mockImplementation(({ where }: { where: { id: string; organizationId: string } }) => {
         const row = orders.get(where.id);
         return Promise.resolve(row && row.organizationId === where.organizationId ? row : null);
+      }),
+      findMany: vi.fn().mockImplementation(({ where }: { where: { organizationId: string } }) => {
+        const rows = [...orders.values()]
+          .filter((row) => row.organizationId === where.organizationId)
+          .sort((a, b) => String(b.id).localeCompare(String(a.id)));
+        return Promise.resolve(rows);
       })
     },
     $transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => Promise<void>) => {
@@ -171,5 +177,36 @@ describe("CreditPurchaseService.verifyPayment", () => {
         razorpaySignature: "still-forged"
       })
     ).rejects.toMatchObject({ code: "CREDIT_PURCHASE_ORDER_NOT_PENDING" });
+  });
+});
+
+describe("CreditPurchaseService.listOrders", () => {
+  it("returns only the requesting organization's own orders (tenant isolation)", async () => {
+    const { service, prisma } = harness();
+    await service.createOrder("org-1", "user-1", 10_000);
+    await service.createOrder("org-2", "user-2", 50_000);
+
+    const result = await service.listOrders("org-1");
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.credits).toBe(10_000);
+    expect(prisma.creditPurchaseOrder.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ organizationId: "org-1" }) })
+    );
+  });
+
+  it("reflects PAID status and paidAt once a purchase is verified", async () => {
+    const { service } = harness();
+    const order = await service.createOrder("org-1", "user-1", 10_000);
+    await service.verifyPayment("org-1", order.id, {
+      razorpayOrderId: order.gatewayOrderId as string,
+      razorpayPaymentId: "pay_1",
+      razorpaySignature: "valid"
+    });
+
+    const [row] = await service.listOrders("org-1");
+
+    expect(row?.status).toBe("PAID");
+    expect(row?.paidAt).not.toBeNull();
   });
 });

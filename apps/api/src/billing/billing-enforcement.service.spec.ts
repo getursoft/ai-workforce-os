@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 import type { AppConfig } from "../config/config.tokens";
+import type { PlatformOwnerService } from "../identity/infrastructure/security/platform-owner.service";
 import { BillingEnforcementService } from "./billing-enforcement.service";
 
 const CYCLE_START = new Date("2026-07-01T00:00:00.000Z");
@@ -150,5 +151,35 @@ describe("BillingEnforcementService.evaluate", () => {
       makeConfig()
     );
     await expect(allowed.assertExecutionAllowed("org-1")).resolves.toMatchObject({ outcome: "ALLOWED" });
+  });
+
+  it("the platform owner's own organization is always ALLOWED, even with a suspended subscription over its cap", async () => {
+    const platformOwner = {
+      isPlatformOwnerOrganization: vi.fn().mockResolvedValue(true)
+    } as unknown as PlatformOwnerService;
+    const service = new BillingEnforcementService(
+      makePrisma({ status: "SUSPENDED", billingCycleStart: CYCLE_START, billingCycleEnd: CYCLE_END, spendingCapCredits: 1, plan: plan() }, 999_999),
+      makeConfig(),
+      platformOwner
+    );
+    const decision = await service.evaluate("platform-owner-org");
+    expect(decision).toEqual({
+      outcome: "ALLOWED",
+      allowed: true,
+      reason: expect.any(String),
+      usedCredits: null,
+      allowanceCredits: null,
+      spendingCapCredits: null
+    });
+    await expect(service.assertExecutionAllowed("platform-owner-org")).resolves.toMatchObject({ outcome: "ALLOWED" });
+  });
+
+  it("never bypasses anything when no PlatformOwnerService is wired in (e.g. an isolated unit test)", async () => {
+    const service = new BillingEnforcementService(
+      makePrisma({ status: "SUSPENDED", billingCycleStart: CYCLE_START, billingCycleEnd: CYCLE_END, plan: plan() }, 0),
+      makeConfig()
+    );
+    const decision = await service.evaluate("org-1");
+    expect(decision.outcome).toBe("SUBSCRIPTION_INACTIVE");
   });
 });

@@ -1,0 +1,44 @@
+{
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/RecruitmentModels.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RecruitmentModels.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RecruitmentModels.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RecruitmentModels.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RecruitmentModels.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RecruitmentModels.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/RoleModels.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RoleModels.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RoleModels.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RoleModels.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RoleModels.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/RoleModels.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Networking/APIClient.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIClient.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIClient.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIClient.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIClient.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIClient.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Networking/APIError.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIError.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIError.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIError.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIError.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/APIError.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/AgentService.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AgentService.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AgentService.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AgentService.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AgentService.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AgentService.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/AuthService.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AuthService.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AuthService.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AuthService.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AuthService.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/build/KreviaCore.build/Debug-iphonesimulator/KreviaCore.build/Objects-normal/arm64/AuthService.swiftdeps"
+  }
+}

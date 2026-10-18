@@ -1,0 +1,30 @@
+{
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/CRM/LeadDetailView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/LeadDetailView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/LeadDetailView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/LeadDetailView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/LeadDetailView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/LeadDetailView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/CRM/ManualLeadView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/ManualLeadView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/ManualLeadView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/ManualLeadView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/ManualLeadView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/ManualLeadView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Employees/EmployeeDetailView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeeDetailView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeeDetailView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeeDetailView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeeDetailView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeeDetailView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Employees/EmployeesListView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeesListView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeesListView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeesListView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeesListView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/arm64/EmployeesListView.swiftdeps"
+  }
+}

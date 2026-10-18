@@ -1,0 +1,226 @@
+[
+  {
+    "id": "CP-001",
+    "name": "Job visibility",
+    "status": "PASSED",
+    "detail": "Website HTTP GET and the persisted RecruitmentJob row (the same row WhatsApp's menu service reads via RecruitmentJobService) agree on id/status.",
+    "evidence": {
+      "jobId": "7af82000-2dd5-4be4-945d-3d034212ce2b",
+      "websiteStatus": "OPEN",
+      "dbStatus": "OPEN"
+    }
+  },
+  {
+    "id": "CP-002",
+    "name": "Candidate ingestion",
+    "status": "PASSED",
+    "detail": "HTTP search (website/iOS path) and WhatsApp's direct RecruitmentCandidateQueryService.query() call return the identical candidate id, job id and ATS score for the same seeded candidate.",
+    "evidence": {
+      "candidateId": "2257c72d-a016-4b24-af9f-dbecec9f3f75",
+      "applicationId": "d8213507-39bb-41e8-81ef-92714412464c",
+      "httpScore": 90,
+      "whatsappScore": 90
+    }
+  },
+  {
+    "id": "CP-003",
+    "name": "Score boundary (>80 vs >=80)",
+    "status": "PASSED",
+    "detail": "scoreGreaterThan excludes an exact 80.00 match; scoreGreaterThanOrEqual includes it; both call paths return identical id sets.",
+    "evidence": {
+      "httpGtIds": [
+        "11dbc9ff-64cf-480a-ad00-5d6f7c0f1484",
+        "8b5f589d-f06d-4966-97b0-c593d8d1b8b5",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "d8213507-39bb-41e8-81ef-92714412464c"
+      ],
+      "waGtIds": [
+        "11dbc9ff-64cf-480a-ad00-5d6f7c0f1484",
+        "8b5f589d-f06d-4966-97b0-c593d8d1b8b5",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "d8213507-39bb-41e8-81ef-92714412464c"
+      ],
+      "httpGteIds": [
+        "11dbc9ff-64cf-480a-ad00-5d6f7c0f1484",
+        "1e3be533-52c7-41ec-87a4-fd1e79701db0",
+        "3c140cee-0e9b-4913-8184-028c3b39714f",
+        "8b5f589d-f06d-4966-97b0-c593d8d1b8b5",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "d8213507-39bb-41e8-81ef-92714412464c"
+      ],
+      "waGteIds": [
+        "11dbc9ff-64cf-480a-ad00-5d6f7c0f1484",
+        "1e3be533-52c7-41ec-87a4-fd1e79701db0",
+        "3c140cee-0e9b-4913-8184-028c3b39714f",
+        "8b5f589d-f06d-4966-97b0-c593d8d1b8b5",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "d8213507-39bb-41e8-81ef-92714412464c"
+      ]
+    }
+  },
+  {
+    "id": "CP-004",
+    "name": "Location filtering (Noida / Delhi NCR)",
+    "status": "PASSED",
+    "detail": "City and region filters return identical id sets across both call paths; the region taxonomy expansion is real (region result set is a strict superset of the single-city one).",
+    "evidence": {
+      "cityIds": [
+        "07287fcd-f142-4078-b741-c250b03e271c",
+        "1ad8cf5e-d95f-4d5a-8459-360e2bdbe8b8",
+        "222d37cd-063f-4e8e-a695-a836ad4a8b7d",
+        "27eeac7b-6fed-4c86-8898-4025a63f35a4",
+        "3c140cee-0e9b-4913-8184-028c3b39714f",
+        "3cac842a-a4b3-4dd4-a378-fd96c9c6650d",
+        "4df5d19b-641a-432b-945a-e05f6787b5a4",
+        "526bb703-ac51-4335-a554-0e1d49a49ca4",
+        "579184eb-2606-44e8-99b6-83b76dcbb9a4",
+        "60c15e6d-e61b-4cba-b0ed-223af3e839ff",
+        "61f6025e-f697-4ebb-896b-3c79ce2ea133",
+        "7865f343-ee51-4d02-8c4a-516b3df9500f",
+        "7c04dd7f-322a-4d05-adee-72de77651773",
+        "8bbdc6d5-6490-4fb4-a8b0-0abe1df766c8",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "acccb54b-3e2f-4f31-b334-6a80db7d5d32",
+        "b008d54c-68d2-443b-bf13-ab5631c1495d",
+        "b5d59cf6-2a37-403c-bc86-f3ce2525188e",
+        "be80f8c7-c68e-466b-9601-66efb371ffb4",
+        "c89c64db-10cd-4620-bf3e-3ede984d0904",
+        "cb415efe-84ee-43cf-a61d-7a592596b15b",
+        "d4332ef3-11d4-4a96-9f08-eede8ded4329",
+        "d71d18b7-863c-4975-9783-fc7ca708dda2",
+        "e1122e0c-f362-4352-996e-ecc58c5708b7",
+        "ea5b8549-7a21-4d45-a481-1261409dfb12",
+        "ffcbf51e-e236-4a93-a6d7-264e3e2e2821"
+      ],
+      "regionIds": [
+        "07287fcd-f142-4078-b741-c250b03e271c",
+        "0ed14ea0-4871-4036-b247-ccfaeffb5803",
+        "0fca2e97-cd16-44c8-a74e-8eb3bdc12523",
+        "100f1a1d-72cd-41b3-9861-592f37831b60",
+        "1ad8cf5e-d95f-4d5a-8459-360e2bdbe8b8",
+        "1e3be533-52c7-41ec-87a4-fd1e79701db0",
+        "222d37cd-063f-4e8e-a695-a836ad4a8b7d",
+        "27eeac7b-6fed-4c86-8898-4025a63f35a4",
+        "2946777b-374f-4489-b0fe-5a9788d2b73c",
+        "2aad5cab-30ab-4613-8715-d6ced99bd0e6",
+        "2dfd31c5-8201-4d13-9287-b60f24a739e5",
+        "3b167fea-1fb6-44ce-a0e0-801363da1290",
+        "3c140cee-0e9b-4913-8184-028c3b39714f",
+        "3cac842a-a4b3-4dd4-a378-fd96c9c6650d",
+        "4df5d19b-641a-432b-945a-e05f6787b5a4",
+        "526bb703-ac51-4335-a554-0e1d49a49ca4",
+        "54a9c36f-26bb-4786-8f81-2148fc68372a",
+        "56c6b0f9-03bf-4e02-9971-2d1705e062f5",
+        "579184eb-2606-44e8-99b6-83b76dcbb9a4",
+        "60c15e6d-e61b-4cba-b0ed-223af3e839ff",
+        "61f6025e-f697-4ebb-896b-3c79ce2ea133",
+        "6eab807e-8b66-4a06-82e7-35c2964f6c7e",
+        "7865f343-ee51-4d02-8c4a-516b3df9500f",
+        "7c04dd7f-322a-4d05-adee-72de77651773",
+        "84805cf9-1892-418a-a03e-519e08d96ee6",
+        "8bbdc6d5-6490-4fb4-a8b0-0abe1df766c8",
+        "8d10daa8-d934-4d63-9346-0e9cf7f152a0",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395",
+        "acccb54b-3e2f-4f31-b334-6a80db7d5d32",
+        "b008d54c-68d2-443b-bf13-ab5631c1495d",
+        "b18beb81-2d18-41ac-b890-6a1102c1a7f2",
+        "b2b9810a-54b3-4bd0-9209-5f745b60b820",
+        "b5d59cf6-2a37-403c-bc86-f3ce2525188e",
+        "ba263711-bb62-49a9-a3b5-2a37de6e753e",
+        "be80f8c7-c68e-466b-9601-66efb371ffb4",
+        "c16c9a01-a1ad-47c2-b40a-5fef8e350b4d",
+        "c89c64db-10cd-4620-bf3e-3ede984d0904",
+        "cb2b65d7-cb54-4262-a003-38803188523f",
+        "cb415efe-84ee-43cf-a61d-7a592596b15b",
+        "cea3b02a-b458-4d00-8e4f-9a18c4333c8f",
+        "d4332ef3-11d4-4a96-9f08-eede8ded4329",
+        "d71d18b7-863c-4975-9783-fc7ca708dda2",
+        "daaa63bd-f33b-4270-9b96-b3c93bd0a945",
+        "dc2e5a0b-2da1-4535-bc3f-28c4ff3399c6",
+        "e1122e0c-f362-4352-996e-ecc58c5708b7",
+        "e239bc35-e784-4a4c-a47a-581e01f002c2",
+        "e942cf27-0ca1-459a-9d16-c68ff8ddc108",
+        "ea5b8549-7a21-4d45-a481-1261409dfb12",
+        "ffcbf51e-e236-4a93-a6d7-264e3e2e2821"
+      ]
+    }
+  },
+  {
+    "id": "CP-005",
+    "name": "Combined filters",
+    "status": "PASSED",
+    "detail": "score + region + skills + experience applied together return the identical id set on both call paths.",
+    "evidence": {
+      "ids": [
+        "1e3be533-52c7-41ec-87a4-fd1e79701db0",
+        "3c140cee-0e9b-4913-8184-028c3b39714f",
+        "9a06346c-3edf-4137-8ffe-25aa36a3b395"
+      ]
+    }
+  },
+  {
+    "id": "CP-006",
+    "name": "Sorting determinism",
+    "status": "PASSED",
+    "detail": "score_desc is a true non-increasing sequence; two exact-score ties break deterministically by ascending application id, matching RecruitmentCandidateQueryService.buildOrdering's documented secondary key.",
+    "evidence": {
+      "tieIds": [
+        "1e3be533-52c7-41ec-87a4-fd1e79701db0",
+        "3c140cee-0e9b-4913-8184-028c3b39714f"
+      ],
+      "tieIndexes": [
+        4,
+        5
+      ]
+    }
+  },
+  {
+    "id": "CP-007",
+    "name": "Pagination correctness",
+    "status": "PASSED",
+    "detail": "Walked 6 pages with no duplicate ids; total distinct ids (120) equals totalCount (120); a filter change on a fresh request is unaffected by prior cursor state.",
+    "evidence": {
+      "pages": 6,
+      "distinctIds": 120,
+      "totalCount": 120
+    }
+  },
+  {
+    "id": "CP-008",
+    "name": "Human review state propagation",
+    "status": "PASSED",
+    "detail": "A recruiterDecision change via POST /applications/:id/review is immediately visible, identically, via both the HTTP search path and WhatsApp's direct query call — there is no per-client cache to go stale.",
+    "evidence": {
+      "applicationId": "c4251ea2-4503-4138-955d-847260a97fa9",
+      "httpDecision": "SHORTLISTED",
+      "waDecision": "SHORTLISTED"
+    }
+  },
+  {
+    "id": "CP-009",
+    "name": "Export consistency at scale",
+    "status": "PASSED",
+    "detail": "Live filtered total (120) matches both the CSV (120) and XLSX (120) exported row counts — exceeding the query service's 100-row page size, directly re-verifying the Phase 3 truncation fix under Phase 4's cross-platform lens.",
+    "evidence": {
+      "liveTotalCount": 120,
+      "csvRowCount": 120,
+      "xlsxRowCount": 120
+    }
+  },
+  {
+    "id": "CP-010",
+    "name": "Authorization and revocation",
+    "status": "PASSED",
+    "detail": "resolveAuthorizedUser (the gate every inbound WhatsApp message passes through) returns a user before revocation and null after; website JWT auth is unaffected by the WhatsApp-specific revocation; a cross-tenant jobId filter leaks nothing.",
+    "evidence": {
+      "beforeRevoke": {
+        "organizationId": "116ff862-df10-4d3e-8ccd-8f4e2b61d1e6",
+        "userId": "644b32ce-f9e4-4ea6-8ef3-842f7616f16c",
+        "linkId": "027af8c6-4bde-4f07-9a7e-89349ab27b03"
+      },
+      "afterRevoke": null,
+      "websiteItemCount": 1,
+      "crossTenantTotalCount": 0
+    }
+  }
+]

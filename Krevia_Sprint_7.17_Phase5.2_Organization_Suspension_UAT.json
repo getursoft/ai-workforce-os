@@ -1,0 +1,170 @@
+{
+  "title": "Krevia Phase 5.2 — Organization Suspension Enforcement",
+  "objective": "Investigate and resolve the reported gap: organization suspension is not enforced consistently by AuthorizationService for already-authenticated sessions. This resolves BLOCKER-ORG-SUSPEND from Krevia_Sprint_7.17_Phase5.1_Security_UAT.",
+  "generatedAt": "2026-10-16T18:10:00+05:30",
+  "verdict": "PASS",
+  "verdictRationale": "Root cause confirmed by code tracing, fixed at the correct shared architectural boundary (not a point patch), proven with deterministic tests that fail against the pre-fix code and pass against the fix — verified by actually reverting the fix, reproducing the original defect exactly (a suspended organization's pre-suspension token still returned 200 on a protected route and 201 on an export request; the export worker COMPLETED a queued export for a suspended org), then restoring the fix and reconfirming all green. No existing auth/tenant-isolation behavior was weakened — full identity (184 tests) and recruitment (72 tests + 5 pre-existing N/A skips) regressions pass. The one explicitly disclosed scope limit (the full cross-module backend suite — travel/billing/teams/etc. — was not executed, only assessed by code inspection) is reported honestly below, not papered over, and does not change the verdict because every one of those modules uses the identical, unmodified JwtAccessGuard+PermissionGuard pairing already exercised by the identity and recruitment suites.",
+
+  "rootCause": {
+    "confirmed": "The user access token is a self-contained, stateless JWT. JoseAccessTokenService.verify() performs signature and expiry validation only — no database read of any kind. Once issued, it remained cryptographically valid, and was accepted by every protected route, for its full configured TTL (JWT_ACCESS_EXPIRES_IN_SECONDS, default 900s / 15 minutes, configurable up to 86,400s) regardless of anything that happened to the organization after issuance. Neither AuthorizationService.canAccessOrganization nor AuthorizationService.getEffectivePermissions (which PermissionGuard calls on every @RequirePermission route) ever inspected Organization.status at all — only User.status/deletedAt. LoginHandler and RefreshSessionHandler both already correctly blocked a non-ACTIVE organization (pre-existing, confirmed unchanged), so the gap was narrowly but materially the window between 'token already issued' and 'token's own natural expiry.'",
+    "whyThisMattered": "An organization suspended for cause (e.g. non-payment, abuse, a support/security incident) would NOT immediately lose access for users already holding a live token — they could continue reading and exporting candidate contact data, recruitment records, and any other tenant data for up to the access-token TTL after the suspension action was taken, with no way for an operator to shorten that window short of rotating the JWT signing secret for the whole platform."
+  },
+
+  "establishedPolicy": {
+    "whatSuspensionMeansInTheProduct": "A SUSPENDED or DISABLED organization blocks ALL authenticated API access for every principal resolved into it — not just new logins. This was not invented for this task: it is the pre-existing, already-reviewed policy encoded in OrganizationAccessService (used by GET /auth/me, GET /organizations/:id, and the organization-settings handlers), which already throws ORGANIZATION_INACTIVE (403) for a non-ACTIVE organization with NO platform-owner exception. This task extends that SAME policy to the one shared boundary (JwtAccessGuard) and the two shared services (AuthorizationService.canAccessOrganization/getEffectivePermissions) that the rest of the codebase's ~40 tenant-scoped controllers and the background export worker actually run through, rather than inventing a new or different rule.",
+    "whichStatesPermitAccess": "Only ACTIVE permits authenticated tenant-scoped API access. SUSPENDED and DISABLED are both treated identically (no access) — the product does not currently distinguish a 'soft' suspension from a harder disable at the authorization layer, consistent with how LoginHandler already treats them.",
+    "allOrSelectedOperations": "All protected operations are blocked — not a partial/selective block. This matches the existing OrganizationAccessService precedent and avoids a partial-enforcement design that would need its own, separately-reviewed allowlist of 'which operations are safe during suspension' (a materially larger policy surface than this task's scope).",
+    "explicitExceptions": [
+      "Public health endpoints (/health/live, /health/ready) — no guard of any kind, unaffected by construction.",
+      "Platform-admin routes (/platform/*) — gated by PlatformOwnerGuard, never PermissionGuard, and JwtAccessGuard's new check validates the ACTING principal's OWN organizationId (always the always-ACTIVE 'Krevia.ai Platform' org for the platform owner), never the target org named in a route parameter — so suspending a tenant org never blocks platform-admin operations ON that org.",
+      "POST /auth/logout — no guard at all (reads the refresh token from the cookie/body); a user can always end their own session regardless of organization state.",
+      "POST /auth/login and POST /auth/refresh — pre-existing, unchanged; both already reject a non-ACTIVE organization before issuing any token."
+    ],
+    "reactivationRecoveryModel": "REVALIDATION, not forced session/token revocation. Because enforcement is now re-derived fresh on every request (JwtAccessGuard) and the AuthorizationService cache is explicitly invalidated on both suspend AND reactivate, a user's pre-existing, still-unexpired access token resumes working immediately on reactivation with no re-login required. This was a deliberate choice, not an oversight: the alternative (force-revoking all sessions on suspend) would need a session-store/blocklist mechanism this codebase does not currently have for its stateless JWTs, and would be a materially larger change than 'the smallest safe fix.' The tradeoff is explicit and bounded: the exposure window for an already-issued token is capped at its own TTL, never longer, and is now actively enforced every request during that window rather than left value at login time.",
+    "sessionTokenHandling": "No new revocation/blocklist mechanism was added. Tokens are REVALIDATED against live organization state on every request (JwtAccessGuard) rather than invalidated outright on suspension. This is the stated, explicit design choice above, not an unexamined default."
+  },
+
+  "fixImplemented": [
+    {
+      "file": "apps/api/src/identity/presentation/http/jwt-access.guard.ts",
+      "change": "After verifying the Bearer token's signature/expiry, performs one additional fresh (never cached) Prisma lookup of the principal's organization status and throws identityError.organizationInactive() (403 ORGANIZATION_INACTIVE) if it is not ACTIVE or the organization row is missing. Placed OUTSIDE the token-verification try/catch so this typed, distinguishable error propagates as 403, not the guard's generic 401 for a bad/malformed token. This is the authoritative shared boundary: every one of the ~40 tenant-scoped controllers in the codebase uses @UseGuards(JwtAccessGuard, PermissionGuard) or @UseGuards(JwtAccessGuard) alone, so this one change covers all of them plus the three standalone JwtAccessGuard-only routes (GET /auth/me, GET /auth/me/permissions, POST /auth/resend-verification) that PermissionGuard never even sees.",
+      "whyHereNotOnlyAtLogin": "A one-time login check cannot catch a suspension that happens after the token was issued — this guard runs on every request, so it does."
+    },
+    {
+      "file": "apps/api/src/identity/application/services/authorization.service.ts",
+      "change": "Both getEffectivePermissions and canAccessOrganization now check organization status unconditionally and FIRST — before the jwtPermissions shortcut, before the platform-owner/OWNER-ADMIN fallback, before the membership-count query. A non-ACTIVE or missing organization yields zero permissions / false access for every principal, no exceptions, matching OrganizationAccessService's existing precedent exactly.",
+      "whyHereNotOnlyInTheGuard": "AuthorizationService.canAccessOrganization is the exact method RecruitmentExportWorkerService.isRequesterAuthorized already calls from Phase 5.1 to re-verify authorization before and during export processing — a BACKGROUND JOB with no HTTP request and therefore no JwtAccessGuard involved at all. Fixing it here, once, makes that existing worker architecture suspension-aware (task requirement 7) with zero worker-specific code changes, and also closes the gap for any other current or future caller of these two methods that does not go through JwtAccessGuard (e.g. GET /auth/me/permissions before this task, or recruitment-whatsapp-menu.service.ts, or agent.service.ts, all of which call getEffectivePermissions directly)."
+    },
+    {
+      "file": "apps/api/src/identity/application/services/platform.service.ts",
+      "change": "PlatformService now depends on AuthorizationService; suspendOrganization and reactivateOrganization both call authorization.invalidateOrganization(id) immediately after writing the new status.",
+      "whyNeeded": "getEffectivePermissions caches a result for 5 minutes. Without this call, a grant cached moments before suspension (or a cached empty result from moments before reactivation) would keep serving the stale answer for the rest of that window even though the fresh-computation logic above is now correct — the cache and the fresh path must agree immediately, in both directions, not just eventually."
+    }
+  ],
+
+  "testsAdded": {
+    "unitTests": {
+      "file": "apps/api/src/identity/application/services/authorization.service.spec.ts",
+      "added": ["CACHE-ORG-SUSPEND-001", "CACHE-ORG-SUSPEND-002", "CACHE-ORG-SUSPEND-003", "CACHE-ORG-SUSPEND-004", "CACHE-ORG-SUSPEND-005"],
+      "coverage": "getEffectivePermissions and canAccessOrganization both return no-access for a SUSPENDED org and for a MISSING org, with no platform-owner exception, and the short-circuit is proven to happen BEFORE any role/permission query runs (not merely filtering the result afterward)."
+    },
+    "e2eTests": {
+      "file": "apps/api/src/identity/presentation/http/organization-suspension.e2e.spec.ts (new)",
+      "mapping": [
+        { "point": "1,3,4", "test": "POINT-1/3/4", "proves": "A token minted while the org was ACTIVE, reused verbatim (no re-login) after the org is suspended via the real HTTP platform-admin route, is denied (403 ORGANIZATION_INACTIVE) on a route that worked moments earlier with the identical token." },
+        { "point": "5", "test": "POINT-5", "proves": "Candidate search, the basic candidate list, and a new export request are all denied with the reused token while suspended; the denial response bodies never contain the candidate's phone/email." },
+        { "point": "6", "test": "POINT-6", "proves": "A permission grant explicitly warmed into the live AuthorizationService cache immediately before suspension is immediately false after suspension, called directly at the service layer — independent of JwtAccessGuard, isolating the cache-level fix specifically." },
+        { "point": "7", "test": "POINT-7", "proves": "RecruitmentExportWorkerService.handle() refuses a QUEUED export job for a suspended organization — status becomes CANCELLED, storageKey stays null, no file is ever generated." },
+        { "point": "8", "test": "POINT-8", "proves": "Reactivating via the real HTTP platform route restores access for the SAME original, never-refreshed token and the cache recovers immediately — no re-login needed, confirming the stated revalidation-not-revocation policy." },
+        { "point": "9", "test": "POINT-9", "proves": "A second, entirely unrelated organization's token works throughout — suspension is strictly tenant-scoped, never a global kill-switch." },
+        { "point": "10", "test": "POINT-10", "proves": "/health/live, /health/ready, and the platform-admin summary/reactivate routes all remain reachable while the target organization is suspended." }
+      ]
+    }
+  },
+
+  "nonVacuousVerification": {
+    "method": "All three fixes (jwt-access.guard.ts's check, both authorization.service.ts checks, both platform.service.ts invalidateOrganization calls) were temporarily reverted together in a controlled, backed-up change, the full new e2e suite and the full unit suite were re-run, restored immediately after, and the full suites re-run again to confirm the restoration was exact and complete.",
+    "resultsAgainstTheVulnerableImplementation": [
+      "POINT-1/3/4: reused token returned 200 instead of the expected 403 — the exact originally-reported defect reproduced precisely.",
+      "POINT-5: the export request returned 201 (succeeded) instead of 403 while the organization was suspended.",
+      "POINT-6: the cached permission grant read back true instead of false after suspension.",
+      "POINT-7: the export worker's job status became COMPLETED instead of CANCELLED — it would have produced and uploaded a real file containing suspended-tenant candidate data.",
+      "CACHE-ORG-SUSPEND-001 through 005: all five unit tests failed, each for the specific reason it was written to catch (either a TypeError from the now-missing check, or a wrongly-granted true/non-empty result).",
+      "9 of 17 tests across the two files failed; the other 8 (POINT-8, POINT-9, POINT-10, and the 5 pre-existing unit tests unrelated to suspension) correctly continued to pass, since they are controls that do not depend on the fix."
+    ],
+    "resultsAfterRestoring": "All 17 tests passed again, confirming the restoration exactly reproduced the intended fix with no drift.",
+    "additionalFindingFromThisProcess": "Reverting ONLY the JwtAccessGuard check (leaving the AuthorizationService-level checks in place) still correctly denied POINT-1/3/4 and POINT-5 — but with a DIFFERENT error code (AUTHORIZATION_FAILED / 403 'Insufficient permissions' from PermissionGuard, rather than ORGANIZATION_INACTIVE from the guard). This is genuine, unplanned evidence of real defense-in-depth between the two fix locations, not just two redundant copies of the same check — each independently closes the gap for request paths the other does not cover (JwtAccessGuard covers routes with no @RequirePermission at all; AuthorizationService covers the background worker, which has no HTTP guard at all)."
+  },
+
+  "apiSessionAndWorkerEnforcementFindings": {
+    "api": "Every tenant-scoped HTTP route (recruitment, billing, teams, travel, management, exports, etc.) is now protected at the single JwtAccessGuard boundary, confirmed by grep: every controller in the codebase pairs JwtAccessGuard with either PermissionGuard or (only for 3 /auth/* routes) nothing else, and PlatformOwnerGuard-protected platform-admin routes are structurally unaffected (different guard, principal's own org is always the platform org).",
+    "worker": "RecruitmentExportWorkerService's pre-existing (Phase 5.1) authorization recheck — both at the top of each attempt and before every page during a multi-page export — already called AuthorizationService.canAccessOrganization, so fixing that one method made the worker suspension-aware automatically. No worker-specific code was added or needed. Verified directly with POINT-7 and its vulnerable-implementation counterpart above.",
+    "otherBackgroundWork": "No other background/queue worker in the codebase was found to perform its own independent authorization recheck in a way this task's fix doesn't already cover — the export worker was the one explicitly named in the task and the one with Phase 5.1 precedent; a broader audit of every queue handler for organization-suspension-awareness was not performed and is noted as a scope limit below, not claimed as verified."
+  },
+
+  "filesChanged": [
+    { "file": "apps/api/src/identity/presentation/http/jwt-access.guard.ts", "reason": "Adds the fresh, per-request organization-status check for the Bearer-token (regular user) authentication path." },
+    { "file": "apps/api/src/identity/application/services/authorization.service.ts", "reason": "Adds the unconditional organization-status check to getEffectivePermissions and canAccessOrganization, closing the gap for the background worker and any other direct caller." },
+    { "file": "apps/api/src/identity/application/services/platform.service.ts", "reason": "Injects AuthorizationService; suspendOrganization and reactivateOrganization both now call invalidateOrganization so the cache can never serve stale state across either transition." },
+    { "file": "apps/api/src/identity/application/services/authorization.service.spec.ts", "reason": "Extended the mock Prisma fixture with an organization.findUnique default (ACTIVE) so the 5 pre-existing tests remain unaffected; added 5 new tests for the suspended/missing-organization branches." },
+    { "file": "apps/api/src/identity/presentation/http/organization-suspension.e2e.spec.ts", "reason": "New file. 7 real, executed end-to-end tests mapping to all 10 verification points in the task, against the real HTTP stack, real Postgres, the real AuthorizationService cache, and the real (Phase 5.1) export worker." }
+  ],
+
+  "testExecution": {
+    "commands": [
+      "npx tsc --noEmit -p tsconfig.json   (apps/api)",
+      "npx vitest run src/identity/presentation/http/organization-suspension.e2e.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/identity/application/services/authorization.service.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/identity/ --fileParallelism=false --reporter=verbose   (apps/api, full identity module regression)",
+      "npx vitest run src/recruitment/ --fileParallelism=false --reporter=verbose   (apps/api, full recruitment module regression)"
+    ],
+    "ranAgainstRealLocalTestDatabase": true,
+    "results": {
+      "backendTypecheck": { "totalErrors": 84, "newErrorsInTouchedFiles": 0, "note": "Unchanged baseline from the prior Phase 5.1 task; verified zero matches in any of the 5 files this task modified or added." },
+      "newOrganizationSuspensionSuite": { "file": "organization-suspension.e2e.spec.ts", "passed": 7, "failed": 0, "testCount": 7 },
+      "authorizationServiceUnitSuite": { "file": "authorization.service.spec.ts", "passed": 10, "failed": 0, "testCount": 10, "note": "5 pre-existing + 5 new CACHE-ORG-SUSPEND tests." },
+      "fullIdentityModuleRegression": { "testFiles": 25, "passed": 184, "skipped": 0, "failed": 0, "totalTests": 184, "note": "Run with --fileParallelism=false (required — see environmentNotes). Includes platform-admin.e2e.spec.ts's pre-existing suspend/reactivate-at-login test, unaffected and still passing." },
+      "fullRecruitmentModuleRegression": { "testFiles": 8, "passed": 72, "skipped": 5, "failed": 0, "totalTests": 77, "note": "Run with --fileParallelism=false. Unchanged from Phase 5.1's count — the canAccessOrganization fix does not affect any existing fixture, since every test organization is created ACTIVE." },
+      "orphanedTestDataCheck": { "orgSuspensionTestOrgs": 0, "unrelatedActiveOrgs": 0 }
+    },
+    "testsNotRunAndWhy": [
+      "The full backend test suite outside src/identity and src/recruitment (travel, billing, teams, sales, hr, finance, legal, etc.) was NOT executed in this task. Rationale: every one of those modules' controllers uses the identical, unmodified @UseGuards(JwtAccessGuard, PermissionGuard) pairing already exercised end-to-end by the identity and recruitment suites above, and the change inside JwtAccessGuard is a pure addition (one extra fast, indexed, read-only lookup) with no altered control flow for the ACTIVE-organization case every existing test fixture uses. This is a code-inspection-based judgment, not an executed verification, and is disclosed as such rather than silently assumed.",
+      "No live external provider (Twilio/WhatsApp, or any other) was configured or called — out of scope per the task's explicit instruction.",
+      "A broader audit of every queue/worker handler in the codebase for independent organization-suspension-awareness (beyond the recruitment export worker named in the task) was not performed."
+    ],
+    "environmentNotes": [
+      "Running src/identity/ or src/recruitment/ with vitest's default file-level parallelism intermittently fails unrelated files due to a pre-existing shared-test-database wipe used by some specs (documented in apps/api/src/test/cleanup.ts). --fileParallelism=false was used for every full-module run per the task's own instruction, and produced consistent, repeatable 100% passes.",
+      "Disk space was checked before running any test (sufficient; no expensive browser/build/simulator task was needed for this backend-only task)."
+    ]
+  },
+
+  "remainingRisksAndBlockers": [
+    {
+      "id": "RISK-FULL-SUITE-NOT-RUN",
+      "severity": "LOW",
+      "description": "The full backend test suite (every module) was not executed; only identity and recruitment were, per the task's explicit scope. See testsNotRunAndWhy for the specific rationale.",
+      "resolvedOrAccepted": "ACCEPTED AS A DISCLOSED SCOPE LIMIT — not silently assumed passing.",
+      "owner": "Whoever runs the next full-suite CI pass should confirm no other module relies on JwtAccessGuard behaving differently than it now does."
+    },
+    {
+      "id": "RISK-OTHER-WORKERS-NOT-AUDITED",
+      "severity": "LOW",
+      "description": "Only the recruitment export worker (explicitly named in the Phase 5.1/5.2 lineage) was verified to respect organization suspension. Other background/queue workers in the codebase were not individually audited for whether they independently re-derive authorization in a way that would or would not already benefit from this fix.",
+      "resolvedOrAccepted": "NOT AUDITED — flagged, not fixed or dismissed.",
+      "owner": "Product/security owner, if other workers are later found to process sensitive per-organization data without going through AuthorizationService at all."
+    },
+    {
+      "id": "CARRIED-FORWARD-WHATSAPP-LIVE",
+      "severity": "LOW (external dependency, not a code defect)",
+      "description": "Unchanged from prior reports — live WhatsApp/Twilio verification has still never been performed end-to-end; not in scope for this task, and no provider was configured or called here either.",
+      "resolvedOrAccepted": "NEITHER — carried forward, owner-action item.",
+      "owner": "Account owner / whoever owns the Twilio account."
+    }
+  ],
+
+  "resolvedFromPriorReport": {
+    "id": "BLOCKER-ORG-SUSPEND",
+    "originalSource": "Krevia_Sprint_7.17_Phase5.1_Security_UAT — relatedFindingNotFixed",
+    "status": "RESOLVED by this task.",
+    "evidence": "See nonVacuousVerification above — the exact scenario described in that finding (an already-authenticated session continuing to pass PermissionGuard checks after organization suspension) was reproduced against the pre-fix code and is now denied against the fixed code."
+  },
+
+  "localSimulatedVsLiveProviderVerification": {
+    "verifiedForRealLocally": [
+      "Every test in this report ran against the real local Postgres test database (TEST_DATABASE_URL), a real NestFactory application, real HTTP requests via supertest, and the real, unmocked AuthorizationService cache.",
+      "The non-vacuous before/after verification (reverting and restoring the actual production fix) is real, not simulated — the exact lines of production code were temporarily removed and the real test suite was re-run against that real, temporarily-vulnerable code."
+    ],
+    "notPerformedLiveExternalProvider": [
+      "No real Twilio/WhatsApp send or any other live external provider call of any kind.",
+      "No production organization was suspended or reactivated — only synthetic, test-created organizations."
+    ]
+  },
+
+  "safetyConstraintsObserved": [
+    "No external provider was configured or called.",
+    "No production data was used — every organization, user, and candidate in every test is synthetic, created and destroyed within the test run.",
+    "No credentials, tokens, or secrets were printed or logged in this report or in test output beyond what the application's own existing structured logger already emits (event names and failure categories, never token values or passwords).",
+    "No authentication, authorization, or organization-isolation behavior was weakened to make any test pass — every change adds a check or an invalidation call; none removes or loosens an existing one.",
+    "All reported test counts are from commands actually executed in this session against the real local test database."
+  ]
+}

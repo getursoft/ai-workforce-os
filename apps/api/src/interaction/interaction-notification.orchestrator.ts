@@ -70,7 +70,11 @@ export class InteractionNotificationOrchestrator {
       });
       if (!interaction) return;
       const organization = await this.prisma.organization.findUnique({ where: { id: organizationId } });
-      const organizationName = organization?.name ?? "our team";
+      // Phase 5.3 — background worker suspension audit. This runs via the NOTIFICATION_JOBS queue
+      // handler, a call stack with no HTTP request and no JwtAccessGuard — a notification queued before
+      // suspension must not still send a real WhatsApp/email message afterward.
+      if (!organization || organization.status !== "ACTIVE") return;
+      const organizationName = organization.name;
 
       for (const type of this.channelPlan(interaction)) {
         await this.sendOne(interaction, organizationName, type);

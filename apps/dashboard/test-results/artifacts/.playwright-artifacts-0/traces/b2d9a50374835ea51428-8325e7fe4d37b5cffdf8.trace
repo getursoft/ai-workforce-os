@@ -1,0 +1,56 @@
+{"version":10,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.64.0","options":{},"platform":"darwin","wallTime":1792308771535,"monotonicTime":1945.464,"sdkLanguage":"javascript","title":"specs/06-ai-employee-chat.spec.ts:47 › CHAT-001 with no AI provider configured, the chat completes with a clear, honest message instead of a crash"}
+{"type":"before","callId":"qtwn@32","startTime":1956.732,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/v1/auth/register","method":"POST","jsonData":"{\"organizationName\":\"UAT Test Org 1792308771459-3s2xoo\",\"firstName\":\"UAT\",\"email\":\"uat-test-1792308771459-3s2xoo@example.com\",\"password\":\"StrongPassword@123\"}","timeout":30000}}
+{"type":"log","callId":"qtwn@32","time":1969.663,"message":"→ POST http://localhost:4000/api/v1/auth/register"}
+{"type":"log","callId":"qtwn@32","time":1969.688,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36"}
+{"type":"log","callId":"qtwn@32","time":1969.693,"message":"  accept: */*"}
+{"type":"log","callId":"qtwn@32","time":1969.697,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"qtwn@32","time":1969.701,"message":"  content-type: application/json"}
+{"type":"log","callId":"qtwn@32","time":1969.708,"message":"  content-length: 158"}
+{"type":"log","callId":"qtwn@32","time":9867.451,"message":"← 201 Created"}
+{"type":"log","callId":"qtwn@32","time":9867.578,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"qtwn@32","time":9867.594,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"qtwn@32","time":9867.608,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"qtwn@32","time":9867.624,"message":"  permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()"}
+{"type":"log","callId":"qtwn@32","time":9867.63,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'"}
+{"type":"log","callId":"qtwn@32","time":9867.635,"message":"  vary: Origin"}
+{"type":"log","callId":"qtwn@32","time":9867.639,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"qtwn@32","time":9867.643,"message":"  access-control-expose-headers: x-request-id"}
+{"type":"log","callId":"qtwn@32","time":9867.648,"message":"  x-request-id: a013c9fd-c360-49dd-833b-fd2e81f6ec6d"}
+{"type":"log","callId":"qtwn@32","time":9867.652,"message":"  x-ratelimit-limit: 10"}
+{"type":"log","callId":"qtwn@32","time":9867.656,"message":"  x-ratelimit-remaining: 8"}
+{"type":"log","callId":"qtwn@32","time":9867.661,"message":"  set-cookie: aiwos_refresh_token=48064ef8-ba85-4b8f-b4e0-d85cd3cfaa63.YvqlujCznH5-AJ7k1rMDeXF0Cl-rDWobD9o9-POgcwM; Path=/; HttpOnly; SameSite=lax; Max-Age=2592000; Expires=Tue, 17 Nov 2026 07:32:51 GMT"}
+{"type":"log","callId":"qtwn@32","time":9867.665,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"qtwn@32","time":9867.67,"message":"  content-length: 1075"}
+{"type":"log","callId":"qtwn@32","time":9867.678,"message":"  etag: W/\"433-nY6lE76tq6dYWGOcHWBOXYbVNE0\""}
+{"type":"log","callId":"qtwn@32","time":9867.683,"message":"  date: Sun, 18 Oct 2026 07:32:59 GMT"}
+{"type":"log","callId":"qtwn@32","time":9867.688,"message":"  connection: keep-alive"}
+{"type":"log","callId":"qtwn@32","time":9867.692,"message":"  keep-alive: timeout=5"}
+{"type":"after","callId":"qtwn@32","endTime":9872.175,"result":{"response":{"url":"http://localhost:4000/api/v1/auth/register","status":201,"statusText":"Created","headers":[{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"no-referrer"},{"name":"X-Frame-Options","value":"DENY"},{"name":"Permissions-Policy","value":"camera=(), microphone=(), geolocation=(), payment=(), usb=()"},{"name":"Content-Security-Policy","value":"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"},{"name":"Vary","value":"Origin"},{"name":"Access-Control-Allow-Credentials","value":"true"},{"name":"Access-Control-Expose-Headers","value":"x-request-id"},{"name":"x-request-id","value":"a013c9fd-c360-49dd-833b-fd2e81f6ec6d"},{"name":"X-RateLimit-Limit","value":"10"},{"name":"X-RateLimit-Remaining","value":"8"},{"name":"Set-Cookie","value":"aiwos_refresh_token=48064ef8-ba85-4b8f-b4e0-d85cd3cfaa63.YvqlujCznH5-AJ7k1rMDeXF0Cl-rDWobD9o9-POgcwM; Path=/; HttpOnly; SameSite=lax; Max-Age=2592000; Expires=Tue, 17 Nov 2026 07:32:51 GMT"},{"name":"Content-Type","value":"application/json; charset=utf-8"},{"name":"Content-Length","value":"1075"},{"name":"ETag","value":"W/\"433-nY6lE76tq6dYWGOcHWBOXYbVNE0\""},{"name":"Date","value":"Sun, 18 Oct 2026 07:32:59 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=5"}],"serverAddr":{"ipAddress":"127.0.0.1","port":4000},"timing":{"startTime":1792308771551,"domainLookupStart":0,"domainLookupEnd":9.417999999999893,"connectStart":9.417999999999893,"secureConnectionStart":-1,"connectEnd":12.551999999999907,"requestStart":12.551999999999907,"responseStart":7901.929},"responseEndTiming":7907.092000000001,"fetchUid":"cad0d4d323f8d0853f3897572f07ce8a"}}}
+{"type":"before","callId":"qtwn@35","startTime":9876.848,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/v1/plugins/install","method":"POST","headers":[{"name":"Authorization","value":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmciOiJmYzg3MTNjNy03NmNmLTRkODgtOTlhZi1lOWI5YzE4YmE3YjMiLCJyb2xlIjoiT1dORVIiLCJzaWQiOiI0ODA2NGVmOC1iYTg1LTRiOGYtYjRlMC1kODVjZDNjZmFhNjMiLCJ0eXBlIjoiYWNjZXNzIiwic3ViIjoiMjEzYjFhYTEtODU4My00MjYwLTliZjktYWZjNmJjNTAxYjAzIiwiaWF0IjoxNzkyMzA4NzcxLCJleHAiOjE3OTIzMDk2NzEsImlzcyI6ImFpLXdvcmtmb3JjZS1vcy1hcGkiLCJhdWQiOiJhaS13b3JrZm9yY2Utb3MifQ.AJXN5sJJsN49xFvPz6p-AnVymCstjSQdrW0ulXdA87g"}],"jsonData":"{\"pluginId\":\"recruitment-consultant\",\"configuration\":{\"config\":{},\"secrets\":{}},\"enable\":true}","timeout":30000}}
+{"type":"log","callId":"qtwn@35","time":9881.838,"message":"→ POST http://localhost:4000/api/v1/plugins/install"}
+{"type":"log","callId":"qtwn@35","time":9881.849,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36"}
+{"type":"log","callId":"qtwn@35","time":9881.852,"message":"  accept: */*"}
+{"type":"log","callId":"qtwn@35","time":9881.855,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"qtwn@35","time":9882.144,"message":"  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmciOiJmYzg3MTNjNy03NmNmLTRkODgtOTlhZi1lOWI5YzE4YmE3YjMiLCJyb2xlIjoiT1dORVIiLCJzaWQiOiI0ODA2NGVmOC1iYTg1LTRiOGYtYjRlMC1kODVjZDNjZmFhNjMiLCJ0eXBlIjoiYWNjZXNzIiwic3ViIjoiMjEzYjFhYTEtODU4My00MjYwLTliZjktYWZjNmJjNTAxYjAzIiwiaWF0IjoxNzkyMzA4NzcxLCJleHAiOjE3OTIzMDk2NzEsImlzcyI6ImFpLXdvcmtmb3JjZS1vcy1hcGkiLCJhdWQiOiJhaS13b3JrZm9yY2Utb3MifQ.AJXN5sJJsN49xFvPz6p-AnVymCstjSQdrW0ulXdA87g"}
+{"type":"log","callId":"qtwn@35","time":9882.148,"message":"  content-type: application/json"}
+{"type":"log","callId":"qtwn@35","time":9882.151,"message":"  content-length: 94"}
+{"type":"log","callId":"qtwn@35","time":9882.153,"message":"  cookie: aiwos_refresh_token=48064ef8-ba85-4b8f-b4e0-d85cd3cfaa63.YvqlujCznH5-AJ7k1rMDeXF0Cl-rDWobD9o9-POgcwM"}
+{"type":"log","callId":"qtwn@35","time":9922.942,"message":"← 201 Created"}
+{"type":"log","callId":"qtwn@35","time":9922.951,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"qtwn@35","time":9922.954,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"qtwn@35","time":9922.957,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"qtwn@35","time":9922.96,"message":"  permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()"}
+{"type":"log","callId":"qtwn@35","time":9922.962,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'"}
+{"type":"log","callId":"qtwn@35","time":9922.965,"message":"  vary: Origin"}
+{"type":"log","callId":"qtwn@35","time":9922.967,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"qtwn@35","time":9922.97,"message":"  access-control-expose-headers: x-request-id"}
+{"type":"log","callId":"qtwn@35","time":9922.973,"message":"  x-request-id: 87e7e18a-d9b6-4a02-b70f-f0ca3bf757d3"}
+{"type":"log","callId":"qtwn@35","time":9922.979,"message":"  x-ratelimit-limit: 300"}
+{"type":"log","callId":"qtwn@35","time":9922.982,"message":"  x-ratelimit-remaining: 293"}
+{"type":"log","callId":"qtwn@35","time":9923.001,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"qtwn@35","time":9923.004,"message":"  content-length: 1941"}
+{"type":"log","callId":"qtwn@35","time":9923.007,"message":"  etag: W/\"795-kMwhp5zZ1wYYBzlvUIdlBtQ8MF4\""}
+{"type":"log","callId":"qtwn@35","time":9923.011,"message":"  date: Sun, 18 Oct 2026 07:32:59 GMT"}
+{"type":"log","callId":"qtwn@35","time":9923.014,"message":"  connection: keep-alive"}
+{"type":"log","callId":"qtwn@35","time":9923.016,"message":"  keep-alive: timeout=5"}
+{"type":"after","callId":"qtwn@35","endTime":9923.11,"result":{"response":{"url":"http://localhost:4000/api/v1/plugins/install","status":201,"statusText":"Created","headers":[{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"no-referrer"},{"name":"X-Frame-Options","value":"DENY"},{"name":"Permissions-Policy","value":"camera=(), microphone=(), geolocation=(), payment=(), usb=()"},{"name":"Content-Security-Policy","value":"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"},{"name":"Vary","value":"Origin"},{"name":"Access-Control-Allow-Credentials","value":"true"},{"name":"Access-Control-Expose-Headers","value":"x-request-id"},{"name":"x-request-id","value":"87e7e18a-d9b6-4a02-b70f-f0ca3bf757d3"},{"name":"X-RateLimit-Limit","value":"300"},{"name":"X-RateLimit-Remaining","value":"293"},{"name":"Content-Type","value":"application/json; charset=utf-8"},{"name":"Content-Length","value":"1941"},{"name":"ETag","value":"W/\"795-kMwhp5zZ1wYYBzlvUIdlBtQ8MF4\""},{"name":"Date","value":"Sun, 18 Oct 2026 07:32:59 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=5"}],"serverAddr":{"ipAddress":"127.0.0.1","port":4000},"timing":{"startTime":1792308779468,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":3.3109999999996944,"responseStart":43.46700000000055},"responseEndTiming":43.70100000000093,"fetchUid":"99aa8d5f12d0c2fe88f3c424ffe76cea"}}}

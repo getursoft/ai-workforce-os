@@ -9,7 +9,10 @@
     "start": "node ./scripts/start.mjs",
     "lint": "eslint .",
     "test": "vitest run --config vitest.config.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "uat:recruitment:visual": "playwright test --project=recruitment-visual-uat",
+    "uat:recruitment:report": "playwright show-report playwright-report",
+    "uat:recruitment:all": "playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -26,6 +29,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^7.0.0",

@@ -54,6 +54,8 @@ function buildOrchestrator(options: {
   routing?: { shouldDelegate: boolean; targetEmployeeInstallationId: string | null; confidence: number; reasonCode: string; alternatives: unknown[] };
   parentTask?: Record<string, unknown> | null;
   existingTask?: Record<string, unknown> | null;
+  // Phase 5.3 — defaults to ACTIVE so none of the pre-existing tests below are affected.
+  organizationStatus?: string;
 }) {
   const source = options.source ?? baseEmployee({ installationId: "source-1", displayName: "Source" });
   const target = options.target ?? baseEmployee({ installationId: "target-1", displayName: "Target" });
@@ -95,7 +97,8 @@ function buildOrchestrator(options: {
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
     conversation: { create: vi.fn().mockResolvedValue({ id: "conv-1" }) },
-    workflowExecution: { create: vi.fn().mockResolvedValue({ id: "wf-1" }), update: vi.fn() }
+    workflowExecution: { create: vi.fn().mockResolvedValue({ id: "wf-1" }), update: vi.fn() },
+    organization: { findUnique: vi.fn().mockResolvedValue({ status: options.organizationStatus ?? "ACTIVE" }) }
   };
   const agentService = {
     execute: vi.fn().mockResolvedValue({ conversationId: "conv-1", executionId: "exec-1", response: JSON.stringify({ ok: true }) })
@@ -260,5 +263,62 @@ describe("WorkforceOrchestratorService", () => {
     await expect(orchestrator.completeTask("task-1", { ok: true })).rejects.toMatchObject({
       code: "WORKFORCE_DUPLICATE_COMPLETION"
     });
+  });
+
+  // --- Phase 5.3 — background worker suspension audit ---------------------------------------------------
+
+  it("dispatch() terminally fails a QUEUED task for a suspended organization without ever resolving an employee or running the agent", async () => {
+    const { orchestrator, prisma, registry, agentService } = buildOrchestrator({
+      organizationStatus: "SUSPENDED",
+      existingTask: {
+        id: "task-1",
+        organizationId: "org-1",
+        status: "QUEUED",
+        timeoutAt: null,
+        attemptCount: 0,
+        maxAttempts: 3,
+        correlationId: "corr-1",
+        createdAt: new Date()
+      }
+    });
+    const view = await orchestrator.dispatch("task-1");
+    expect(view.status).toBe("FAILED");
+    expect(view.errorCode).toBe("ORGANIZATION_SUSPENDED");
+    // WorkforceTaskProcessor's background timer calls dispatch() on a call stack with no HTTP request and
+    // no JwtAccessGuard — this assertion is the one that actually proves the gap is closed: no employee
+    // was ever resolved and the AI agent was never invoked against a suspended tenant's data.
+    expect(registry.getInstalled).not.toHaveBeenCalled();
+    expect(agentService.execute).not.toHaveBeenCalled();
+    // Never transitioned to RUNNING at any point — the suspension check runs strictly before that update.
+    expect(prisma.employeeDelegatedTask.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "RUNNING" }) })
+    );
+  });
+
+  it("dispatch() does not false-positive the suspension check for an ACTIVE organization", async () => {
+    const { orchestrator, prisma } = buildOrchestrator({
+      organizationStatus: "ACTIVE",
+      existingTask: {
+        id: "task-1",
+        organizationId: "org-1",
+        status: "QUEUED",
+        timeoutAt: null,
+        attemptCount: 0,
+        maxAttempts: 3,
+        correlationId: "corr-1",
+        sourceEmployeeInstallationId: "source-1",
+        targetEmployeeInstallationId: "target-1",
+        taskType: "GENERAL_QUERY",
+        inputPayloadJson: { objective: "test", input: {} },
+        createdAt: new Date()
+      }
+    });
+    const view = await orchestrator.dispatch("task-1");
+    expect(prisma.organization.findUnique).toHaveBeenCalledWith({ where: { id: "org-1" }, select: { status: true } });
+    expect(view.errorCode).not.toBe("ORGANIZATION_SUSPENDED");
+    // Reached the RUNNING transition — proves the check passed through rather than short-circuiting.
+    expect(prisma.employeeDelegatedTask.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "RUNNING" }) })
+    );
   });
 });

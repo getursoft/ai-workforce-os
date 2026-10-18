@@ -22,6 +22,17 @@ export interface CreditPurchaseOrderView {
   razorpayKeyId: string;
 }
 
+export interface CreditPurchaseOrderSummary {
+  id: string;
+  credits: number;
+  amountMinor: number;
+  currency: string;
+  status: string;
+  gateway: string;
+  createdAt: string;
+  paidAt: string | null;
+}
+
 @Injectable()
 export class CreditPurchaseService {
   constructor(
@@ -29,6 +40,21 @@ export class CreditPurchaseService {
     private readonly razorpay: RazorpayService,
     private readonly paymentSettings: PaymentSettingsService
   ) {}
+
+  /** Recharge transaction history — the credit purchase orders themselves ARE the ledger for top-ups;
+   *  no separate wallet/transaction table. Usage-side debits are covered by `GET /billing/usage/trend`. */
+  async listOrders(organizationId: string, take = 50): Promise<CreditPurchaseOrderSummary[]> {
+    const orders = await this.prisma.creditPurchaseOrder.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: "desc" },
+      take
+    });
+    return orders.map((o) => ({
+      id: o.id, credits: o.credits, amountMinor: o.amountMinor, currency: o.currency,
+      status: o.status, gateway: o.gateway,
+      createdAt: o.createdAt.toISOString(), paidAt: o.paidAt?.toISOString() ?? null
+    }));
+  }
 
   async listPackages(organizationId: string): Promise<{ currency: string; packages: CreditPackage[] }> {
     const sub = await this.prisma.organisationSubscription.findUnique({

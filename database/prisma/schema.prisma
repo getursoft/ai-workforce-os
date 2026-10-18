@@ -896,6 +896,19 @@ model Organization {
   skillPackInstallations                SkillPackInstallation[]
   skillTemplateInstallations            SkillTemplateInstallation[]
   interactions                          Interaction[]
+  leads                                 Lead[]
+  leadActivities                        LeadActivity[]
+  recruitmentJobs                       RecruitmentJob[]
+  recruitmentCandidates                 RecruitmentCandidate[]
+  recruitmentResumes                    RecruitmentResume[]
+  recruitmentApplications               RecruitmentApplication[]
+  recruitmentUploadBatches              RecruitmentUploadBatch[]
+  recruitmentWhatsAppLinks              RecruitmentWhatsAppLink[]
+  recruitmentWhatsAppSessions           RecruitmentWhatsAppSession[]
+  recruitmentChatIdentityVerifications  RecruitmentChatIdentityVerification[]
+  recruitmentCallLogs                   RecruitmentCallLog[]
+  recruitmentExportJobs                 RecruitmentExportJob[]
+  recruitmentFilterPresets              RecruitmentFilterPreset[]
 
   @@map("organizations")
 }
@@ -1088,6 +1101,18 @@ model User {
   skillPipelinesCreated                        SkillPipeline[]
   skillPackInstallationsInstalled              SkillPackInstallation[]
   skillTemplateInstallationsInstalled          SkillTemplateInstallation[]
+  leadsAssigned                                Lead[]                                 @relation("LeadAssignee")
+  leadActivities                               LeadActivity[]                         @relation("LeadActivityActor")
+  recruitmentJobsCreated                       RecruitmentJob[]                       @relation("RecruitmentJobCreatedBy")
+  recruitmentUploadBatchesCreated              RecruitmentUploadBatch[]               @relation("RecruitmentUploadBatchUploadedBy")
+  recruitmentApplicationsReviewed              RecruitmentApplication[]               @relation("RecruitmentApplicationReviewedBy")
+  recruitmentWhatsAppLinks                     RecruitmentWhatsAppLink[]               @relation("RecruitmentWhatsAppLinkUser")
+  recruitmentWhatsAppLinksRevoked              RecruitmentWhatsAppLink[]               @relation("RecruitmentWhatsAppLinkRevokedBy")
+  recruitmentChatIdentityVerifications         RecruitmentChatIdentityVerification[]   @relation("RecruitmentChatVerificationUser")
+  recruitmentChatIdentityVerificationsRevoked  RecruitmentChatIdentityVerification[]   @relation("RecruitmentChatVerificationRevokedBy")
+  recruitmentCallLogsInitiated                 RecruitmentCallLog[]                   @relation("RecruitmentCallLogInitiatedBy")
+  recruitmentExportJobsRequested                RecruitmentExportJob[]                 @relation("RecruitmentExportJobRequestedBy")
+  recruitmentFilterPresets                     RecruitmentFilterPreset[]               @relation("RecruitmentFilterPresetUser")
   deletedAt                                    DateTime?                              @map("deleted_at")
 
   @@index([organizationId])
@@ -3234,6 +3259,122 @@ model SalesLead {
   @@map("sales_leads")
 }
 
+enum LeadSource {
+  WEB_CHAT
+  WHATSAPP
+  VOICE
+  MANUAL
+  API
+  OTHER
+
+  @@map("lead_source")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  FOLLOW_UP
+  CONVERTED
+  LOST
+
+  @@map("lead_status")
+}
+
+enum LeadPriority {
+  LOW
+  MEDIUM
+  HIGH
+
+  @@map("lead_priority")
+}
+
+enum LeadActivityType {
+  CREATED
+  UPDATED
+  STATUS_CHANGED
+  ASSIGNED
+  NOTE_ADDED
+  CONTACTED
+  CONVERTED
+  LOST
+
+  @@map("lead_activity_type")
+}
+
+/// Krevia CRM — the ONE tenant-scoped canonical lead record every AI Employee's customer-facing capture
+/// path (Travel, Sales, ... web chat / WhatsApp / voice, and manual entry by an org admin) writes to, so a
+/// customer organization never needs an external CRM (HubSpot/Salesforce/Zoho) to see the leads their AI
+/// workforce is generating. This is NOT a replacement for the existing per-vertical detail records
+/// (TravelLead, SalesLead, ...) — those keep owning their own rich domain fields (trip dates, budget,
+/// ticket policy, ...) and full conversation-summary text; Lead is the thin, cross-vertical rollup those
+/// services mirror into (see `LeadService.captureFromChannel`, called from `TravelLeadService.
+/// createInternalLead`) so a single Krevia CRM dashboard/API can list, filter and manage every lead
+/// regardless of which AI Employee or channel produced it. `requirement` is a short summary, never a full
+/// transcript — the source conversation/interaction stays the system of record for that.
+///
+/// Dedup/update (never a duplicate for the same ongoing conversation): capture resolves the same
+/// interactionId (preferred, since it survives a Receptionist -> specialist handoff) or conversationId to
+/// an existing, still-open (not CONVERTED/LOST) Lead and updates it in place; only a genuinely new
+/// interaction/conversation, or an explicit manual/API create, produces a new row.
+model Lead {
+  id               String         @id @default(uuid()) @db.Uuid
+  organizationId   String         @map("organization_id") @db.Uuid
+  /// Friendly, customer/agent-facing unique reference, e.g. "KRV-LD-8H72QF".
+  leadReferenceId  String         @unique @map("lead_reference_id") @db.VarChar(32)
+  name             String?        @db.VarChar(160)
+  phone            String?        @db.VarChar(24)
+  email            String?        @db.VarChar(160)
+  source           LeadSource
+  /// Plugin installation id of the specialist AI Employee this lead is attributed to (e.g. the Travel
+  /// Employee installation) — set once the Receptionist hands off, loose reference (same convention as
+  /// Interaction.entryAgentId/currentAgentId), never an FK.
+  agentId          String?        @map("agent_id") @db.Uuid
+  conversationId   String?        @map("conversation_id") @db.Uuid
+  interactionId    String?        @map("interaction_id") @db.Uuid
+  voiceSessionId   String?        @map("voice_session_id") @db.Uuid
+  requirement      String?        @db.Text
+  status           LeadStatus     @default(NEW)
+  priority         LeadPriority   @default(MEDIUM)
+  assignedToUserId String?        @map("assigned_to_user_id") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  lastActivityAt   DateTime       @default(now()) @map("last_activity_at")
+  convertedAt      DateTime?      @map("converted_at")
+  lostAt           DateTime?      @map("lost_at")
+  organization     Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedTo       User?          @relation("LeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  activities       LeadActivity[]
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, source])
+  @@index([organizationId, agentId])
+  @@index([organizationId, assignedToUserId])
+  @@index([organizationId, conversationId])
+  @@index([organizationId, interactionId])
+  @@map("leads")
+}
+
+/// One row per Lead lifecycle event — the activity timeline Krevia CRM's lead detail view renders. Never
+/// stores full transcripts, only short human-readable notes/summaries.
+model LeadActivity {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  leadId         String            @map("lead_id") @db.Uuid
+  type           LeadActivityType
+  note           String?           @db.Text
+  metadata       Json              @default("{}")
+  actorUserId    String?           @map("actor_user_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at")
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead           Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actorUser      User?             @relation("LeadActivityActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
+  @@index([organizationId, createdAt])
+  @@map("lead_activities")
+}
+
 /// A lead generated for Krevia AS A BUSINESS (the platform's own acquisition funnel), never a tenant
 /// organization's own customer lead — those stay in SalesLead/TravelLead/etc, each tied to an
 /// organizationId. Deliberately has NO organizationId/pluginInstallationId/conversationId column at all:
@@ -3877,6 +4018,9 @@ enum QueueCategory {
   RETENTION_JOBS
   NOTIFICATION_JOBS
   DOCUMENT_PROCESSING
+  /// Sprint 7.17 (Phase 3) — drains RecruitmentExportJob rows marked QUEUED by RecruitmentExportService
+  /// once row count exceeds the synchronous-generation cap. Reuses this adapter rather than a new poller.
+  RECRUITMENT_EXPORTS
 
   @@map("queue_category")
 }
@@ -4440,4 +4584,618 @@ model SkillTemplateInstallation {
   @@index([organizationId, skillTemplateId])
   @@index([organizationId, pluginInstallationId])
   @@map("skill_template_installations")
+}
+
+// ---------------------------------------------------------------------------------------------------
+// AI Recruitment Consultant — internal-only employee (see plugins/recruitment-consultant/plugin.json's
+// routing.delegationEnabled: false, which keeps WorkforceDirectoryService.eligible() from ever routing
+// the AI Receptionist to it — no separate "internal" flag needed, that's the existing mechanism every
+// other employee's customer-facing eligibility already goes through).
+// ---------------------------------------------------------------------------------------------------
+
+enum RecruitmentJobStatus {
+  DRAFT
+  OPEN
+  ON_HOLD
+  CLOSED
+
+  @@map("recruitment_job_status")
+}
+
+enum RecruitmentEmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERNSHIP
+  TEMPORARY
+
+  @@map("recruitment_employment_type")
+}
+
+enum RecruitmentWorkMode {
+  ONSITE
+  REMOTE
+  HYBRID
+
+  @@map("recruitment_work_mode")
+}
+
+enum RecruitmentParsingStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+
+  @@map("recruitment_parsing_status")
+}
+
+enum RecruitmentBatchStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+
+  @@map("recruitment_batch_status")
+}
+
+/// Advisory only — never itself a hiring decision (Phase 6). See RecruitmentApplication.recruiterDecision
+/// for the field a human actually controls.
+enum RecruitmentAiRecommendation {
+  RECOMMENDED_FOR_SHORTLIST
+  BELOW_MATCH_THRESHOLD
+  REVIEW_REQUIRED
+
+  @@map("recruitment_ai_recommendation")
+}
+
+enum RecruitmentDecision {
+  PENDING_REVIEW
+  SHORTLISTED
+  NOT_SELECTED
+  INTERVIEW_SCHEDULED
+  INTERVIEW_COMPLETED
+  ON_HOLD
+  HIRED
+
+  @@map("recruitment_decision")
+}
+
+enum RecruitmentEvaluationStatus {
+  PENDING
+  COMPLETED
+  FAILED
+
+  @@map("recruitment_evaluation_status")
+}
+
+/// A job opening an organization's recruiters are hiring for.
+model RecruitmentJob {
+  id                      String                      @id @default(uuid()) @db.Uuid
+  organizationId          String                      @map("organization_id") @db.Uuid
+  /// Friendly, organization-scoped unique reference, e.g. "JOB-2026-00001".
+  jobCode                 String                      @map("job_code") @db.VarChar(32)
+  title                   String                      @db.VarChar(200)
+  description             String                      @db.Text
+  department              String?                     @db.VarChar(120)
+  location                String?                     @db.VarChar(160)
+  employmentType          RecruitmentEmploymentType?  @map("employment_type")
+  workMode                RecruitmentWorkMode?        @map("work_mode")
+  minExperienceYears      Int?                        @map("min_experience_years")
+  maxExperienceYears      Int?                        @map("max_experience_years")
+  /// Recruiter-approved, structured criteria — the only copy the scoring engine reads (Phase 2: "Persist
+  /// the approved structured criteria"). Shape: { mandatorySkills: string[], preferredSkills: string[],
+  /// certifications: string[], educationRequirements: string[], domainKnowledge: string[] }.
+  requiredCriteria        Json                        @map("required_criteria")
+  /// Raw AI-suggested criteria from JD parsing, kept only for audit/compare — never read by scoring.
+  aiSuggestedCriteria     Json?                       @map("ai_suggested_criteria")
+  responsibilities        String?                     @db.Text
+  salaryRangeMin          Int?                        @map("salary_range_min")
+  salaryRangeMax          Int?                        @map("salary_range_max")
+  salaryCurrency          String?                     @db.Char(3) @map("salary_currency")
+  hiringManager           String?                     @db.VarChar(160) @map("hiring_manager")
+  numberOfOpenings         Int                        @default(1) @map("number_of_openings")
+  applicationDeadline      DateTime?                  @map("application_deadline")
+  /// Org-configurable weights (Phase 5), validated to sum to 100 at the API layer — never trusted
+  /// unvalidated from the client.
+  scoringConfig            Json                       @map("scoring_config")
+  recommendationThreshold  Int                        @default(80) @map("recommendation_threshold")
+  status                   RecruitmentJobStatus        @default(DRAFT)
+  createdByUserId          String                     @map("created_by_user_id") @db.Uuid
+  createdAt                DateTime                   @default(now()) @map("created_at")
+  updatedAt                DateTime                   @updatedAt @map("updated_at")
+  closedAt                 DateTime?                  @map("closed_at")
+  organization             Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy                User                       @relation("RecruitmentJobCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  applications             RecruitmentApplication[]
+  uploadBatches            RecruitmentUploadBatch[]
+  callLogs                 RecruitmentCallLog[]
+  exportJobs               RecruitmentExportJob[]
+  whatsAppSessions         RecruitmentWhatsAppSession[]
+
+  @@unique([organizationId, jobCode])
+  @@index([organizationId, status, createdAt])
+  @@map("recruitment_jobs")
+}
+
+/// A real-world person, deduplicated across multiple applications/resume versions within an organization
+/// (Phase 10: "Do not unnecessarily create duplicate candidate records for the same person").
+model RecruitmentCandidate {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  fullName        String?  @db.VarChar(160) @map("full_name")
+  /// Normalized E.164 where resolvable; null, never invented, when the resume has no number.
+  mobileNumber    String?  @db.VarChar(24) @map("mobile_number")
+  email           String?  @db.VarChar(160)
+  /// Sprint 7.16 (Phase 5) — raw text exactly as extracted, never fabricated when the resume doesn't
+  /// state a location. Kept separate from `normalizedRegion` so a human never loses the original wording.
+  currentCity              String?   @db.VarChar(120) @map("current_city")
+  currentState             String?   @db.VarChar(120) @map("current_state")
+  currentCountry           String?   @db.VarChar(120) @map("current_country")
+  /// Taxonomy-mapped grouping (e.g. "Delhi NCR") driven by RecruitmentRegionAlias — never overwrites the
+  /// raw current/preferred fields above.
+  normalizedRegion         String?   @db.VarChar(120) @map("normalized_region")
+  /// Distinct from current location (Phase 5: "Distinguish Current Location / Preferred Work Location").
+  /// Native Postgres text array (not Json) so RecruitmentCandidateQueryService can use Prisma's
+  /// hasSome/hasEvery list filters directly — a Json column can't be filtered that way.
+  preferredWorkLocations   String[]  @default([]) @map("preferred_work_locations")
+  /// Three-state: null = unknown/not stated, true/false = a confirmed stated preference — never conflate
+  /// "not mentioned" with "no" (Phase 5: "Distinguish unknown values from confirmed negative responses").
+  willingToRelocate        Boolean?  @map("willing_to_relocate")
+  workModePreference       RecruitmentWorkMode? @map("work_mode_preference")
+  /// Raw as stated on the resume (e.g. "Immediate", "30 days", "2 months") — free text, never parsed into
+  /// a number that could misrepresent an ambiguous statement.
+  noticePeriod             String?   @db.VarChar(80) @map("notice_period")
+  locationExtractionConfidence Float? @map("location_extraction_confidence")
+  /// "RESUME_TEXT" (LLM-extracted) vs "HUMAN_CORRECTED" — gates whether a re-extraction is allowed to
+  /// overwrite this record (Phase 5: "Do not overwrite human-corrected candidate information").
+  locationSource           String?   @db.VarChar(24) @map("location_source")
+  /// Matches RecruitmentParsingService.PARSING_VERSION-style versioning — lets a backfill know which
+  /// records still need re-extraction under a newer extraction logic revision.
+  locationExtractionVersion String?  @db.VarChar(40) @map("location_extraction_version")
+  locationExtractedAt      DateTime? @map("location_extracted_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  organization    Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  resumes         RecruitmentResume[]
+  applications    RecruitmentApplication[]
+  callLogs        RecruitmentCallLog[]
+
+  @@index([organizationId, email])
+  @@index([organizationId, mobileNumber])
+  @@index([organizationId, currentCity])
+  @@index([organizationId, normalizedRegion])
+  @@map("recruitment_candidates")
+}
+
+/// One uploaded resume document/version. May be matched against several jobs (see
+/// RecruitmentApplication) without ever being re-uploaded.
+model RecruitmentResume {
+  id                String                     @id @default(uuid()) @db.Uuid
+  organizationId    String                     @map("organization_id") @db.Uuid
+  candidateId       String?                    @map("candidate_id") @db.Uuid
+  /// Friendly, organization-scoped unique reference, e.g. "RES-2026-00001".
+  resumeCode        String                     @map("resume_code") @db.VarChar(32)
+  fileName          String                     @db.VarChar(255) @map("file_name")
+  /// Private object-storage key (apps/api/src/storage/object-storage.module.ts) — never a public URL;
+  /// every read goes through authorized, time-limited signed retrieval.
+  storageKey        String                     @db.VarChar(500) @map("storage_key")
+  fileSizeBytes     Int                        @map("file_size_bytes")
+  /// SHA-256 of the raw file bytes — the duplicate-detection key (Phase 3).
+  fileHash          String                     @db.VarChar(64) @map("file_hash")
+  /// Parsing attempts so far — capped by RecruitmentBatchProcessor.MAX_RETRIES so a permanently-broken
+  /// file (or a sustained provider outage) can never retry forever; also drives the processor's
+  /// stuck-in-PROCESSING sweep (a crash mid-parse must be recoverable, not silently lost).
+  retryCount        Int                        @default(0) @map("retry_count")
+  /// Deterministic text extraction output (pdf-parse/mammoth), kept separate from `parsedData` (the
+  /// LLM's structured interpretation of it) per Phase 4's "separate deterministic extraction from LLM
+  /// interpretation" requirement.
+  extractedText     String?                    @db.Text @map("extracted_text")
+  /// Structured fields the LLM extracted from `extractedText` — name, phone, email, skills, experience,
+  /// education, certifications, etc. Never invented: a missing field is omitted/null, not guessed.
+  parsedData        Json?                      @map("parsed_data")
+  /// Sprint 7.16 (Phase 6) — denormalized copies of parsedData.totalExperienceYears/relevantExperienceYears
+  /// and .skills, kept in sync at parse time. Exist purely so RecruitmentCandidateQueryService can filter
+  /// with real indexed numeric/array comparisons instead of scanning the parsedData JSON blob per request
+  /// (Phase 6: "Use numeric comparisons, not string matching"; Phase 13: "Do not fetch all candidates into
+  /// the WhatsApp worker and filter locally"). parsedData remains the source of truth; these are a cache.
+  totalExperienceYears    Int?    @map("total_experience_years")
+  relevantExperienceYears Int?    @map("relevant_experience_years")
+  /// Native Postgres text array, same reasoning as RecruitmentCandidate.preferredWorkLocations above.
+  extractedSkills         String[] @default([]) @map("extracted_skills")
+  parsingVersion    String?                    @db.VarChar(40) @map("parsing_version")
+  parsingWarnings   Json?                      @map("parsing_warnings")
+  parsingStatus     RecruitmentParsingStatus   @default(QUEUED) @map("parsing_status")
+  parsingError      String?                    @db.VarChar(500) @map("parsing_error")
+  uploadBatchId     String?                    @map("upload_batch_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at")
+  updatedAt         DateTime                   @updatedAt @map("updated_at")
+  organization      Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate         RecruitmentCandidate?       @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  uploadBatch       RecruitmentUploadBatch?     @relation(fields: [uploadBatchId], references: [id], onDelete: SetNull)
+  applications      RecruitmentApplication[]
+
+  @@unique([organizationId, resumeCode])
+  @@index([organizationId, fileHash])
+  @@index([organizationId, candidateId])
+  @@index([organizationId, totalExperienceYears])
+  @@index([organizationId, relevantExperienceYears])
+  @@index([organizationId, uploadBatchId])
+  @@index([organizationId, parsingStatus])
+  @@map("recruitment_resumes")
+}
+
+/// One resume matched against one job — what a recruiter actually reviews and decides on. A resume may
+/// have several, one per job it's matched against (Phase 10).
+model RecruitmentApplication {
+  id                 String                        @id @default(uuid()) @db.Uuid
+  organizationId     String                        @map("organization_id") @db.Uuid
+  jobId              String                        @map("job_id") @db.Uuid
+  candidateId        String                        @map("candidate_id") @db.Uuid
+  resumeId           String                        @map("resume_id") @db.Uuid
+  /// Advisory only — see the enum's own doc comment.
+  aiRecommendation   RecruitmentAiRecommendation?   @map("ai_recommendation")
+  recruiterDecision  RecruitmentDecision            @default(PENDING_REVIEW) @map("recruiter_decision")
+  /// Recorded when a recruiter overrides the AI's recommendation (Phase 6).
+  overrideReason     String?                        @db.Text @map("override_reason")
+  /// Overall application lifecycle, independent of the hiring-pipeline `recruiterDecision` — e.g. ACTIVE
+  /// vs WITHDRAWN vs ARCHIVED (Phase 6's distinct `application_status` field).
+  applicationStatus  String                         @default("ACTIVE") @db.VarChar(32) @map("application_status")
+  reviewedByUserId   String?                        @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt         DateTime?                      @map("reviewed_at")
+  createdAt          DateTime                       @default(now()) @map("created_at")
+  updatedAt          DateTime                       @updatedAt @map("updated_at")
+  organization       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job                RecruitmentJob                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate          RecruitmentCandidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  resume             RecruitmentResume              @relation(fields: [resumeId], references: [id], onDelete: Restrict)
+  reviewedBy         User?                          @relation("RecruitmentApplicationReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  evaluation         RecruitmentEvaluation?
+
+  /// Idempotency: re-uploading the same resume (same fileHash -> same RecruitmentResume row) against the
+  /// same job must never create a second application (Phase 11).
+  @@unique([jobId, resumeId])
+  @@index([organizationId, jobId, recruiterDecision])
+  @@index([organizationId, jobId, aiRecommendation])
+  @@index([organizationId, candidateId])
+  @@map("recruitment_applications")
+}
+
+/// The scoring engine's output for one application — kept separate from RecruitmentApplication so a
+/// re-score (new scoringVersion) never touches the recruiter's own decision fields.
+model RecruitmentEvaluation {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  applicationId      String                       @unique @map("application_id") @db.Uuid
+  /// 0–100, two-decimal precision (Phase 14 requires exact-boundary behavior at 80.00 vs 79.99).
+  matchScore         Float?                       @map("match_score")
+  /// Per-criterion weighted contribution actually applied this run — the weights in effect at evaluation
+  /// time, not a live pointer to RecruitmentJob.scoringConfig (which may change later).
+  scoreBreakdown     Json?                        @map("score_breakdown")
+  matchedSkills      Json?                        @map("matched_skills")
+  missingSkills      Json?                        @map("missing_skills")
+  /// Resume-text excerpts backing each matched requirement (Phase 5).
+  evidence           Json?
+  explanation        String?                      @db.Text
+  warnings           Json?
+  modelProvider      String?                      @db.VarChar(80) @map("model_provider")
+  modelVersion       String?                      @db.VarChar(80) @map("model_version")
+  scoringVersion     String                       @db.VarChar(40) @map("scoring_version")
+  evaluationStatus   RecruitmentEvaluationStatus  @default(PENDING) @map("evaluation_status")
+  evaluationError    String?                      @db.VarChar(500) @map("evaluation_error")
+  evaluatedAt        DateTime?                    @map("evaluated_at")
+  createdAt          DateTime                     @default(now()) @map("created_at")
+  updatedAt          DateTime                     @updatedAt @map("updated_at")
+  application        RecruitmentApplication       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("recruitment_evaluations")
+}
+
+/// One bulk-upload operation — the durable row the async batch worker polls (mirrors
+/// apps/api/src/workforce/workforce-task-processor.ts's QUEUED/RUNNING/COMPLETED pattern; this codebase
+/// has no external queue broker, so this table IS the queue).
+model RecruitmentUploadBatch {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  organizationId     String                  @map("organization_id") @db.Uuid
+  jobId              String                  @map("job_id") @db.Uuid
+  uploadedByUserId   String                  @map("uploaded_by_user_id") @db.Uuid
+  /// Sprint 7.16 — "WEBSITE" (default) | "WHATSAPP". Drives Phase 6's "Source Channel" filter and lets
+  /// the shared query service distinguish a recruiter's WhatsApp-driven bulk upload from a website one.
+  sourceChannel      String                  @default("WEBSITE") @db.VarChar(16) @map("source_channel")
+  totalFiles         Int                     @map("total_files")
+  queuedFiles        Int                     @default(0) @map("queued_files")
+  processingFiles    Int                     @default(0) @map("processing_files")
+  completedFiles     Int                     @default(0) @map("completed_files")
+  failedFiles        Int                     @default(0) @map("failed_files")
+  status             RecruitmentBatchStatus  @default(QUEUED)
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  completedAt        DateTime?               @map("completed_at")
+  organization       Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job                RecruitmentJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy         User                    @relation("RecruitmentUploadBatchUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: Restrict)
+  resumes            RecruitmentResume[]
+
+  @@index([organizationId, jobId, status])
+  @@map("recruitment_upload_batches")
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Sprint 7.16 — WhatsApp Recruitment Consultant & Advanced Candidate Intelligence. Deliberately its own
+// WhatsApp surface (own ChannelConnection, own linking flow, own menu state machine) rather than routed
+// through the Receptionist/EmployeeRouterService — see the "routing.delegationEnabled: false" note above
+// RecruitmentJobStatus; this sprint keeps that same independence for the WhatsApp channel.
+// ---------------------------------------------------------------------------------------------------
+
+enum RecruitmentWhatsAppLinkStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  REVOKED
+  EXPIRED
+
+  @@map("recruitment_whatsapp_link_status")
+}
+
+/// A WhatsApp number proven to belong to an authenticated Krevia user (Phase 1). Verification is a
+/// time-limited, single-use code sent to the number being linked — a number appearing in a resume's text
+/// NEVER grants access on its own (Phase 1: "Never grant recruitment access because a phone number
+/// appears in a resume").
+model RecruitmentWhatsAppLink {
+  id                   String                         @id @default(uuid()) @db.Uuid
+  organizationId       String                         @map("organization_id") @db.Uuid
+  userId               String                         @map("user_id") @db.Uuid
+  /// E.164. One verified number may only be linked to one user at a time within an organization — see
+  /// the partial unique index below (status = VERIFIED only, so a revoked/expired link doesn't block
+  /// relinking the same number).
+  whatsappNumber       String                         @map("whatsapp_number") @db.VarChar(24)
+  status               RecruitmentWhatsAppLinkStatus  @default(PENDING_VERIFICATION)
+  /// Hashed, never the raw OTP — same pattern as PasswordResetToken.
+  verificationCodeHash String?                        @map("verification_code_hash") @db.VarChar(128)
+  verificationExpiresAt DateTime?                     @map("verification_expires_at")
+  verificationAttempts Int                             @default(0) @map("verification_attempts")
+  linkedAt             DateTime?                       @map("linked_at")
+  revokedAt            DateTime?                       @map("revoked_at")
+  revokedByUserId      String?                         @map("revoked_by_user_id") @db.Uuid
+  lastUsedAt           DateTime?                       @map("last_used_at")
+  createdAt            DateTime                        @default(now()) @map("created_at")
+  updatedAt            DateTime                        @updatedAt @map("updated_at")
+  organization         Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                 User                             @relation("RecruitmentWhatsAppLinkUser", fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy            User?                            @relation("RecruitmentWhatsAppLinkRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  sessions             RecruitmentWhatsAppSession[]
+
+  @@index([organizationId, userId])
+  @@index([whatsappNumber, status])
+  @@map("recruitment_whatsapp_links")
+}
+
+enum RecruitmentChatVerificationStatus {
+  PENDING_CONTACT
+  PENDING_OTP
+  VERIFIED
+
+  @@map("recruitment_chat_verification_status")
+}
+
+/// Sprint 7.17 follow-up — identity verification gate for the dashboard/iOS chat tools (the WhatsApp
+/// surface already has its own equivalent: RecruitmentWhatsAppLink). Recruitment Consultant is an
+/// internal org tool, not a general-purpose assistant: before a Krevia user's FIRST message to it does
+/// anything real (list/create jobs, upload resumes, shortlist candidates), they must verify a phone
+/// number or email via a one-time code — same "prove possession, never trust the claim alone" principle
+/// as the WhatsApp link flow. One row per (organization, user, employee installation); once VERIFIED it
+/// stays verified for that user (revocable by an admin, not re-asked every conversation).
+model RecruitmentChatIdentityVerification {
+  id                   String                            @id @default(uuid()) @db.Uuid
+  organizationId       String                            @map("organization_id") @db.Uuid
+  userId               String                            @map("user_id") @db.Uuid
+  pluginInstallationId String                             @map("plugin_installation_id") @db.Uuid
+  status               RecruitmentChatVerificationStatus @default(PENDING_CONTACT)
+  contactMethod        String?                            @map("contact_method") @db.VarChar(10)
+  contactValue         String?                            @map("contact_value") @db.VarChar(160)
+  /// Hashed, never the raw OTP — same pattern as RecruitmentWhatsAppLink/PasswordResetToken.
+  otpHash              String?                            @map("otp_hash") @db.VarChar(128)
+  otpExpiresAt         DateTime?                          @map("otp_expires_at")
+  otpAttempts          Int                                @default(0) @map("otp_attempts")
+  verifiedAt           DateTime?                          @map("verified_at")
+  revokedAt            DateTime?                          @map("revoked_at")
+  revokedByUserId      String?                            @map("revoked_by_user_id") @db.Uuid
+  createdAt            DateTime                           @default(now()) @map("created_at")
+  updatedAt            DateTime                           @updatedAt @map("updated_at")
+  organization         Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                 User                               @relation("RecruitmentChatVerificationUser", fields: [userId], references: [id], onDelete: Cascade)
+  revokedBy            User?                              @relation("RecruitmentChatVerificationRevokedBy", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, userId, pluginInstallationId])
+  @@map("recruitment_chat_identity_verifications")
+}
+
+/// Per-conversation state machine (Phase 13). One row per linked number's in-progress WhatsApp session —
+/// menu position, selected job, active filters, pagination cursor, all re-validated against real
+/// authorization on every request rather than trusted from stored context (Phase 3: "Never rely solely on
+/// the stored conversation context for authorization").
+model RecruitmentWhatsAppSession {
+  id                  String                      @id @default(uuid()) @db.Uuid
+  organizationId      String                      @map("organization_id") @db.Uuid
+  linkId              String                      @map("link_id") @db.Uuid
+  whatsappNumber      String                      @map("whatsapp_number") @db.VarChar(24)
+  /// e.g. MAIN_MENU, JOB_LIST, JOB_ACTIONS, AWAITING_UPLOAD, CANDIDATE_LIST, CANDIDATE_DETAIL.
+  menuState           String                      @default("MAIN_MENU") @db.VarChar(40) @map("menu_state")
+  currentJobId        String?                     @map("current_job_id") @db.Uuid
+  /// Validated RecruitmentCandidateQuery filter shape (Phase 6) currently applied in this conversation.
+  activeFilters        Json?                       @map("active_filters")
+  paginationCursor     String?                     @map("pagination_cursor") @db.VarChar(100)
+  awaitingUpload       Boolean                     @default(false) @map("awaiting_upload")
+  /// Last provider message ID processed — belt-and-suspenders dedup alongside ChannelMessage's own
+  /// unique constraint (Phase 13: "A webhook is delivered more than once").
+  lastProviderMessageId String?                    @map("last_provider_message_id") @db.VarChar(100)
+  lastInteractionAt    DateTime                    @default(now()) @map("last_interaction_at")
+  expiresAt            DateTime                    @map("expires_at")
+  createdAt            DateTime                    @default(now()) @map("created_at")
+  updatedAt            DateTime                    @updatedAt @map("updated_at")
+  organization         Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  link                 RecruitmentWhatsAppLink      @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  currentJob           RecruitmentJob?              @relation(fields: [currentJobId], references: [id], onDelete: SetNull)
+
+  @@unique([whatsappNumber])
+  @@index([organizationId, linkId])
+  @@index([expiresAt])
+  @@map("recruitment_whatsapp_sessions")
+}
+
+enum RecruitmentCallStatus {
+  QUEUED
+  INITIATED
+  COMPLETED
+  FAILED
+  NOT_ATTEMPTED
+  /// Sprint 7.17 (Phase 5) — the recruiter was shown (unmasked) contact info. Not proof a call followed.
+  CONTACT_VIEWED
+  /// The recruiter tapped/clicked a call action in the UI.
+  CALL_ACTION_REQUESTED
+  /// A `tel:` link (or equivalent) was opened — NOT proof the device dialer actually placed a call.
+  CALL_LINK_OPENED
+  /// An automated-calling request was submitted to a provider. Not proof the provider accepted it.
+  CALL_INITIATION_REQUESTED
+  /// The provider acknowledged the outbound call request. Not proof the candidate's phone rang.
+  CALL_PROVIDER_ACCEPTED
+  /// Provider callback reported the call ringing.
+  CALL_RINGING
+  /// Provider callback reported the call connected (answered). Never inferred from any earlier state.
+  CALL_CONNECTED
+  /// The recruiter or provider cancelled the call before an outcome was known.
+  CALL_CANCELLED
+
+  @@map("recruitment_call_status")
+}
+
+/// Phase 9 (pre-7.17). Covers both click-to-call (logged when a recruiter is handed a number) and any
+/// future provider-backed automated call — `channel` distinguishes them. Never auto-populated as
+/// COMPLETED merely because a provider request was submitted (Phase 9: "Never mark a call as completed
+/// simply because a provider request was submitted").
+///
+/// Sprint 7.17 (Phase 5) extends this same table rather than introducing a parallel audit model — see
+/// RecruitmentCallStatus's new states above and the three nullable columns below. `platform` is new
+/// (which CLIENT the action happened on — WEBSITE/IOS/WHATSAPP); `channel` keeps its original meaning
+/// (the calling METHOD — e.g. "MANUAL_CLICK_TO_CALL") unchanged for backward compatibility with every
+/// existing call site. A row's lifecycle is a sequence of INSERTs (one per transition), never UPDATEs
+/// that overwrite history — the audit trail for one call attempt is the full set of rows sharing a
+/// correlating applicationId/candidateId within a short window, not a single mutable row.
+model RecruitmentCallLog {
+  id               String                   @id @default(uuid()) @db.Uuid
+  organizationId   String                   @map("organization_id") @db.Uuid
+  candidateId      String                   @map("candidate_id") @db.Uuid
+  jobId            String?                  @map("job_id") @db.Uuid
+  applicationId    String?                  @map("application_id") @db.Uuid
+  initiatedByUserId String                  @map("initiated_by_user_id") @db.Uuid
+  /// "MANUAL_CLICK_TO_CALL" | "AUTOMATED_VOICE" | ... — never assume a provider-specific value exists.
+  channel          String                   @db.VarChar(32)
+  /// Sprint 7.17 (Phase 5) — which client surface produced this event: "WEBSITE" | "IOS" | "WHATSAPP".
+  /// Null on every row created before this column existed.
+  platform         String?                  @db.VarChar(16)
+  status           RecruitmentCallStatus    @default(QUEUED)
+  attemptedAt      DateTime?                @map("attempted_at")
+  outcome          String?                  @db.VarChar(40)
+  /// Sprint 7.17 (Phase 5) — the provider's own call identifier (e.g. a Twilio Call SID), when this row
+  /// corresponds to an automated-calling attempt. Never a credential — just an opaque reference id.
+  providerCallId   String?                  @map("provider_call_id") @db.VarChar(100)
+  /// Sprint 7.17 (Phase 5) — a short, sanitized technical/provider failure reason (e.g.
+  /// "PROVIDER_REJECTED_INVALID_NUMBER"). Never a credential, token, or raw provider error payload that
+  /// might embed one.
+  failureReason    String?                  @map("failure_reason") @db.VarChar(500)
+  notes            String?                  @db.Text
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  candidate        RecruitmentCandidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job              RecruitmentJob?          @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  initiatedBy      User                     @relation("RecruitmentCallLogInitiatedBy", fields: [initiatedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, candidateId])
+  @@index([organizationId, jobId])
+  @@map("recruitment_call_logs")
+}
+
+enum RecruitmentExportScope {
+  ALL_AUTHORIZED
+  FILTERED
+  SELECTED
+  CURRENT_JOB
+  CROSS_JOB
+
+  @@map("recruitment_export_scope")
+}
+
+enum RecruitmentExportFormat {
+  CSV
+  XLSX
+
+  @@map("recruitment_export_format")
+}
+
+enum RecruitmentExportStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  EXPIRED
+  /// Sprint 7.17 (Phase 3) — a QUEUED or still-PROCESSING large export cancelled by the requester before
+  /// completion; the worker checks for this between pages and stops rather than finishing the file.
+  CANCELLED
+
+  @@map("recruitment_export_status")
+}
+
+/// Phase 11. Large/filtered exports are generated asynchronously and served via a short-lived signed
+/// link — never a public permanent URL (Phase 11: "Never place sensitive export files behind public
+/// permanent URLs"). The same RecruitmentCandidateQueryService filters that produced the on-screen result
+/// set are persisted here so the generated file matches exactly what the requester saw.
+model RecruitmentExportJob {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  organizationId     String                     @map("organization_id") @db.Uuid
+  requestedByUserId  String                     @map("requested_by_user_id") @db.Uuid
+  jobId              String?                    @map("job_id") @db.Uuid
+  scope              RecruitmentExportScope
+  format             RecruitmentExportFormat
+  /// Validated RecruitmentCandidateQuery filter shape — the exact query re-run to build the file.
+  filters            Json?
+  /// Column selection (Phase 11: "Allow field selection before export"); null = default field set.
+  fieldSelection     Json?                      @map("field_selection")
+  /// Candidate/application IDs for scope = SELECTED.
+  selectedIds        Json?                      @map("selected_ids")
+  status             RecruitmentExportStatus    @default(QUEUED)
+  rowCount           Int?                       @map("row_count")
+  storageKey         String?                    @db.VarChar(500) @map("storage_key")
+  /// Opaque, single-purpose, unguessable token for the short-lived download link — never the storage key
+  /// itself, so a leaked link can't reach arbitrary storage objects.
+  downloadToken      String?                    @unique @map("download_token") @db.VarChar(64)
+  downloadCount      Int                        @default(0) @map("download_count")
+  errorMessage       String?                    @db.VarChar(500) @map("error_message")
+  expiresAt          DateTime?                  @map("expires_at")
+  requestedAt        DateTime                   @default(now()) @map("requested_at")
+  completedAt        DateTime?                  @map("completed_at")
+  lastDownloadedAt   DateTime?                  @map("last_downloaded_at")
+  organization       Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy        User                       @relation("RecruitmentExportJobRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  job                RecruitmentJob?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status])
+  @@index([expiresAt])
+  @@map("recruitment_export_jobs")
+}
+
+/// Phase 10 ("Save Filter Preset"). Reused as-is by WhatsApp's menu-driven filtering (Phase 7's fallback
+/// when the LLM is unavailable) so a recruiter's saved preset works identically on both surfaces.
+model RecruitmentFilterPreset {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  userId         String        @map("user_id") @db.Uuid
+  name           String        @db.VarChar(120)
+  filters        Json
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User          @relation("RecruitmentFilterPresetUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([organizationId, userId])
+  @@map("recruitment_filter_presets")
 }

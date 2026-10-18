@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { ensurePlatformOwner } from "../test/cleanup";
 
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
@@ -16,6 +17,9 @@ for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), 
   }
 if (process.env.TEST_DATABASE_URL) process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 const suite = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
+const OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
+const OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
 
 suite("Skills Platform (Sprint 6.1) end-to-end", () => {
   let app: INestApplication;
@@ -221,6 +225,36 @@ suite("Skills Platform (Sprint 6.1) end-to-end", () => {
       .set("Authorization", `Bearer ${otherOrgToken}`)
       .send({ pluginInstallationId: employeeId })
       .expect(404);
+  });
+
+  it("blocks an AI_PROVIDER_BACKED skill install for an ordinary org on the default plan", async () => {
+    await request(app.getHttpServer())
+      .post("/api/v1/skills/install")
+      .set("Authorization", `Bearer ${ownerToken}`)
+      .send({ skillKey: "text-summarization", enabled: true })
+      .expect(403);
+  });
+
+  it("the platform owner's own organization installs an AI_PROVIDER_BACKED skill with no FeatureFlag/subscription configured at all", async () => {
+    await ensurePlatformOwner(prisma);
+    const login = await request(app.getHttpServer())
+      .post("/api/v1/auth/login")
+      .send({ email: OWNER_EMAIL, password: OWNER_PASSWORD, organizationName: "Krevia.ai Platform" })
+      .expect(200);
+    const platformOwnerToken = login.body.data.tokens.accessToken;
+    const platformOwnerOrgId = login.body.data.organization.id as string;
+    // Confirm the premise: this org genuinely has no entitlement override on record — the install below
+    // succeeds purely because EntitlementService recognizes this as the platform owner's own organization.
+    const flags = await prisma.featureFlag.count({ where: { organizationId: platformOwnerOrgId, key: "SKILLS_AI_BACKED" } });
+    expect(flags).toBe(0);
+    const sub = await prisma.organisationSubscription.findUnique({ where: { organizationId: platformOwnerOrgId } });
+    expect(sub).toBeNull();
+
+    await request(app.getHttpServer())
+      .post("/api/v1/skills/install")
+      .set("Authorization", `Bearer ${platformOwnerToken}`)
+      .send({ skillKey: "text-summarization", enabled: true })
+      .expect(201);
   });
 
   it("rejects a skill execution with input that fails the skill's declared schema", async () => {

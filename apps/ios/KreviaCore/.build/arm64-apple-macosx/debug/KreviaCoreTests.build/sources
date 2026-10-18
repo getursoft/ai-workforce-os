@@ -1,0 +1,14 @@
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/APIClientTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/AuthDecodingTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/BillingDecodingTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/EmployeeDetailViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/EmployeesListViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/KeychainStoreTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/LeadDecodingTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/LeadListViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/MockURLProtocol.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/RecruitmentCandidateFilterViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/RecruitmentCandidateQuerySchemaCompatibilityTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/TransactionsViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/UsageViewModelTests.swift
+/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Tests/KreviaCoreTests/WalletViewModelTests.swift

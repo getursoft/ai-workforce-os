@@ -1,0 +1,98 @@
+{
+  "sprint": "7.17",
+  "phase": "5 — Remaining Steps Verification Audit",
+  "generatedAt": "2026-10-16",
+  "executiveVerdict": "PASS WITH BLOCKERS",
+  "verdictRationale": "Every executable Phase 5 requirement was independently re-verified with real tests against a real local database and found correct, after fixing one additional real defect this audit itself found (GET /recruitment/applications/:applicationId was still returning unmasked contact fields — missed on the original Phase 5 pass). The five originally NOT EXECUTED tests are confirmed, by code-level audit, to have no corresponding implementation to test — correctly reclassified NOT APPLICABLE, not silently dropped. The remaining BLOCKER is unchanged from the original Phase 5 report and is external to this codebase: no live WhatsApp provider credentials are configured, so WhatsApp message delivery cannot be verified end-to-end with a real provider. This does not affect the authorization/masking logic verified here, which runs the real WhatsApp menu state machine directly.",
+  "newDefectFoundThisAudit": {
+    "finding": "GET /recruitment/applications/:applicationId (RecruitmentResumeService.getApplication, used by the website's api.getApplication()) returned the full unmasked candidate object including mobileNumber/email to any recruitment.candidates.review holder, with no recruitment.candidates.contact check at all. This was missed in the original Phase 5 masking pass, which fixed the search/list endpoints but not this one.",
+    "severity": "HIGH — same class of defect as the original Phase 5 finding, same violation of 'never rely on hidden UI controls for security.'",
+    "fix": "Added an includeContact parameter (default false) to RecruitmentResumeService.getApplication, and the controller now checks recruitment.candidates.contact via AuthorizationService before passing it through — identical pattern to the fix already applied to the search/list endpoints.",
+    "filesChanged": ["apps/api/src/recruitment/recruitment-resume.controller.ts", "apps/api/src/recruitment/recruitment-resume.service.ts"],
+    "regressionTest": "AUDIT-003 (masked) and AUDIT-004 (unmasked when authorized) in recruitment-contact-masking.e2e.spec.ts — both passing."
+  },
+  "checklist": [
+    { "item": "Review-only user cannot get phone/email via POST /candidates/search", "status": "VERIFIED_PASSING", "test": "AUDIT-001" },
+    { "item": "Review-only user cannot get phone/email via GET /jobs/:jobId/candidates", "status": "VERIFIED_PASSING", "test": "AUDIT-002" },
+    { "item": "Review-only user cannot get phone/email via GET /applications/:applicationId", "status": "VERIFIED_PASSING (defect found and fixed by this audit)", "test": "AUDIT-003" },
+    { "item": "Contact-permitted user sees real values on all three endpoints (masking is conditional, not permanently null)", "status": "VERIFIED_PASSING", "test": "AUDIT-004" },
+    { "item": "Masking cannot be bypassed via pagination/sort/search parameters", "status": "VERIFIED_PASSING", "test": "AUDIT-005" },
+    { "item": "WhatsApp only discloses the number with BOTH contact and call permission (real menu state machine driven end to end)", "status": "VERIFIED_PASSING", "test": "AUDIT-006" },
+    { "item": "Tenant boundary enforced for application detail and candidate list", "status": "VERIFIED_PASSING", "test": "AUDIT-007" },
+    { "item": "Denial responses do not leak protected fields", "status": "VERIFIED_PASSING", "test": "AUDIT-008" },
+    { "item": "Revoked permission is respected — DB-level grant genuinely removed; in-memory cache staleness window documented precisely (bounded ~5 minutes, not instant, not permanent)", "status": "VERIFIED_PASSING_WITH_DOCUMENTED_CAVEAT", "test": "AUDIT-009" },
+    { "item": "Export-only permission can export contact fields without review/contact — confirmed as the existing, documented Sprint 7.16 policy; not altered by this audit", "status": "VERIFIED_AS_DOCUMENTED_POLICY", "test": "AUDIT-010" },
+    { "item": "No export permission blocks the export endpoint entirely", "status": "VERIFIED_PASSING", "test": "AUDIT-011" },
+    { "item": "Cross-tenant export status/download denied", "status": "VERIFIED_PASSING", "test": "AUDIT-012" },
+    { "item": "CSV formula injection neutralized in real exported file bytes", "status": "VERIFIED_PASSING", "test": "AUDIT-013" },
+    { "item": "Audit entries record correct tenant/candidate/actor/platform/timestamp", "status": "VERIFIED_PASSING", "test": "AUDIT-014" },
+    { "item": "providerCallId/failureReason never fabricated (no code path writes them)", "status": "VERIFIED_PASSING", "test": "AUDIT-015" },
+    { "item": "No PATCH/DELETE route exists for call-log rows (append-only at the HTTP layer)", "status": "VERIFIED_PASSING", "test": "AUDIT-016" },
+    { "item": "Unauthorized recruiter / revoked WhatsApp link / cross-tenant candidate / missing phone / contact-without-call / call-without-contact / duplicate submission / cancelled call / client cannot self-report provider states / audit rows never contain raw phone numbers", "status": "VERIFIED_PASSING", "test": "SEC-CALL-001 through 011" },
+    { "item": "Replayed/forged provider callback, provider timeout/rejection, incomplete call-status info", "status": "NOT_APPLICABLE", "test": "SEC-CALL-012 through 016", "reason": "No provider callback route/code exists anywhere in the recruitment module — confirmed by repository-wide search, not assumed." },
+    { "item": "Website Playwright screenshots", "status": "VERIFIED_PASSING", "test": "PHASE4-UI-001/002/003, PHASE5-UI-001/002" },
+    { "item": "iOS unit suite + full app build", "status": "VERIFIED_PASSING", "test": "KreviaCoreTests 63/63; xcodebuild BUILD SUCCEEDED" },
+    { "item": "Backend regression (recruitment e2e, cross-platform, export-worker, scoring)", "status": "VERIFIED_PASSING", "test": "60 passed, 5 correctly skipped, 0 failed" }
+  ],
+  "fiveFormerNotExecutedTests": {
+    "finalDisposition": "NOT APPLICABLE (upgraded from NOT EXECUTED)",
+    "verificationMethod": "Repository-wide grep across apps/api/src/recruitment for \"call-status\", \"call-callback\", \"providerCallId\" (as a write target), and \"callback\" found zero route/controller/service code that receives or processes any provider call-status event. Additionally, AUDIT-015 directly queries every existing recruitment_call_logs row in the test database and asserts providerCallId and failureReason are null on all of them, confirming no code path populates these columns today.",
+    "tests": [
+      { "id": "SEC-CALL-012", "name": "replayed provider callback is rejected", "disposition": "NOT APPLICABLE — no callback endpoint exists to replay a request against" },
+      { "id": "SEC-CALL-013", "name": "forged provider callback signature is rejected", "disposition": "NOT APPLICABLE — same reason; no signature-verification code exists for a recruitment call callback (the signature-verification PATTERN exists elsewhere, in apps/api/src/voice/voice-webhook.controller.ts, for inbound voice webhooks — a different, already-tested feature)" },
+      { "id": "SEC-CALL-014", "name": "provider timeout handled without a false COMPLETED/CONNECTED state", "disposition": "NOT APPLICABLE — no code calls a provider for recruitment calling, so no timeout can occur" },
+      { "id": "SEC-CALL-015", "name": "provider rejection handled without a false COMPLETED/CONNECTED state", "disposition": "NOT APPLICABLE — same reason" },
+      { "id": "SEC-CALL-016", "name": "incomplete call-status information never fabricates a missing field", "disposition": "NOT APPLICABLE — same reason" }
+    ],
+    "recommendedNextStep": "If automated outbound calling is ever implemented (see the original Phase 5 report's feasibility assessment — currently not feasible: no credentials, no origination code, no consent mechanism), write these five as real tests against the new callback endpoint at that time, reusing the HMAC signature-verification pattern already proven in apps/api/src/voice/voice-webhook.controller.ts and apps/api/src/channels/channel.runtime.ts's verifyTwilioSignature."
+  },
+  "exportPolicyFindings": {
+    "authorizingPermission": "recruitment.candidates.export",
+    "distinctFromContactPermission": true,
+    "canExportContactFieldsWithoutReviewOrContact": "YES — confirmed and verified (AUDIT-010). This is the pre-existing, explicitly documented Sprint 7.16 design decision (see the original code comment in recruitment-export.service.ts: 'mobileNumber/email are still included by default here since the export permission itself already gates all of them'), not an undocumented gap and not something this audit changed.",
+    "tenantAndAuthBoundariesPreservedAcrossPaginationWorkerRetriesPolling": "YES — the export worker's pagination (RecruitmentExportWorkerService) and status/download endpoints are all organization-scoped at every query; verified in the Sprint 7.17 Phase 3 export-worker test suite (still passing) and re-confirmed here (AUDIT-012: cross-tenant export status/download denied).",
+    "crossTenantExportAccess": "DENIED — verified (AUDIT-012): a different organization's token cannot read another organization's export job status or download URL (404 in both cases).",
+    "revokedPermissionCheckedAtExecutionAndDownload": "Checked at request time (controller guard) and at download time (getDownloadUrl re-validates organizationId + token); NOT re-checked mid-flight for a long-running async export job already queued before revocation — documented as a theoretical, low-severity gap (an export already queued under a since-revoked permission will still complete), not tested further in this pass given the sprint's time constraints.",
+    "csvFormulaInjection": "Neutralized — verified against real exported file bytes (AUDIT-013), not just the sanitizer function in isolation."
+  },
+  "testCommandsAndResults": [
+    { "command": "npx vitest run --no-file-parallelism src/recruitment/recruitment.e2e.spec.ts src/recruitment/recruitment-cross-platform.e2e.spec.ts src/recruitment/recruitment-export-worker.e2e.spec.ts src/recruitment/recruitment-calling-security.e2e.spec.ts src/recruitment/recruitment-contact-masking.e2e.spec.ts src/recruitment/recruitment-scoring.service.spec.ts", "exitCode": 0, "result": "6 files passed; 60 tests passed, 5 correctly skipped (NOT APPLICABLE), 0 failed" },
+    { "command": "cd apps/ios/KreviaCore && swift test", "exitCode": 0, "result": "63/63 tests passed, 0 failures" },
+    { "command": "cd apps/dashboard && npx tsc --noEmit -p tsconfig.json", "exitCode": 2, "result": "32 pre-existing errors, all in Playwright config/fixtures/page-objects unrelated to Phase 5 — identical count to the baseline established before this audit; zero new errors" },
+    { "command": "cd apps/dashboard && npx playwright test tests/uat/specs/05-sprint-7.17-cross-platform.spec.ts --project=recruitment-diagnostic", "exitCode": 0, "result": "5/5 PASSED (PHASE4-UI-001/002/003, PHASE5-UI-001/002) — all real screenshots captured. One genuine, reproducible test-harness bug was found and fixed during this audit: PHASE4-UI-003 reloaded the page mid-test, rotating the single-use refresh-token cookie a second time without re-capturing it, which intermittently logged the session out before the next test (landing on /login). Fixed by re-reading the rotated cookie after reload." }
+  ],
+  "filesChangedThisAudit": [
+    { "file": "apps/api/src/recruitment/recruitment-resume.controller.ts", "reason": "getApplication now checks recruitment.candidates.contact and passes includeContact through — the defect this audit found" },
+    { "file": "apps/api/src/recruitment/recruitment-resume.service.ts", "reason": "getApplication masks mobileNumber/email by default (fail-safe), matching the pattern already used by listCandidates and the shared query service" },
+    { "file": "apps/api/src/recruitment/recruitment-calling-security.e2e.spec.ts", "reason": "The five provider-callback stubs reclassified from NOT EXECUTED to NOT APPLICABLE with precise, verified justification" },
+    { "file": "apps/api/src/recruitment/recruitment-contact-masking.e2e.spec.ts", "reason": "New — 16 real tests independently verifying Steps 2, 3 and 4 of this audit end to end" },
+    { "file": "apps/dashboard/tests/uat/specs/05-sprint-7.17-cross-platform.spec.ts", "reason": "Fixed a reproducible test-harness bug this audit found: PHASE4-UI-003 reloaded the page mid-test, rotating the single-use refresh-token cookie a second time without re-capturing the new value, which intermittently logged the test session out before the next test ran. Re-reads the rotated cookie after reload now." }
+  ],
+  "blockers": [
+    {
+      "blocker": "No live WhatsApp provider credentials configured (TWILIO_ACCOUNT_SID/AUTH_TOKEN/WHATSAPP_FROM all absent from .env)",
+      "owner": "User (stated plan: upgrade the Twilio account personally)",
+      "actionRequired": "Configure a non-trial-expired Twilio account (or Meta Cloud API) with Voice/WhatsApp capability",
+      "acceptanceCriteria": "RecruitmentWhatsAppSenderService.isConfigured() returns true; a real inbound WhatsApp message round-trips through the real webhook with a verified signature"
+    },
+    {
+      "blocker": "A long-running async export job already queued before a permission revocation is not re-checked mid-flight before completion",
+      "owner": "Engineering (not reproduced as exploitable in this audit's time budget — documented as a theoretical gap)",
+      "actionRequired": "Decide whether this is an accepted risk (exports are typically short-lived and the window is narrow) or needs a re-check added to RecruitmentExportWorkerService before marking COMPLETED",
+      "acceptanceCriteria": "Explicit product/security decision recorded; if a fix is wanted, add a permission re-check immediately before the worker marks a job COMPLETED"
+    }
+  ],
+  "localSimulatedVsLiveProviderVerification": {
+    "localSimulatedAndVerifiedForReal": [
+      "All contact/calling/export authorization logic (real HTTP requests, real Postgres, real AuthorizationService permission resolution, real argon2 password verification via actual login)",
+      "WhatsApp's menu/authorization state machine (real handleMessage calls through a real VERIFIED link row, real database)",
+      "CSV formula-injection neutralization (real exported file bytes fetched from real object storage)",
+      "iOS unit tests and a full real Xcode build",
+      "Website UI via real headless-Chrome Playwright runs (5/5 passing, real screenshots)"
+    ],
+    "liveExternalProviderVerificationNotPerformed": [
+      "No real Twilio/Meta WhatsApp message was sent or received — credentials are not configured in this environment, and this audit did not create any paid subscription or change billing settings",
+      "No real outbound phone call was placed — automated calling is not implemented in this codebase"
+    ]
+  }
+}

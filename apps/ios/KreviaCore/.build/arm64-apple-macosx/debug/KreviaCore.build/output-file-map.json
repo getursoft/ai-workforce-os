@@ -1,0 +1,320 @@
+{
+  "": {
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/primary.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/AppDependencies.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppDependencies.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppDependencies.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppDependencies~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppDependencies.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppDependencies.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Auth/AuthSession.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthSession.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthSession.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthSession~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthSession.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthSession.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Auth/KeychainStore.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/KeychainStore.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/KeychainStore.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/KeychainStore~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/KeychainStore.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/KeychainStore.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Config/AppConfig.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppConfig.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppConfig.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppConfig~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppConfig.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AppConfig.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/AgentModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/AuthModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/BillingModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/InteractionModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/InteractionModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/InteractionModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/InteractionModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/InteractionModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/InteractionModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/Lead.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/Lead.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/Lead.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/Lead~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/Lead.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/Lead.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/LeadRequests.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadRequests.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadRequests.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadRequests~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadRequests.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadRequests.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/OrganizationModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/PluginModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/RecruitmentModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Models/RoleModels.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleModels.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleModels.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleModels~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleModels.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleModels.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Networking/APIClient.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIClient.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIClient.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIClient~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIClient.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIClient.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Networking/APIError.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIError.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIError.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIError~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIError.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/APIError.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/AgentService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AgentService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/AuthService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/AuthService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/BillingService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/BillingService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/ConversationService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/LeadService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/OrganizationService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/PluginService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/PluginService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/RecruitmentService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/Services/RoleService.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleService.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleService.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleService~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleService.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RoleService.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/ConversationDetailViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationDetailViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationDetailViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationDetailViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationDetailViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationDetailViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/ConversationsListViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationsListViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationsListViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationsListViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationsListViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ConversationsListViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/CreateJobViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/CreateJobViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/CreateJobViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/CreateJobViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/CreateJobViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/CreateJobViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/EmployeeCatalogViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeCatalogViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeCatalogViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeCatalogViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeCatalogViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeCatalogViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/EmployeeChatViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeChatViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeChatViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeChatViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeChatViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeChatViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/EmployeeDetailViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeDetailViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeDetailViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeDetailViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeDetailViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeeDetailViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/EmployeesListViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeesListViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeesListViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeesListViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeesListViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/EmployeesListViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/LeadDetailViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadDetailViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadDetailViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadDetailViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadDetailViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadDetailViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/LeadListViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadListViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadListViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadListViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadListViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LeadListViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/LoginViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LoginViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LoginViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LoginViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LoginViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/LoginViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/ManualLeadViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ManualLeadViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ManualLeadViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ManualLeadViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ManualLeadViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/ManualLeadViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/OrganizationSettingsViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationSettingsViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationSettingsViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationSettingsViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationSettingsViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/OrganizationSettingsViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/RecruitmentCandidateDetailViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateDetailViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateDetailViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateDetailViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateDetailViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateDetailViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/RecruitmentCandidateFilterViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateFilterViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateFilterViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateFilterViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateFilterViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentCandidateFilterViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/RecruitmentJobDetailViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobDetailViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobDetailViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobDetailViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobDetailViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobDetailViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/RecruitmentJobsViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobsViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobsViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobsViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobsViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RecruitmentJobsViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/RolesListViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RolesListViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RolesListViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RolesListViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RolesListViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/RolesListViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/TransactionsViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/TransactionsViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/TransactionsViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/TransactionsViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/TransactionsViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/TransactionsViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/UsageViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/UsageViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/UsageViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/UsageViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/UsageViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/UsageViewModel.dia"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/Sources/KreviaCore/ViewModels/WalletViewModel.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/WalletViewModel.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/WalletViewModel.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/WalletViewModel~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/WalletViewModel.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCore.build/WalletViewModel.dia"
+  }
+}

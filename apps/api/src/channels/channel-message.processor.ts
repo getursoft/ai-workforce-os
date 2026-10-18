@@ -266,9 +266,29 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /** Phase 5.3 — background worker suspension audit. This processor runs on its own setInterval tick,
+   * triggered by an inbound provider webhook or a scheduled retry — no HTTP request from the tenant's own
+   * user, no JwtAccessGuard, no per-user authorization context at all, only the ChannelMessage row's own
+   * organizationId. A message queued (or a retry scheduled) before the organization was suspended must
+   * not still run an AI agent against live tenant data or send a real outbound WhatsApp/email message
+   * afterward. Terminal, not deferred — unlike resume parsing, leaving a customer's inbound message
+   * unanswered until some future reactivation is worse than a clean immediate failure. */
+  private async isOrganizationActive(organizationId: string): Promise<boolean> {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { status: true }
+    });
+    return organization?.status === "ACTIVE";
+  }
+
   private async handleInboundTraced(message: ChannelMessage, span?: TraceContext): Promise<void> {
     const processingStartedAt = Date.now();
     try {
+      if (!(await this.isOrganizationActive(message.organizationId))) {
+        await this.terminateInbound(message, "ORGANIZATION_SUSPENDED");
+        this.audit(message.organizationId, message.channelConnectionId, "CHANNEL_MESSAGE_FAILED");
+        return;
+      }
       const channel = await this.prisma.channelConnection.findFirst({
         where: {
           id: message.channelConnectionId,
@@ -595,6 +615,17 @@ export class ChannelMessageProcessor implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handleOutboundRetry(message: ChannelMessage): Promise<void> {
+    if (!(await this.isOrganizationActive(message.organizationId))) {
+      // Not failOutbound(): that routes the code through classifyProviderError, which collapses any
+      // code it doesn't recognize to "UNKNOWN" — correct for a genuine provider error, wrong here, since
+      // this isn't a provider failure at all and the specific reason should stay auditable verbatim.
+      await this.recordDeliveryAttempt(message, false, { errorCode: "ORGANIZATION_SUSPENDED", retryable: false });
+      await this.prisma.channelMessage.update({
+        where: { id: message.id },
+        data: { status: ChannelMessageStatus.FAILED, errorCode: "ORGANIZATION_SUSPENDED", nextAttemptAt: null }
+      });
+      return;
+    }
     const channel = await this.prisma.channelConnection.findFirst({
       where: {
         id: message.channelConnectionId,

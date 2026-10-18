@@ -1,0 +1,92 @@
+[
+  {
+    "scale": 100,
+    "format": "CSV",
+    "finalStatus": "COMPLETED",
+    "rowCount": 100,
+    "durationMs": 596,
+    "heapDeltaMB": "-18.7",
+    "fileSizeBytes": 26112
+  },
+  {
+    "scale": 100,
+    "format": "XLSX",
+    "finalStatus": "COMPLETED",
+    "rowCount": 100,
+    "durationMs": 89,
+    "heapDeltaMB": "7.8",
+    "fileSizeBytes": 106904
+  },
+  {
+    "scale": 1000,
+    "format": "CSV",
+    "finalStatus": "COMPLETED",
+    "rowCount": 1000,
+    "durationMs": 262,
+    "heapDeltaMB": "19.6",
+    "fileSizeBytes": 261042
+  },
+  {
+    "scale": 1000,
+    "format": "XLSX",
+    "finalStatus": "COMPLETED",
+    "rowCount": 1000,
+    "durationMs": 413,
+    "heapDeltaMB": "-8.8",
+    "fileSizeBytes": 942285
+  },
+  {
+    "scale": 5000,
+    "format": "CSV",
+    "finalStatus": "COMPLETED",
+    "rowCount": 5000,
+    "durationMs": 1462,
+    "heapDeltaMB": "28.9",
+    "fileSizeBytes": 1317172
+  },
+  {
+    "scale": 5000,
+    "format": "XLSX",
+    "finalStatus": "COMPLETED",
+    "rowCount": 5000,
+    "durationMs": 3668,
+    "heapDeltaMB": "74.0",
+    "fileSizeBytes": 4759679
+  },
+  {
+    "scale": 10000,
+    "format": "CSV",
+    "finalStatus": "COMPLETED",
+    "rowCount": 10000,
+    "durationMs": 2920,
+    "heapDeltaMB": "53.7",
+    "fileSizeBytes": 2637343
+  },
+  {
+    "scale": 10000,
+    "format": "XLSX",
+    "finalStatus": "COMPLETED",
+    "rowCount": 10000,
+    "durationMs": 3065,
+    "heapDeltaMB": "67.2",
+    "fileSizeBytes": 1138117
+  },
+  {
+    "scale": 25000,
+    "format": "CSV",
+    "finalStatus": "COMPLETED",
+    "rowCount": 25000,
+    "durationMs": 134656,
+    "heapDeltaMB": "-275.7",
+    "fileSizeBytes": 6642783
+  },
+  {
+    "scale": 25000,
+    "format": "XLSX",
+    "finalStatus": "COMPLETED",
+    "rowCount": 25000,
+    "durationMs": 16654,
+    "heapDeltaMB": "157.1",
+    "fileSizeBytes": 2955172
+  }
+]

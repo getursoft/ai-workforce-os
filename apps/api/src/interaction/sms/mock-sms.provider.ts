@@ -9,6 +9,9 @@ import type { SmsProvider, SmsSendInput, SmsSendResult } from "./sms-provider.ty
 export class MockSmsProvider implements SmsProvider {
   readonly name = "mock";
   private nextFailure: "transient" | "permanent" | null = null;
+  /** Last `send()` input, for tests that need to read back a code/link that was "sent" (e.g. the
+   *  recruitment chat OTP flow) without a live SMS provider. */
+  lastSent: SmsSendInput | null = null;
 
   isConfigured(): boolean {
     return true;
@@ -20,7 +23,7 @@ export class MockSmsProvider implements SmsProvider {
   }
 
   async send(input: SmsSendInput): Promise<SmsSendResult> {
-    void input; // interface conformance only — the mock never inspects the destination/message.
+    this.lastSent = input;
     if (this.nextFailure) {
       const kind = this.nextFailure;
       this.nextFailure = null;

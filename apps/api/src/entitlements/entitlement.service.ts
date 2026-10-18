@@ -1,6 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
+import { PlatformOwnerService } from "../identity/infrastructure/security/platform-owner.service";
 import { DEFAULT_ENTITLEMENTS, type EntitlementValue, type FeatureKey, type ResolvedEntitlements } from "./entitlement.types";
 
 const COUNTABLE_FEATURES: Partial<Record<FeatureKey, true>> = {
@@ -11,13 +12,32 @@ const COUNTABLE_FEATURES: Partial<Record<FeatureKey, true>> = {
   SKILLS_MAX_INSTALLED: true
 };
 
+/** Every entitlement unlocked — booleans true, numeric limits unbounded. */
+function unlockedEntitlements(): ResolvedEntitlements {
+  const resolved = {} as ResolvedEntitlements;
+  for (const key of Object.keys(DEFAULT_ENTITLEMENTS) as FeatureKey[]) {
+    resolved[key] = typeof DEFAULT_ENTITLEMENTS[key] === "boolean" ? true : Number.POSITIVE_INFINITY;
+  }
+  return resolved;
+}
+
 @Injectable()
 export class EntitlementService {
   private readonly logger = new Logger(EntitlementService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly platformOwner?: PlatformOwnerService
+  ) {}
 
   async resolveEntitlements(organizationId: string): Promise<ResolvedEntitlements> {
+    // The platform's own operating organization is never subject to ordinary tenant plan limits —
+    // unlike a customer org, it has no subscription to purchase. `@Optional()` here mirrors
+    // BillingEnforcementService's own APP_CONFIG pattern: absent in an isolated unit test, this just
+    // never bypasses anything (fails toward enforcing, never toward a silent privilege grant).
+    if (this.platformOwner && (await this.platformOwner.isPlatformOwnerOrganization(organizationId))) {
+      return unlockedEntitlements();
+    }
     const resolved: ResolvedEntitlements = { ...DEFAULT_ENTITLEMENTS };
 
     const sub = await this.prisma.organisationSubscription.findUnique({ where: { organizationId }, include: { plan: true } });

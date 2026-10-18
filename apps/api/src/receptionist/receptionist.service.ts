@@ -65,11 +65,30 @@ const DEFAULT_SETTINGS: ReceptionistSettings = {
   clarificationEnabled: true,
   voiceEnabled: false,
   preferredLanguage: "auto",
+  // Stored without a salutation — `greetingFor()` prepends a time-of-day "Good morning/afternoon/
+  // evening" computed at render time, so a static string here can't go stale relative to the clock.
   welcomeMessage:
-    "Hello! I'm your AI Receptionist. Tell me what you need, and I'll connect you with the right specialist.",
+    "I'm Krevia, your AI Receptionist. May I know your name, and could you briefly tell me what you'd like to discuss today?",
   fallbackMessage:
     "I couldn't find an available specialist for that request. I can keep the request, retry, or help with something else."
 };
+
+/** "Good morning/afternoon/evening" for the given instant in the given IANA timezone — falls back to
+ *  "Hello" for an invalid timezone rather than throwing, since a greeting salutation is never worth
+ *  failing the whole turn over. */
+function timeOfDaySalutation(date: Date, timeZone: string): string {
+  try {
+    const hour = Number(
+      new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone }).format(date)
+    );
+    if (hour < 5 || hour >= 21) return "Good evening";
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  } catch {
+    return "Hello";
+  }
+}
 
 @Injectable()
 export class ReceptionistService implements ReceptionistRuntime {
@@ -543,6 +562,17 @@ export class ReceptionistService implements ReceptionistRuntime {
     };
   }
 
+  /** Prepends a time-of-day salutation (in the organization's configured timezone, defaulting to UTC)
+   *  to a stored greeting template — the one thing a static DB string can't express on its own. */
+  private async greetingFor(organizationId: string, baseMessage: string): Promise<string> {
+    const setting = await this.prisma.organizationSetting.findUnique({
+      where: { organizationId },
+      select: { timezone: true }
+    });
+    const salutation = timeOfDaySalutation(new Date(), setting?.timezone ?? "UTC");
+    return `${salutation}! ${baseMessage}`;
+  }
+
   private async applyDecision(context: {
     input: AgentExecutionInput;
     plugin: { id: string; displayName: string };
@@ -569,7 +599,8 @@ export class ReceptionistService implements ReceptionistRuntime {
   }> {
     const { decision } = context;
     if (decision.reasonCode === "GREETING") {
-      return { response: context.settings.welcomeMessage, handoff: null };
+      const response = await this.greetingFor(context.input.organizationId, context.settings.welcomeMessage);
+      return { response, handoff: null };
     }
     if (decision.reasonCode === "RETURN_TO_RECEPTIONIST") {
       if (context.current)
@@ -1000,12 +1031,13 @@ export class ReceptionistService implements ReceptionistRuntime {
     started: number,
     traceContext?: TraceContext
   ): Promise<ReceptionistRuntimeResult> {
+    const greeting = await this.greetingFor(input.organizationId, settings.welcomeMessage);
     const message = await this.prisma.conversationMessage.create({
       data: {
         organizationId: input.organizationId,
         conversationId,
         role: ConversationMessageRole.ASSISTANT,
-        content: settings.welcomeMessage,
+        content: greeting,
         contentJson: {
           receptionist: {
             routeType: "RECEPTIONIST_RESPONSE",
@@ -1043,7 +1075,7 @@ export class ReceptionistService implements ReceptionistRuntime {
       conversationId,
       executionId: execution.id,
       messageId: message.id,
-      response: settings.welcomeMessage,
+      response: greeting,
       status: "COMPLETED",
       model: "receptionist-greeting-v1",
       usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, estimatedCost: null },

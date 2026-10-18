@@ -40,7 +40,9 @@ import { InteractionAdminService } from "./interaction-admin.service";
     InteractionCompletionService,
     InteractionReferenceLookupService,
     InteractionNotificationOrchestrator,
-    InteractionMetricsService
+    InteractionMetricsService,
+    MockSmsProvider,
+    TwilioSmsProvider
   ]
 })
 export class InteractionModule {}

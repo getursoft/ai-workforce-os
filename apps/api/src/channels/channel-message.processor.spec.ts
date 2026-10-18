@@ -46,7 +46,11 @@ function getRow(store: Map<string, Row>, id: string): Row {
 function createFakePrisma(
   rows: Row[],
   channels: Record<string, unknown>,
-  conversations: Record<string, unknown>[]
+  conversations: Record<string, unknown>[],
+  // Phase 5.3 — organization status defaults to ACTIVE for every org referenced by a fixture row, so
+  // every pre-existing test above (none of which cares about suspension) is unaffected; a test can pass
+  // e.g. { "organization-1": "SUSPENDED" } to exercise the new check.
+  organizationStatuses: Record<string, string> = {}
 ) {
   const store = new Map(rows.map((r) => [r.id, r]));
   const deliveryAttempts: { channelMessageId: string; [key: string]: unknown }[] = [];
@@ -179,6 +183,11 @@ function createFakePrisma(
               c.status === where.status
           ) ?? null
       )
+    },
+    organization: {
+      findUnique: vi.fn(async ({ where: { id } }: { where: { id: string } }) => ({
+        status: organizationStatuses[id] ?? "ACTIVE"
+      }))
     },
     store,
     deliveryAttempts
@@ -577,6 +586,67 @@ describe("ChannelMessageProcessor.processOnce", () => {
       expect(processed).toBe(0);
       expect(agents.execute).not.toHaveBeenCalled();
       expect(getRow(prisma.store, "inbound-second").status).toBe("RECEIVED");
+    });
+  });
+
+  describe("Phase 5.3 — background worker suspension audit", () => {
+    it("terminally fails an inbound message for a suspended organization without ever running the agent or sending an outbound reply", async () => {
+      const prisma = createFakePrisma(
+        [inboundRow()],
+        { "channel-1": activeChannel() },
+        [],
+        { "organization-1": "SUSPENDED" }
+      );
+      const agents = { execute: vi.fn() } as unknown as AgentService;
+      const processor = new ChannelMessageProcessor(prisma as never, agents, encryption, auditLogger, security);
+      (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
+        sendWhatsAppMessage: vi.fn()
+      };
+      const processed = await processor.processOnce();
+      expect(processed).toBe(1); // claimed and terminated — not silently skipped
+      expect(agents.execute).not.toHaveBeenCalled();
+      const inbound = getRow(prisma.store, "inbound-1");
+      expect(inbound.status).toBe("FAILED");
+      expect((inbound as unknown as { errorCode?: string }).errorCode).toBe("ORGANIZATION_SUSPENDED");
+      expect((inbound as unknown as { nextAttemptAt?: Date | null }).nextAttemptAt).toBeNull(); // terminal, not retried
+      expect(prisma.store.size).toBe(1); // no outbound row was ever created
+    });
+
+    it("fails an outbound retry for a suspended organization without ever calling the provider", async () => {
+      const prisma = createFakePrisma(
+        [
+          {
+            id: "outbound-suspended-1",
+            organizationId: "organization-1",
+            channelConnectionId: "channel-1",
+            direction: "OUTBOUND",
+            status: "FAILED",
+            fromAddress: "whatsapp:+14155238886",
+            toAddress: "whatsapp:+14155550100",
+            body: "Pending retry",
+            processingAttempts: 1,
+            nextAttemptAt: new Date(Date.now() - 1000),
+            updatedAt: new Date(),
+            createdAt: new Date()
+          }
+        ],
+        { "channel-1": activeChannel() },
+        [],
+        { "organization-1": "SUSPENDED" }
+      );
+      const agents = { execute: vi.fn() } as unknown as AgentService;
+      const processor = new ChannelMessageProcessor(prisma as never, agents, encryption, auditLogger, security);
+      const sendWhatsAppMessage = vi.fn();
+      (processor as unknown as { twilio: { sendWhatsAppMessage: () => Promise<unknown> } }).twilio = {
+        sendWhatsAppMessage
+      };
+      const processed = await processor.processOnce();
+      expect(processed).toBe(1);
+      expect(sendWhatsAppMessage).not.toHaveBeenCalled(); // no real provider call was ever attempted
+      const outbound = getRow(prisma.store, "outbound-suspended-1");
+      expect(outbound.status).toBe("FAILED");
+      expect((outbound as unknown as { errorCode?: string }).errorCode).toBe("ORGANIZATION_SUSPENDED");
+      expect((outbound as unknown as { nextAttemptAt?: Date | null }).nextAttemptAt).toBeNull();
     });
   });
 });

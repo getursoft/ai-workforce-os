@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { IdentityApplicationError } from "../identity/application/errors/identity.error";
+import { PlatformOwnerService } from "../identity/infrastructure/security/platform-owner.service";
 import { tokensToCredits } from "./billing.service";
 import { APP_CONFIG, type AppConfig } from "../config/config.tokens";
 
@@ -53,7 +54,8 @@ export class BillingEnforcementService {
 
   constructor(
     private readonly prisma: PrismaService,
-    @Optional() @Inject(APP_CONFIG) private readonly appConfig?: AppConfig
+    @Optional() @Inject(APP_CONFIG) private readonly appConfig?: AppConfig,
+    @Optional() private readonly platformOwner?: PlatformOwnerService
   ) {}
 
   private enforcementEnabled(): boolean {
@@ -87,6 +89,19 @@ export class BillingEnforcementService {
   }
 
   async evaluate(organizationId: string): Promise<BillingEnforcementDecision> {
+    // The platform's own operating organization has no subscription to meter against — never block it.
+    // `@Optional()`: absent in an isolated unit test, this never bypasses anything (fails toward
+    // enforcing, never toward a silent privilege grant).
+    if (this.platformOwner && (await this.platformOwner.isPlatformOwnerOrganization(organizationId))) {
+      return {
+        outcome: "ALLOWED",
+        allowed: true,
+        reason: "Platform owner organization; unmetered.",
+        usedCredits: null,
+        allowanceCredits: null,
+        spendingCapCredits: null
+      };
+    }
     if (!this.enforcementEnabled()) {
       return { outcome: "ALLOWED", allowed: true, reason: "Billing enforcement is disabled.", usedCredits: null, allowanceCredits: null, spendingCapCredits: null };
     }

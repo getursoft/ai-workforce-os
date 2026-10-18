@@ -1,0 +1,1 @@
+{"conversationId":"ba6d5518-f40c-4f2b-a411-5b6b0bacbd8b","executionId":"52d7a4e8-447e-4ccb-b5e3-38a9b737bab3","messageId":"f49e718e-2f0f-47f3-b42e-66145d3d9913","response":"Here are the current job openings: {\"total\":0,\"jobs\":[]}","status":"COMPLETED","model":"travel-test-v1","usage":{"inputTokens":30,"outputTokens":20,"totalTokens":50,"estimatedCost":null},"sources":[]}

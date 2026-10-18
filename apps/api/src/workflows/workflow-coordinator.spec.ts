@@ -3,6 +3,7 @@ import { Prisma, type WorkflowExecution } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import { EMPTY_TRAVEL_ENTITIES } from "../travel/travel.runtime";
 import { BookingHandoffWorkflowService } from "./booking-handoff/booking-handoff.service";
 import type { BookingHandoffTripContext } from "./booking-handoff/booking-handoff.types";
@@ -132,7 +133,7 @@ function matches(row: WorkflowExecution, where: Record<string, unknown>): boolea
 function harness() {
   const prisma = fakePrisma();
   const workflows = new WorkflowExecutionService(prisma as unknown as PrismaService);
-  const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService);
+  const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
   const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
   const bookingHandoff = new BookingHandoffWorkflowService(workflows);
   const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);

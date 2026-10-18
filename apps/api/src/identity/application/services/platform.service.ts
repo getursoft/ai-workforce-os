@@ -3,6 +3,7 @@ import { LegacyUserRole, OrganizationStatus, UserStatus } from "@prisma/client";
 import argon2 from "argon2";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
 import { identityError } from "../errors/identity.error";
+import { AuthorizationService } from "./authorization.service";
 
 /** A lightweight, public-safe organization summary used by the platform-owner org dropdown. */
 export interface PlatformOrganizationSummary {
@@ -26,7 +27,10 @@ export interface OnboardedOwnerAccount {
  */
 @Injectable()
 export class PlatformService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly authorization: AuthorizationService
+  ) {}
 
   async listOrganizations(): Promise<PlatformOrganizationSummary[]> {
     const rows = await this.prisma.organization.findMany({
@@ -130,6 +134,13 @@ export class PlatformService {
    * (`organization.status !== ACTIVE` → generic authentication-failed, never distinguishing suspended
    * from wrong-password — that's an existing, intentional anti-enumeration choice, unchanged here). This
    * is the first thing that actually WRITES that status outside org creation.
+   *
+   * Phase 5.2: JwtAccessGuard and AuthorizationService both re-derive organization status fresh on every
+   * request/permission check now, so correctness never depended on this cache invalidation — but a still
+   * live (not-yet-expired) PermissionGuard-cached grant from moments before suspension would otherwise
+   * keep serving stale `true` results for up to the cache's 5-minute TTL. invalidateOrganization clears
+   * every cached entry for this org immediately, for both directions (suspend AND reactivate), so neither
+   * transition has to wait out that window.
    */
   async suspendOrganization(id: string, actorId: string, reason?: string): Promise<PlatformOrganizationSummary> {
     await this.findOrganization(id);
@@ -138,6 +149,7 @@ export class PlatformService {
       data: { status: OrganizationStatus.SUSPENDED },
       select: { id: true, name: true, slug: true, status: true }
     });
+    this.authorization.invalidateOrganization(id);
     if (reason?.trim()) await this.addSupportNote(id, actorId, `Organization suspended: ${reason.trim()}`);
     return row;
   }
@@ -149,6 +161,7 @@ export class PlatformService {
       data: { status: OrganizationStatus.ACTIVE },
       select: { id: true, name: true, slug: true, status: true }
     });
+    this.authorization.invalidateOrganization(id);
     await this.addSupportNote(id, actorId, "Organization reactivated.");
     return row;
   }

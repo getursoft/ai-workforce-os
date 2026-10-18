@@ -1,0 +1,23 @@
+{
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Employees/EmployeeChatView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/EmployeeChatView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/EmployeeChatView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/EmployeeChatView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/EmployeeChatView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/EmployeeChatView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Organization/OrganizationSettingsView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/OrganizationSettingsView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/OrganizationSettingsView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/OrganizationSettingsView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/OrganizationSettingsView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/OrganizationSettingsView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Recruitment/RecruitmentAdvancedFilterView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/RecruitmentAdvancedFilterView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/RecruitmentAdvancedFilterView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/RecruitmentAdvancedFilterView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/RecruitmentAdvancedFilterView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/RecruitmentAdvancedFilterView.swiftdeps"
+  }
+}

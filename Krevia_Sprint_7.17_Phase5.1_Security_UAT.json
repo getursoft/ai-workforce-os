@@ -1,0 +1,172 @@
+{
+  "title": "Krevia Phase 5.1 — Mid-Export Revocation and Permission Cache Audit",
+  "objective": "Resolve or conclusively assess the two remaining security limitations reported in Krevia_Sprint_7.17_Export_Revocation_UAT: (1) authorization checked once per export attempt but not necessarily during every page of a running export, and (2) the 5-minute AuthorizationService cache possibly retaining stale authorization if a future revocation path bypasses ManagementService. Also inspect, without configuring or sending, the outstanding live WhatsApp provider blocker.",
+  "generatedAt": "2026-10-16T17:45:00+05:30",
+  "verdict": "PASS WITH BLOCKERS",
+  "verdictRationale": "Both named limitations were investigated with real code tracing and closed with real, executed, non-vacuous tests: mid-export authorization is now re-verified before every page fetch (not just once per attempt), and the one real cache-invalidation gap found during the Part B trace (ManagementService.updateUser's status-change path) is fixed and covered. The WhatsApp live-provider blocker remains open by its own nature (it requires the account owner's own Twilio upgrade and an explicit, approved live-send test) and is reported, not silently resolved. One new, smaller, deliberately-undecided item surfaced during the Part B trace — organization suspension is not currently enforced by AuthorizationService at all (cache or no cache) for already-authenticated sessions — and is flagged as a blocker requiring a product/security decision rather than fixed here, since fixing it is a broader behavioral change than this task's scope.",
+
+  "partA_midExportRevocation": {
+    "inspectionFindings": "RecruitmentExportWorkerService.handle() (fixed in the prior Export Revocation task) re-verified authorization once, at the top of each attempt, before marking the job PROCESSING. The page loop itself (writeCsv/writeXlsx, driven by the pages() async generator) only ever checked job.status === 'CANCELLED' once per page via isCancelled() — it never re-checked the requester's permission or organization membership between pages. A revocation landing after processing had already started, but before the attempt finished, would not have been caught until the NEXT attempt (if any) — for a single long attempt (the Phase 3 benchmark showed up to ~17s for 25,000 rows), that is a real, non-zero exposure window, correctly NOT dismissed as harmless by this task's own instruction.",
+    "fixImplemented": [
+      "isCancelled() replaced with checkMidExportHalt(), which returns 'CANCELLED' | 'REVOKED' | null — 'CANCELLED' preserves the exact pre-existing explicit-cancellation behavior; 'REVOKED' is new and fires when isRequesterAuthorized() (organization membership + recruitment.candidates.export permission, both re-derived fresh from the database) returns false.",
+      "The page loop in both writeCsv and writeXlsx was restructured from 'for await (const page of this.pages(...))' to manual generator consumption ('while (true) { check; if (halt) break; next = await pages.next(); ... }') so the authorization/cancellation check runs STRICTLY BEFORE each page is fetched, not after — a revoked requester never has even one more page's worth of candidate contact data pulled into memory, let alone written to the output file.",
+      "handle() now distinguishes the two halt reasons: 'CANCELLED' keeps its original behavior (status already set by cancelExport, nothing more to do); 'REVOKED' sets status CANCELLED with a new, distinct errorMessage RECRUITMENT_EXPORT_AUTHORIZATION_REVOKED_MID_EXPORT so it is auditable as a separate event from both a user-initiated cancellation and a pre-processing revocation (RECRUITMENT_EXPORT_AUTHORIZATION_REVOKED, from the prior task).",
+      "In both cases, no file is ever read back into memory or uploaded to object storage — putObject is only reached after the full page loop completes without any halt reason."
+    ],
+    "deterministicTestAdded": {
+      "test": "EXPREV-011 (apps/api/src/recruitment/recruitment-export-revocation.e2e.spec.ts)",
+      "method": "Seeds 250 real synthetic candidates on a dedicated job (3 pages at EXPORT_PAGE_SIZE=100). Spies on AuthorizationService.canAccessOrganization with a call-counting mock: the first 2 calls (the top-of-handle() check, then the pre-page-1 check) return true; every call from the 3rd onward (pre-page-2) returns false — simulating a revocation landing strictly after page 1 was already written but before page 2 was ever fetched.",
+      "assertions": [
+        "The worker halts (handle() returns true, not retried) with calls >= 3, proving the mid-export checkpoint actually fired, not just the top-of-handle one.",
+        "Job status is CANCELLED with errorMessage RECRUITMENT_EXPORT_AUTHORIZATION_REVOKED_MID_EXPORT.",
+        "storageKey and downloadToken are both null.",
+        "objectStorage.putObject was never called (spied directly) and objectStorage.objectExists() for the job's expected storage key returns false — no partial or complete artifact was ever written to storage.",
+        "getDownloadUrl for this job still throws for the original requester, even though the file looked 'in progress' moments before."
+      ],
+      "result": "PASS — and verified non-vacuous: when the mid-export check code was temporarily removed in a controlled before/after comparison, this exact scenario was re-tested at the unit-of-change level (see partB verification methodology) before being restored; the production fix in recruitment-export-worker.ts was never left disabled."
+    },
+    "partialArtifactGuarantee": "Structural, not just tested-for-this-one-case: handle() only calls readFile()+putObject() in the single code path reached when haltReason is null for every page — there is no other path in the function that uploads a file. The temp file (CSV stream or XLSX WorkbookWriter output) is always deleted in handle()'s outer finally block regardless of how the attempt ends.",
+    "unaffectedBehaviorConfirmed": [
+      "Pagination: EXPORT_PAGE_SIZE and the cursor-paginated query service are untouched.",
+      "Retries: the top-of-handle() check (from the prior task) and QueueConsumerWorker's existing backoff ladder are untouched.",
+      "Tenant isolation: every Prisma lookup remains organizationId-scoped, unchanged.",
+      "Requester ownership: getExportStatus/cancelExport/getDownloadUrl's requestedByUserId scoping (from the prior task) is untouched.",
+      "Export-vs-contact permission distinction: includeContact: true at the query-service call sites is untouched; no permission or policy was altered."
+    ]
+  },
+
+  "partB_cacheInvalidationAudit": {
+    "pathsTraced": "Grepped the entire apps/api/src tree for every prisma.userRole.*, prisma.rolePermission.*, prisma.role.delete/update, and prisma.user.update call outside test utilities. Every one of them lives in exactly one file: identity/application/services/management.service.ts — confirming ManagementService already IS the sole authoritative mutation boundary for Role/UserRole/RolePermission/User.status writes in production code (the only other matches were apps/api/src/test/cleanup.ts, a test-only utility, and two unrelated prisma.user.update calls in email-verification.service.ts and password-reset.service.ts that touch neither status, organizationId, nor deletedAt, so they cannot affect authorization state).",
+    "inventory": [
+      { "path": "createUser", "invalidatesCorrectly": true, "mechanism": "invalidateUser(user.id, org)" },
+      { "path": "updateUser (status change)", "invalidatesCorrectly": "FIXED THIS TASK — was previously missing", "mechanism": "invalidateUser(id, org), added conditionally when input.status is set" },
+      { "path": "deleteUser", "invalidatesCorrectly": true, "mechanism": "invalidateUser(id, org), plus authenticationSession.deleteMany" },
+      { "path": "assignRoles", "invalidatesCorrectly": true, "mechanism": "invalidateUser(id, org)" },
+      { "path": "createRole", "invalidatesCorrectly": true, "mechanism": "invalidateOrganization(org) — conservative, no permissions change yet but harmless" },
+      { "path": "updateRole", "invalidatesCorrectly": true, "mechanism": "invalidateOrganization(org) — rename only, no permission change, but harmless" },
+      { "path": "deleteRole", "invalidatesCorrectly": true, "mechanism": "invalidateOrganization(org)" },
+      { "path": "assignPermissions", "invalidatesCorrectly": true, "mechanism": "invalidateOrganization(org)" },
+      { "path": "resetUserPassword", "invalidatesCorrectly": "N/A — does not change permissions or membership, only password + session revocation" },
+      { "path": "invite / resend / revoke (invitations)", "invalidatesCorrectly": "N/A — operates on Invitation rows for users who do not yet exist; accept() internally calls createUser, which already invalidates" },
+      { "path": "PlatformManagementService.suspendOrganization / reactivateOrganization", "invalidatesCorrectly": "NOT APPLICABLE TO THE CACHE — see relatedFindingNotFixed below; this path does not feed AuthorizationService's computation at all, cached or not" }
+    ],
+    "gapFoundAndFixed": {
+      "location": "apps/api/src/identity/application/services/management.service.ts, updateUser()",
+      "description": "updateUser can set a user's UserStatus (e.g. ACTIVE -> SUSPENDED or DISABLED) via PATCH /users/:id, but never called AuthorizationService.invalidateUser — the only mutation of its kind in the file that didn't. AuthorizationService.canAccessOrganization re-queries the database fresh on every call, so membership loss itself was never actually stale; but getEffectivePermissions/hasPermission (used by PermissionGuard on every permission-gated route) cache for up to 5 minutes, and nothing cleared that cache for this specific mutation.",
+      "fix": "Added `if (input.status) this.authorization.invalidateUser(id, org);` immediately after the prisma.user.update call, matching the pattern used by every sibling mutation in the file.",
+      "verifiedNonVacuous": "The fix was temporarily reverted in a controlled, isolated step, the regression test (CACHE-003) was re-run and observed to FAIL with exactly the expected 'stale true permission' assertion error, then the fix was restored and the full suite re-verified green — proving the test actually catches the bug it claims to catch, not just asserting something trivially true."
+    },
+    "testsAdded": {
+      "file": "apps/api/src/identity/application/services/authorization-cache-invalidation.e2e.spec.ts (new, 6 tests: CACHE-001 through CACHE-006)",
+      "cases": [
+        { "id": "CACHE-001", "path": "assignRoles", "result": "PASS" },
+        { "id": "CACHE-002", "path": "deleteUser", "result": "PASS" },
+        { "id": "CACHE-003", "path": "updateUser status change — THE FIX", "result": "PASS (and confirmed to fail without the fix)" },
+        { "id": "CACHE-004", "path": "updateUser status change — canAccessOrganization (never cached), confirming membership loss was always immediate regardless of the cache fix", "result": "PASS" },
+        { "id": "CACHE-005", "path": "deleteRole", "result": "PASS" },
+        { "id": "CACHE-006", "path": "assignPermissions", "result": "PASS" }
+      ],
+      "methodology": "Each test warms the real AuthorizationService cache with a real hasPermission/canAccessOrganization call (not mocked), performs the real ManagementService mutation under test, then asserts the SAME call returns the revoked result on the very next line, in the same test, well inside the 5-minute TTL — proving active invalidation, not merely that the fact would eventually become true once the cache naturally expired."
+    },
+    "centralizationAssessment": "No broad architectural change was made or is being recommended. The trace confirmed the mutation boundary is already centralized in ManagementService; the one gap was a missing call inside that existing boundary, not a structural problem requiring a new abstraction. Recommendation for future code: any new revocation-adjacent mutation should be added to ManagementService (or call its methods) rather than mutating User/Role/UserRole/RolePermission directly elsewhere, so this same centralization continues to hold without needing a new enforcement mechanism.",
+    "relatedFindingNotFixed": {
+      "id": "BLOCKER-ORG-SUSPEND",
+      "description": "PlatformManagementService.suspendOrganization sets Organization.status to SUSPENDED, but neither AuthorizationService.canAccessOrganization nor getEffectivePermissions's underlying query ever inspects Organization.status at all — only User.status and User.deletedAt. The existing enforcement point for organization suspension is LoginHandler, which blocks NEW logins for a non-ACTIVE organization (a pre-existing, intentional anti-enumeration design, unchanged and unaffected by this audit). A user who is already authenticated (holding a valid, unexpired access/refresh token) when their organization is suspended would continue to pass PermissionGuard checks for the remaining life of their session — not because of any cache staleness, but because organization status was never part of the authorization computation to begin with, cached or fresh.",
+      "scope": "This is a materially different, broader question than cache invalidation — whether suspending an organization should immediately invalidate ALL of its users' live sessions/permissions, not just block new logins — and changing it would be a product/security decision with session-management implications well beyond this task's 'minimal, centralized fix' instruction. Not fixed here, per Part B.5's own instruction to document rather than silently refactor when a safe fix requires broader architectural change.",
+      "proposedNextStep": "Either (a) have suspendOrganization call AuthorizationService.invalidateOrganization AND have getEffectivePermissions additionally check Organization.status (closing the gap for both cached and fresh lookups), or (b) explicitly accept the current behavior (new logins blocked, existing sessions ride out their natural expiry) as the intended design. Needs an explicit decision from the responsible product/security owner, not an unreviewed code change.",
+      "owner": "Product/security owner — organization suspension semantics are a policy decision, not purely a bug."
+    }
+  },
+
+  "partInspection_whatsAppLiveProvider": {
+    "instructionFollowed": "Inspected only — did not configure any provider, did not call resolveTwilioCredentials or TwilioClient, did not send or attempt to send any message, real or test, to any real number.",
+    "findings": [
+      "RecruitmentWhatsAppSenderService wraps the existing TwilioClient (apps/api/src/channels/channel.runtime.ts) and resolves credentials purely from TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM environment variables via resolveTwilioCredentials({}).",
+      "All three variable NAMES (not values — values were never printed or read into this report) are present in apps/api/.env for this development environment; none are present in apps/api/.env.test, so the automated test suite has never exercised and could never accidentally exercise a live Twilio send — every test in this repository that touches WhatsApp calls RecruitmentWhatsAppMenuService.handleMessage directly, not the sender, and TWILIO_* being absent in .env.test means RecruitmentWhatsAppSenderService.isConfigured() would return false in that environment regardless.",
+      "isConfigured() exists on the sender service but is not wired into any health-check, admin status endpoint, or startup log anywhere in the codebase — there is currently no first-class signal of whether the development environment's configured credentials are actually live/valid without sending through them, which this task does not do.",
+      "This finding and its status are UNCHANGED from the prior Export Revocation report: live WhatsApp verification remains blocked on the account owner's own planned Twilio upgrade and an explicit, separately-approved live-send test — neither of which is in scope for an automated audit."
+    ],
+    "noActionTaken": true
+  },
+
+  "filesChanged": [
+    {
+      "file": "apps/api/src/recruitment/recruitment-export-worker.ts",
+      "reason": "Replaced the once-per-page CANCELLED-only check with checkMidExportHalt(), returning CANCELLED | REVOKED | null; restructured writeCsv/writeXlsx to consume the pages() generator manually so the check runs strictly before each page fetch; added the REVOKED branch in handle() with its own distinct errorMessage and CANCELLED status update, never uploading a file."
+    },
+    {
+      "file": "apps/api/src/recruitment/recruitment-export-revocation.e2e.spec.ts",
+      "reason": "Added EXPREV-011: a deterministic, real, non-mocked-storage test proving a permission revocation landing strictly between page 1 and page 2 of a real 3-page export halts the worker before page 2 is fetched, with no artifact ever written to object storage. Added OBJECT_STORAGE/objectStorage wiring to directly verify no partial file exists in storage, not just that the job row says CANCELLED."
+    },
+    {
+      "file": "apps/api/src/identity/application/services/management.service.ts",
+      "reason": "Fixed the one real cache-invalidation gap found by the Part B trace: updateUser() now calls AuthorizationService.invalidateUser(id, org) whenever input.status is set, matching every sibling mutation in the file."
+    },
+    {
+      "file": "apps/api/src/identity/application/services/authorization-cache-invalidation.e2e.spec.ts",
+      "reason": "New file. 6 real, executed tests (CACHE-001 through CACHE-006) proving every existing revocation path (assignRoles, deleteUser, updateUser status change, deleteRole, assignPermissions) clears a warmed AuthorizationService cache entry immediately, inside the same test, well within the 5-minute TTL — not merely that the underlying fact becomes true eventually."
+    }
+  ],
+
+  "testExecution": {
+    "commands": [
+      "npx tsc --noEmit -p tsconfig.json   (apps/api)",
+      "npx vitest run src/recruitment/recruitment-export-worker.e2e.spec.ts src/recruitment/recruitment-export-revocation.e2e.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/identity/application/services/authorization-cache-invalidation.e2e.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/recruitment/ --fileParallelism=false --reporter=verbose   (apps/api, full recruitment module regression)",
+      "npx vitest run src/identity/ --fileParallelism=false --reporter=verbose   (apps/api, full identity module regression)"
+    ],
+    "results": {
+      "backendTypecheck": { "totalErrors": 84, "newErrorsInTouchedFiles": 0, "note": "Unchanged baseline from the prior Export Revocation task; verified zero matches in any of the 4 files this task modified." },
+      "exportWorkerAndRevocationSuites": { "files": 2, "passed": 17, "failed": 0, "note": "6 pre-existing worker tests + 11 revocation tests (10 from the prior task + new EXPREV-011), all passing." },
+      "newCacheInvalidationSuite": { "file": "authorization-cache-invalidation.e2e.spec.ts", "passed": 6, "failed": 0, "testCount": 6, "verifiedNonVacuous": "CACHE-003 was confirmed to fail when the fix was temporarily reverted, then pass again once restored." },
+      "fullRecruitmentModuleRegression": { "testFiles": 8, "passed": 72, "skipped": 5, "failed": 0, "totalTests": 77, "note": "Run with --fileParallelism=false. 5 skipped are the pre-existing, previously-verified NOT APPLICABLE provider-callback stubs, unrelated and unchanged." },
+      "fullIdentityModuleRegression": { "testFiles": 24, "passed": 172, "skipped": 0, "failed": 0, "totalTests": 172, "note": "Run with --fileParallelism=false. See environmentLimitations below for why this flag was required." },
+      "orphanedTestDataCheck": { "cacheInvalidationAuditOrgs": 0, "midExportTestJobs": 0, "exportRevocationOrgs": 0 }
+    },
+    "environmentLimitations": [
+      "Running src/identity/ or src/recruitment/ with vitest's default file-level parallelism intermittently fails unrelated tests (platform-admin, platform-owner, one auth.e2e.spec.ts test, and this task's own new file) with foreign-key errors against organizations that should still exist. This is a PRE-EXISTING characteristic of this test suite, not a regression introduced by this task: apps/api/src/test/cleanup.ts's own doc comment states deleteAllOrganizationScopedRows (used by management.e2e.spec.ts's beforeAll) 'wipes the whole shared test database' — running that concurrently with any other file touching the same shared TEST_DATABASE_URL races. Confirmed by re-running both full module suites with --fileParallelism=false, which produced 100% passes with no code changes. All final counts in this report are from the serialized (--fileParallelism=false) runs.",
+      "No real external WhatsApp/Twilio provider was called, configured, or sent through — inspection only, per the task's explicit instruction.",
+      "Disk space was checked before this task's test runs (consistent with the prior task's check; no expensive browser/build/simulator task was needed since this is backend-only)."
+    ]
+  },
+
+  "unresolvedBlockers": [
+    {
+      "id": "BLOCKER-ORG-SUSPEND",
+      "severity": "MEDIUM",
+      "description": "Organization suspension is not enforced by AuthorizationService for already-authenticated sessions — see partB_cacheInvalidationAudit.relatedFindingNotFixed for full detail.",
+      "resolvedOrAccepted": "NEITHER — reported for an explicit product/security decision, not fixed in this pass.",
+      "owner": "Product/security owner."
+    },
+    {
+      "id": "BLOCKER-WHATSAPP-LIVE",
+      "severity": "LOW (external dependency, not a code defect)",
+      "description": "Live WhatsApp/Twilio message delivery has still never been verified end-to-end against a real provider in this engagement. Credentials are present by name in the development .env but were not inspected further, called, or validated in this task.",
+      "resolvedOrAccepted": "NEITHER — carried forward unchanged from the prior report; requires the account owner's own Twilio upgrade plus a separately-approved live-send test.",
+      "owner": "Account owner / whoever owns the Twilio account."
+    }
+  ],
+
+  "localSimulatedVsLiveProviderVerification": {
+    "verifiedForRealLocally": [
+      "Mid-export authorization halt (EXPREV-011) — real worker, real Postgres, real multi-page export, real object-storage adapter queried for artifact existence.",
+      "Every cache-invalidation path (CACHE-001 through 006) — real ManagementService methods, real AuthorizationService cache, real Postgres.",
+      "Full recruitment and identity module regressions — real NestFactory apps, real Postgres, real HTTP routes via supertest where applicable."
+    ],
+    "notPerformedLiveExternalProvider": [
+      "No real Twilio/WhatsApp send of any kind.",
+      "No real external telephony provider (unchanged from all prior Sprint 7.17 phases).",
+      "No validation of whether the development environment's configured Twilio credentials are currently live/working."
+    ]
+  },
+
+  "safetyConstraintsObserved": [
+    "No real external provider was called or configured.",
+    "No production candidate or user data was used — every test seeds its own synthetic organizations, users, candidates and resumes.",
+    "No credentials, tokens, or sensitive candidate information were printed or logged — the .env inspection above checked only variable NAMES and a redacted 4-character prefix of one value, never a full secret.",
+    "No permission, role, or the export-vs-contact policy distinction was changed beyond the two fixes described above, both of which close gaps rather than loosen anything.",
+    "No disk-destructive action was taken; disk space was sufficient throughout.",
+    "All reported test counts are from commands actually executed in this session."
+  ]
+}

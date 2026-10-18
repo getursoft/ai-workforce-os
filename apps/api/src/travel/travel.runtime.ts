@@ -459,6 +459,16 @@ const HOTEL_SEARCH_ACTION_PATTERN =
 // precedes the verb, not just English verb-first phrasing ("book the flight").
 const BOOK_FLIGHT_ACTION_PATTERN =
   /\bbook\s+(?:the\s+|a\s+|my\s+|this\s+)?flights?\b|\bflights?\s+book\s+(?:kar\s*(?:do|dena|dijiye|dijiyega)|karo|kijiye|kijiyega)\b|\bbook\s+kar\s*(?:do|dena|dijiye|dijiyega)\s+(?:the\s+)?flights?\b|\bflight\s+booking\s+(?:kar\s*(?:do|dena)|karo)\b/i;
+// A clear go-ahead-with-booking reply that names neither "flight" nor "hotel" — e.g. answering the
+// completion offer ("Would you like me to book this now...?") with "yes, book it" rather than repeating
+// either word. Deliberately excludes a bare "yes"/"sure" (AFFIRMATIVE_PATTERN already covers those and
+// they carry no booking-specific signal) — only phrasing that explicitly says "book" counts here.
+const BOOK_GO_AHEAD_PATTERN =
+  /\bgo\s*ahead\s*(?:and\s*)?book\b|\bbook\s+it\b|\bbook\s+this\b|\bbook\s+now\b|\bplease\s+book\b|\byes[,]?\s*book\b|\bbook\s+kar\s*(?:do|dena|dijiye|dijiyega)\b/i;
+// A bare one-word reply to "the flight, the hotel, or both?" — only matched standalone (the booking
+// keyword alone, optionally plural/punctuated) so it never fires on an ordinary sentence that happens to
+// contain "flight"/"hotel" for an unrelated reason.
+const BARE_BOOKING_TARGET_PATTERN = /^\s*(flight|hotel|both)s?\s*[.!]?\s*$/i;
 const FLIGHT_SEARCH_ACTION_PATTERN =
   /\b(search|show|find|see|check)\s+(?:me\s+)?(?:some\s+)?flights?\b|\bflights?\s+(?:options?|please)\b|\bwhich\s+flights?\b|\bflights?\s+(?:batao|dikhao)\b/i;
 const BUDGET_ACTION_PATTERN =
@@ -2785,10 +2795,10 @@ export function buildCompletionOfferMessage(
   language: TravelResponseLanguage = "ENGLISH"
 ): string {
   if (language === "HINGLISH")
-    return "Kya aap chahenge ki main ye travel request submit kar doon, taaki hamari team live pricing aur booking mein aapki madad kar sake?";
+    return "Kya main abhi aapki booking aage badhaun, ya ek request submit kar doon taaki hamari team live pricing aur booking mein aapki madad kar sake?";
   if (language === "HINDI")
-    return "क्या आप चाहेंगे कि मैं यह यात्रा अनुरोध सबमिट कर दूँ, ताकि हमारी टीम लाइव प्राइसिंग और बुकिंग में आपकी मदद कर सके?";
-  return `Would you like to submit this travel request${customerName ? `, ${customerName}` : ""}, so one of our travel experts can contact you with live pricing and booking assistance?`;
+    return "क्या मैं अभी आपकी बुकिंग आगे बढ़ाऊँ, या एक अनुरोध सबमिट कर दूँ ताकि हमारी टीम लाइव प्राइसिंग और बुकिंग में आपकी मदद कर सके?";
+  return `Would you like me to go ahead and book this now${customerName ? `, ${customerName}` : ""}, or would you prefer I submit a request so one of our travel experts can contact you with live pricing and booking assistance?`;
 }
 
 /** Asks for a phone number after the traveler has said yes to `buildCompletionOfferMessage`. */
@@ -8980,6 +8990,11 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
   async complete(request: AiCompletionRequest): Promise<AiCompletionResult> {
     this.pendingWorkflowSignal = null;
     this.routingHandoffSignal = null;
+    // Set only by the completion-offer handling below, when the traveler's reply to "book this now, or
+    // submit a request?" shows clear booking intent but the normal classifier wouldn't otherwise reach it
+    // this turn (e.g. a bare "flight" answering "the flight, the hotel, or both?"). Consulted once,
+    // immediately after `planningAction` is classified further down — mirrors `correctionRouteCue`.
+    let completionOfferBookingOverride: "BOOK_FLIGHT" | "BOOK_HOTEL" | null = null;
     const messages = request.messages;
     const last = messages.at(-1);
     const currentText = [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
@@ -9486,24 +9501,46 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // never a new trip detail, it's an answer to that specific ask. Mirrors the pendingClarification
     // priority immediately below.
     if (this.completionStage === "OFFERED") {
-      if (isAffirmativeResponse(currentText)) {
+      // Booking intent takes priority over the generic affirmative check below — otherwise "yes, book
+      // the flight" would match AFFIRMATIVE_PATTERN's bare "yes" first and get swallowed into lead
+      // capture before its explicit "book the flight" content is ever read. Clears the offer (so it's
+      // never re-asked) and falls through to ordinary processing, where `classifyPlanningAction` further
+      // down handles BOOK_FLIGHT/BOOK_HOTEL exactly as it would for a fresh, unprompted "book the flight".
+      if (BOOK_FLIGHT_ACTION_PATTERN.test(currentText) || BOOK_HOTEL_ACTION_PATTERN.test(currentText)) {
+        this.completionStage = "DECLINED";
+        this.pendingInputAction = null;
+        // falls through to ordinary classification below
+      } else if (BARE_BOOKING_TARGET_PATTERN.test(currentText)) {
+        // A one-word answer to "the flight, the hotel, or both?" — "both" books the flight first (the
+        // traveler can ask for the hotel next; the state machine books one leg at a time either way).
+        const target = BARE_BOOKING_TARGET_PATTERN.exec(currentText)?.[1]?.toLowerCase();
+        this.completionStage = "DECLINED";
+        this.pendingInputAction = null;
+        completionOfferBookingOverride = target === "hotel" ? "BOOK_HOTEL" : "BOOK_FLIGHT";
+        // falls through to ordinary classification below
+      } else if (BOOK_GO_AHEAD_PATTERN.test(currentText)) {
+        // Clear booking intent, but neither "flight" nor "hotel" was named, and there's no reliable
+        // per-trip signal for which one was actually being discussed — ask, rather than guess.
+        return this.tag(
+          "completion_offer_booking_target",
+          textResult("Would you like me to go ahead and book the flight, the hotel, or both?")
+        );
+      } else if (isAffirmativeResponse(currentText)) {
         this.completionStage = "AWAITING_CONTACT";
         this.pendingInputAction = "AWAITING_LEAD_CONTACT";
         this.pendingAction = null;
         this.providerFailure = null;
         this.lastStage = "AWAITING_CONTACT";
         return this.tag("lead_capture_request_phone", textResult(buildContactRequestMessage(this.responseLanguage)));
-      }
-      // A short, standalone "no"/"not now" (nothing else in the message) ends the offer gracefully right
-      // here — never falls through to re-classification, which could otherwise "restart" an unrelated
-      // workflow step. A decline with more content ("no, but what about visa requirements") still falls
-      // through so that real content gets a real answer.
-      if (isNegativeResponse(currentText) && currentText.trim().split(/\s+/).length <= 4) {
+      } else if (isNegativeResponse(currentText) && currentText.trim().split(/\s+/).length <= 4) {
+        // A short, standalone "no"/"not now" (nothing else in the message) ends the offer gracefully
+        // right here — never falls through to re-classification, which could otherwise "restart" an
+        // unrelated workflow step. A decline with more content ("no, but what about visa requirements")
+        // still falls through so that real content gets a real answer (see the branch below).
         this.completionStage = "DECLINED";
         this.pendingInputAction = null;
         return this.tag("farewell_declined_offer", textResult(buildFarewellMessage(this.lastEntities.customerName, this.responseLanguage)));
-      }
-      if (isNegativeResponse(currentText)) {
+      } else if (isNegativeResponse(currentText)) {
         this.completionStage = "DECLINED";
         this.pendingInputAction = null;
         // Falls through deliberately: per policy, a decline only stops the offer from being repeated —
@@ -9662,6 +9699,12 @@ export class TravelEmployeeLlmOrchestrator implements AiProvider {
     // run — and, for CREATE_LEAD/SUBMIT_ENQUIRY/REQUEST_CALLBACK, pre-empt the LLM's own intent label —
     // before extraction, merge, or intent-based branches ever see this turn.
     let planningAction = classifyPlanningAction(currentText);
+    // Set above, in the completion-offer handling, when this turn's reply showed booking intent that
+    // `classifyPlanningAction` can't see from the raw text alone (a bare "flight"/"hotel" answering "the
+    // flight, the hotel, or both?" never contains the word "book"). Takes priority the same way
+    // `correctionRouteCue` below does, for the same reason: it reflects conversational context
+    // `classifyPlanningAction` is deliberately blind to.
+    if (completionOfferBookingOverride) planningAction = completionOfferBookingOverride;
     const correctionRouteCue =
       /\b(?:first|actually|correction|nahi|maine\s+kaha|bhai|pehle)\b/i.test(currentText) &&
       parseJourneyLegChain(currentText).length > 0;

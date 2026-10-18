@@ -1,0 +1,56 @@
+{"version":10,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.64.0","options":{},"platform":"darwin","wallTime":1792308783760,"monotonicTime":14170.088,"sdkLanguage":"javascript","title":"specs/07-ai-employee-chat-tools.spec.ts:85 › CHAT-TOOLS-001 a full multi-turn chat: greeting, list jobs, then create a job, all through the real browser UI with real tool execution"}
+{"type":"before","callId":"qtwn@402","startTime":14177.349,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/v1/auth/register","method":"POST","jsonData":"{\"organizationName\":\"UAT Test Org 1792308783733-3jo54f\",\"firstName\":\"UAT\",\"email\":\"uat-test-1792308783733-3jo54f@example.com\",\"password\":\"StrongPassword@123\"}","timeout":30000}}
+{"type":"log","callId":"qtwn@402","time":14180.049,"message":"→ POST http://localhost:4000/api/v1/auth/register"}
+{"type":"log","callId":"qtwn@402","time":14180.061,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36"}
+{"type":"log","callId":"qtwn@402","time":14180.064,"message":"  accept: */*"}
+{"type":"log","callId":"qtwn@402","time":14180.065,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"qtwn@402","time":14180.066,"message":"  content-type: application/json"}
+{"type":"log","callId":"qtwn@402","time":14180.068,"message":"  content-length: 158"}
+{"type":"log","callId":"qtwn@402","time":21542.938,"message":"← 201 Created"}
+{"type":"log","callId":"qtwn@402","time":21543.088,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"qtwn@402","time":21543.097,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"qtwn@402","time":21543.102,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"qtwn@402","time":21543.105,"message":"  permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()"}
+{"type":"log","callId":"qtwn@402","time":21543.109,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'"}
+{"type":"log","callId":"qtwn@402","time":21543.112,"message":"  vary: Origin"}
+{"type":"log","callId":"qtwn@402","time":21543.115,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"qtwn@402","time":21543.119,"message":"  access-control-expose-headers: x-request-id"}
+{"type":"log","callId":"qtwn@402","time":21543.122,"message":"  x-request-id: 5654b463-a354-403a-8427-1e6a50d7a0b7"}
+{"type":"log","callId":"qtwn@402","time":21543.125,"message":"  x-ratelimit-limit: 10"}
+{"type":"log","callId":"qtwn@402","time":21543.129,"message":"  x-ratelimit-remaining: 7"}
+{"type":"log","callId":"qtwn@402","time":21543.138,"message":"  set-cookie: aiwos_refresh_token=f86aa530-77aa-42ab-8c53-9db2440c4922.KS6Cgej2gM4gXspYLzx019LA5ChfWHSDkdeqG718Xc4; Path=/; HttpOnly; SameSite=lax; Max-Age=2592000; Expires=Tue, 17 Nov 2026 07:33:03 GMT"}
+{"type":"log","callId":"qtwn@402","time":21543.142,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"qtwn@402","time":21543.146,"message":"  content-length: 1075"}
+{"type":"log","callId":"qtwn@402","time":21543.149,"message":"  etag: W/\"433-CtzrlDHxgi/IHZPB0Ble0rDoxMI\""}
+{"type":"log","callId":"qtwn@402","time":21543.152,"message":"  date: Sun, 18 Oct 2026 07:33:11 GMT"}
+{"type":"log","callId":"qtwn@402","time":21543.156,"message":"  connection: keep-alive"}
+{"type":"log","callId":"qtwn@402","time":21543.159,"message":"  keep-alive: timeout=5"}
+{"type":"after","callId":"qtwn@402","endTime":21546.332,"result":{"response":{"url":"http://localhost:4000/api/v1/auth/register","status":201,"statusText":"Created","headers":[{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"no-referrer"},{"name":"X-Frame-Options","value":"DENY"},{"name":"Permissions-Policy","value":"camera=(), microphone=(), geolocation=(), payment=(), usb=()"},{"name":"Content-Security-Policy","value":"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"},{"name":"Vary","value":"Origin"},{"name":"Access-Control-Allow-Credentials","value":"true"},{"name":"Access-Control-Expose-Headers","value":"x-request-id"},{"name":"x-request-id","value":"5654b463-a354-403a-8427-1e6a50d7a0b7"},{"name":"X-RateLimit-Limit","value":"10"},{"name":"X-RateLimit-Remaining","value":"7"},{"name":"Set-Cookie","value":"aiwos_refresh_token=f86aa530-77aa-42ab-8c53-9db2440c4922.KS6Cgej2gM4gXspYLzx019LA5ChfWHSDkdeqG718Xc4; Path=/; HttpOnly; SameSite=lax; Max-Age=2592000; Expires=Tue, 17 Nov 2026 07:33:03 GMT"},{"name":"Content-Type","value":"application/json; charset=utf-8"},{"name":"Content-Length","value":"1075"},{"name":"ETag","value":"W/\"433-CtzrlDHxgi/IHZPB0Ble0rDoxMI\""},{"name":"Date","value":"Sun, 18 Oct 2026 07:33:11 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=5"}],"serverAddr":{"ipAddress":"127.0.0.1","port":4000},"timing":{"startTime":1792308783768,"domainLookupStart":0,"domainLookupEnd":4.632999999999811,"connectStart":4.632999999999811,"secureConnectionStart":-1,"connectEnd":6.188000000000102,"requestStart":6.188000000000102,"responseStart":7361.106},"responseEndTiming":7365.268,"fetchUid":"89567ba4272320d7912c29eb4f67b5d4"}}}
+{"type":"before","callId":"qtwn@405","startTime":21551.33,"class":"APIRequestContext","method":"fetch","params":{"url":"/api/v1/plugins/install","method":"POST","headers":[{"name":"Authorization","value":"Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmciOiIxMThiNDc3Mi03Yjg1LTQwZDktODZmMS1mNTdmNmRkNTRkZTkiLCJyb2xlIjoiT1dORVIiLCJzaWQiOiJmODZhYTUzMC03N2FhLTQyYWItOGM1My05ZGIyNDQwYzQ5MjIiLCJ0eXBlIjoiYWNjZXNzIiwic3ViIjoiM2JjM2Q1YmEtOTYyNi00MzM3LWE5NTctOTk2Nzc2ODI5M2NlIiwiaWF0IjoxNzkyMzA4NzgzLCJleHAiOjE3OTIzMDk2ODMsImlzcyI6ImFpLXdvcmtmb3JjZS1vcy1hcGkiLCJhdWQiOiJhaS13b3JrZm9yY2Utb3MifQ.SIWlcVN-wMROId6SUpBxFghCv6Wku-CwL0TU2d9OqtU"}],"jsonData":"{\"pluginId\":\"recruitment-consultant\",\"configuration\":{\"config\":{},\"secrets\":{}},\"enable\":true}","timeout":30000}}
+{"type":"log","callId":"qtwn@405","time":21552.427,"message":"→ POST http://localhost:4000/api/v1/plugins/install"}
+{"type":"log","callId":"qtwn@405","time":21552.436,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36"}
+{"type":"log","callId":"qtwn@405","time":21552.439,"message":"  accept: */*"}
+{"type":"log","callId":"qtwn@405","time":21552.442,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"qtwn@405","time":21552.444,"message":"  Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmciOiIxMThiNDc3Mi03Yjg1LTQwZDktODZmMS1mNTdmNmRkNTRkZTkiLCJyb2xlIjoiT1dORVIiLCJzaWQiOiJmODZhYTUzMC03N2FhLTQyYWItOGM1My05ZGIyNDQwYzQ5MjIiLCJ0eXBlIjoiYWNjZXNzIiwic3ViIjoiM2JjM2Q1YmEtOTYyNi00MzM3LWE5NTctOTk2Nzc2ODI5M2NlIiwiaWF0IjoxNzkyMzA4NzgzLCJleHAiOjE3OTIzMDk2ODMsImlzcyI6ImFpLXdvcmtmb3JjZS1vcy1hcGkiLCJhdWQiOiJhaS13b3JrZm9yY2Utb3MifQ.SIWlcVN-wMROId6SUpBxFghCv6Wku-CwL0TU2d9OqtU"}
+{"type":"log","callId":"qtwn@405","time":21552.447,"message":"  content-type: application/json"}
+{"type":"log","callId":"qtwn@405","time":21552.449,"message":"  content-length: 94"}
+{"type":"log","callId":"qtwn@405","time":21552.451,"message":"  cookie: aiwos_refresh_token=f86aa530-77aa-42ab-8c53-9db2440c4922.KS6Cgej2gM4gXspYLzx019LA5ChfWHSDkdeqG718Xc4"}
+{"type":"log","callId":"qtwn@405","time":21592.188,"message":"← 201 Created"}
+{"type":"log","callId":"qtwn@405","time":21592.197,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"qtwn@405","time":21592.205,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"qtwn@405","time":21592.207,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"qtwn@405","time":21592.209,"message":"  permissions-policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()"}
+{"type":"log","callId":"qtwn@405","time":21592.212,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'; base-uri 'none'"}
+{"type":"log","callId":"qtwn@405","time":21592.214,"message":"  vary: Origin"}
+{"type":"log","callId":"qtwn@405","time":21592.215,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"qtwn@405","time":21592.217,"message":"  access-control-expose-headers: x-request-id"}
+{"type":"log","callId":"qtwn@405","time":21592.219,"message":"  x-request-id: 91adda23-131b-44ab-be32-75aac7e6fcf7"}
+{"type":"log","callId":"qtwn@405","time":21592.221,"message":"  x-ratelimit-limit: 300"}
+{"type":"log","callId":"qtwn@405","time":21592.223,"message":"  x-ratelimit-remaining: 279"}
+{"type":"log","callId":"qtwn@405","time":21592.225,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"qtwn@405","time":21592.231,"message":"  content-length: 1941"}
+{"type":"log","callId":"qtwn@405","time":21592.233,"message":"  etag: W/\"795-oS6S4qmS6w+Eu/4BD5YlUzAKsVs\""}
+{"type":"log","callId":"qtwn@405","time":21592.235,"message":"  date: Sun, 18 Oct 2026 07:33:11 GMT"}
+{"type":"log","callId":"qtwn@405","time":21592.237,"message":"  connection: keep-alive"}
+{"type":"log","callId":"qtwn@405","time":21592.239,"message":"  keep-alive: timeout=5"}
+{"type":"after","callId":"qtwn@405","endTime":21592.36,"result":{"response":{"url":"http://localhost:4000/api/v1/plugins/install","status":201,"statusText":"Created","headers":[{"name":"X-Content-Type-Options","value":"nosniff"},{"name":"Referrer-Policy","value":"no-referrer"},{"name":"X-Frame-Options","value":"DENY"},{"name":"Permissions-Policy","value":"camera=(), microphone=(), geolocation=(), payment=(), usb=()"},{"name":"Content-Security-Policy","value":"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"},{"name":"Vary","value":"Origin"},{"name":"Access-Control-Allow-Credentials","value":"true"},{"name":"Access-Control-Expose-Headers","value":"x-request-id"},{"name":"x-request-id","value":"91adda23-131b-44ab-be32-75aac7e6fcf7"},{"name":"X-RateLimit-Limit","value":"300"},{"name":"X-RateLimit-Remaining","value":"279"},{"name":"Content-Type","value":"application/json; charset=utf-8"},{"name":"Content-Length","value":"1941"},{"name":"ETag","value":"W/\"795-oS6S4qmS6w+Eu/4BD5YlUzAKsVs\""},{"name":"Date","value":"Sun, 18 Oct 2026 07:33:11 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=5"}],"serverAddr":{"ipAddress":"127.0.0.1","port":4000},"timing":{"startTime":1792308791141,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":0.5720000000001164,"responseStart":39.61800000000221},"responseEndTiming":39.85399999999936,"fetchUid":"36bd4206d7e11453b61b93abda160427"}}}

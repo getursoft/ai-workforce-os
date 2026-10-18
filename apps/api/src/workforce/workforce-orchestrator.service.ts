@@ -600,6 +600,20 @@ export class WorkforceOrchestratorService implements OnModuleInit {
       return this.failTask(taskId, "TASK_TIMED_OUT", "The delegated task timed out before it could run.");
     }
 
+    // Phase 5.3 — background worker suspension audit. WorkforceTaskProcessor's polling timer calls
+    // dispatch() on a call stack with no HTTP request and therefore no JwtAccessGuard involved at all — a
+    // task queued (ASYNCHRONOUS mode) before the organization was suspended would otherwise still run an
+    // AI employee against live tenant data. ORGANIZATION_SUSPENDED is deliberately not in failTask's
+    // retryableCodes set, so this is a terminal failure, not an auto-retry loop — if the organization is
+    // later reactivated, a fresh delegation must be issued rather than a stale one silently resuming.
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: task.organizationId },
+      select: { status: true }
+    });
+    if (!organization || organization.status !== "ACTIVE") {
+      return this.failTask(taskId, "ORGANIZATION_SUSPENDED", "The organization is not active.");
+    }
+
     await this.prisma.employeeDelegatedTask.update({
       where: { id: taskId },
       data: { status: "RUNNING", startedAt: task.startedAt ?? new Date(), attemptCount: { increment: 1 } }

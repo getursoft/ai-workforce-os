@@ -7,6 +7,10 @@ export interface ModelMessage {
   role: ModelRole;
   content: string;
   toolCallId?: string;
+  /** Set only on an `assistant` message that proposed tool calls — shape mirrors plugin-sdk's AiToolCall
+   *  (not this file's own ToolCall, which uses `input`) so ModelMessage stays structurally assignable to
+   *  AiMessage wherever a ModelRequest is passed straight into an AiProvider.complete() call. */
+  toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
 }
 export interface ToolCall {
   id: string;
@@ -102,6 +106,10 @@ export interface ToolExecutionContext {
   userId: string | null;
   pluginInstallationId: string;
   conversationId: string;
+  /** The attachment IDs the user included in THIS turn (never model-supplied — a tool that needs "the
+   *  file the user just sent" reads it from here rather than trusting an id argument the model invented).
+   *  Optional so every existing ToolExecutionContext literal (most tools never need it) stays valid. */
+  attachmentIds?: readonly string[];
 }
 
 /** Identifies who triggered an agent execution: a dashboard user, an external channel counterpart, or

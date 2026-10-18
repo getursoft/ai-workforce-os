@@ -1,0 +1,31 @@
+{
+  "id": "recruitment-consultant",
+  "name": "AI Recruitment Consultant",
+  "version": "1.0.0",
+  "displayName": "AI Recruitment Consultant",
+  "description": "Internal AI recruitment consultant. Manages job openings, parses and scores candidate resumes against approved job criteria, and surfaces recommendations for a recruiter's own review and decision.",
+  "author": "AI Workforce OS",
+  "entryPoint": "dist/index.js",
+  "permissions": ["LLM", "MEMORY", "TOOLS"],
+  "capabilities": ["recruitment.jobs", "recruitment.resumes", "recruitment.candidates"],
+  "tools": [
+    { "name": "recruitment.list_jobs", "description": "List the organization's job openings" },
+    { "name": "recruitment.create_job", "description": "Post a new job opening from a title and description" },
+    { "name": "recruitment.list_candidates", "description": "Search/list candidate applications for a job" },
+    { "name": "recruitment.shortlist_candidate", "description": "Mark a candidate application as shortlisted" },
+    { "name": "recruitment.upload_resume", "description": "Upload an attached resume file against a job opening" }
+  ],
+  "routing": {
+    "employeeKey": "recruitment-consultant",
+    "employeeType": "RECRUITMENT_CONSULTANT",
+    "displayName": "AI Recruitment Consultant",
+    "summary": "Internal recruitment operations — not reachable via customer-facing channels.",
+    "domains": [],
+    "capabilities": [],
+    "intents": [],
+    "examples": [],
+    "aliases": [],
+    "keywords": [],
+    "delegationEnabled": false
+  }
+}

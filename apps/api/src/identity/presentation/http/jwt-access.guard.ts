@@ -20,6 +20,7 @@ import { ApiKeyCrypto } from "../../../service-accounts/api-key.crypto";
 import { OrganizationId } from "../../domain/organization/organization-id";
 import { ApiKeyStatus, OrganizationStatus, ServiceAccountStatus } from "@prisma/client";
 import type { AuthenticatedPrincipal } from "../../application/ports/authenticated-principal";
+import { identityError } from "../../application/errors/identity.error";
 
 const BEARER = /^Bearer ([^\s,]+)$/;
 const API_KEY = /^ApiKey ([^\s,]+)$/;
@@ -62,11 +63,32 @@ export class JwtAccessGuard implements CanActivate {
     }
     try {
       request.principal = await this.accessTokens.verify(match[1]);
-      return true;
     } catch {
       this.securityLogger.failure("me_unauthorized", request.requestId, "invalid_access_token");
       throw new UnauthorizedException();
     }
+    // Phase 5.2 — organization suspension enforcement. The access token itself is a self-contained,
+    // stateless JWT (JoseAccessTokenService.verify does signature + expiry only, no DB read) — it stays
+    // cryptographically valid for its full TTL regardless of anything that happens to the organization
+    // after issuance. This guard is the one shared boundary every tenant-scoped controller in the
+    // codebase runs through before any handler or PermissionGuard logic, so it is the authoritative place
+    // to re-derive organization state fresh on every single request, not just at login/refresh. Mirrors
+    // the already-established, already-reviewed policy in OrganizationAccessService (used by /auth/me,
+    // GET /organizations/:id, and the organization-settings handlers) verbatim: a non-ACTIVE organization
+    // blocks access for EVERY principal resolved into it, with no platform-owner exception — switching
+    // into a suspended organization is already refused by SwitchOrganizationHandler, so a platform owner
+    // never legitimately holds a token scoped to one. Always a fresh, uncached DB read (same approach as
+    // the API-key branch above and AuthorizationService.canAccessOrganization/getEffectivePermissions
+    // below) — never trusts a cache for this, so a stale permission cache can never bypass a suspension.
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: request.principal.organizationId.toString() },
+      select: { status: true }
+    });
+    if (!organization || organization.status !== OrganizationStatus.ACTIVE) {
+      this.securityLogger.failure("me_unauthorized", request.requestId, "organization_inactive");
+      throw identityError.organizationInactive();
+    }
+    return true;
   }
   private async authenticateApiKey(request: IdentityRequest, raw: string): Promise<void> {
     const parsed = new ApiKeyCrypto(this.config.apiKey.pepper).parse(raw);

@@ -1,0 +1,132 @@
+{
+  "title": "Krevia Sprint 7.17 — Export Permission Revocation UAT",
+  "objective": "Close the blocker flagged by Krevia_Sprint_7.17_Phase5_Remaining_Verification: an export queued before a permission revocation could continue and complete without rechecking the requester's current authorization.",
+  "generatedAt": "2026-10-16T17:30:00+05:30",
+  "verdict": "PASS WITH BLOCKERS",
+  "verdictRationale": "The specific blocker described (a queued export completing after the requester's authorization is revoked) is fixed and verified with real, executed tests covering every lifecycle stage named in the task: request time, queued, retried, membership loss, cross-tenant, cross-user, post-generation-pre-download, and worker lookup failure. Two narrower, lower-severity residual risks remain disclosed below and were deliberately not fixed in this pass to respect the 'minimal remediation only, avoid broad refactoring' constraint, since neither was part of the originally-reported blocker.",
+  "lifecycleTrace": {
+    "exportRequestAuthorization": "RecruitmentCandidatesController.requestExport is gated by @RequirePermission('recruitment.candidates.export') via PermissionGuard, which calls AuthorizationService.hasAllPermissions against the current DB state (subject to a 5-minute per-user cache, invalidated immediately by every revocation action that goes through ManagementService). organizationId/userId are always taken from the JWT-derived AuthenticatedPrincipal (org()/user() helpers), never from client-supplied body/query values.",
+    "exportJobCreationAndPersistedContext": "RecruitmentExportService.requestExport persists organizationId and requestedByUserId on the RecruitmentExportJob row at creation time (database/prisma/schema.prisma RecruitmentExportJob model) — this is the only identity the worker later trusts; it is never re-derived from anything client-supplied.",
+    "queueAdapterAndWorker": "Rows exceeding SYNCHRONOUS_ROW_CAP (5000) are marked QUEUED and published to the RECRUITMENT_EXPORTS category on the same PostgresQueueAdapter/QueueConsumerWorker every other background job type uses. RecruitmentExportWorkerService.handle() is the single drain entry point for both a first attempt and every retried attempt.",
+    "workerRetriesAndDeadLetter": "Retries use QueueConsumerWorker's existing exponential-backoff/dead-letter ladder (maxAttempts: 5) — handle() returning false hands control back to that existing mechanism; nothing bespoke was added for retry scheduling.",
+    "cancellationAndStatusPolling": "cancelExport only allows QUEUED/PROCESSING jobs; the worker's isCancelled() check runs once per EXPORT_PAGE_SIZE page, never mid-page, and getExportStatus is the one real-time polling surface.",
+    "artifactStorageAndDownloadRoutes": "A completed artifact is stored under a per-job storageKey and gated by a single-use-pattern (but reusable within its 24h expiry) random downloadToken; getDownloadUrl mints a short-lived (300s) signed URL on each call rather than exposing a permanent public link.",
+    "existingExportPermissionPolicy": "recruitment.candidates.export remains its own, broader permission distinct from recruitment.candidates.contact — confirmed unchanged; export continues to deliberately pass includeContact: true at every query-service call site, exactly as documented since Sprint 7.16 and re-verified (not altered) by the prior Phase 5 Remaining Verification audit.",
+    "existingTenantIsolationAndAuditLogging": "organizationId scoping on every Prisma lookup was already present and remains unchanged (tenant isolation). Audit trail is the RecruitmentExportJob row's own status/errorMessage/downloadCount/lastDownloadedAt fields plus structured logger.* calls — there is no separate AuditLog model for exports in this codebase, consistent with the rest of the module.",
+    "gapsFoundBeforeThisFix": [
+      "RecruitmentExportWorkerService.handle() never re-verified the requester's current permission or organization membership before processing a QUEUED job — authorization was checked exactly once, at the original HTTP request, which the worker never sees again.",
+      "getExportStatus/cancelExport/getDownloadUrl were scoped to organizationId only, not to the original requestedByUserId — any other user in the same organization who independently held recruitment.candidates.export could poll, cancel or download someone else's export job."
+    ]
+  },
+  "policyImplemented": {
+    "summary": "Fail-closed export authorization lifecycle, implemented without altering the existing recruitment.candidates.export vs. recruitment.candidates.contact distinction or any other permission.",
+    "rules": [
+      "Export permission is checked when the job is requested (pre-existing, unchanged, via PermissionGuard).",
+      "RecruitmentExportWorkerService.handle() now re-derives the requester's CURRENT organization membership (AuthorizationService.canAccessOrganization) and CURRENT recruitment.candidates.export permission (AuthorizationService.hasPermission) from the database every single time it runs — first attempt and every retry alike — before marking the job PROCESSING.",
+      "If that recheck fails (permission or membership gone), the job is marked CANCELLED with errorMessage RECRUITMENT_EXPORT_AUTHORIZATION_REVOKED and the handler returns true (handled, not retried) — no file is generated.",
+      "If the authorization lookup itself throws, the job is marked FAILED with errorMessage RECRUITMENT_EXPORT_AUTH_CHECK_FAILED and no file is generated — an unreadable authorization state is treated as denied, not as a transient error to retry.",
+      "getExportStatus, cancelExport and getDownloadUrl now additionally filter by requestedByUserId (not just organizationId) — a different user, even one who independently holds the export permission, gets the same 404 a cross-tenant request gets, never a 403 that would confirm the job's existence.",
+      "A completed artifact already cannot be downloaded by a requester whose access has since been revoked: PermissionGuard re-checks recruitment.candidates.export on every HTTP request including the download route, and this was true before this fix — confirmed, not newly added.",
+      "Organization/user identity is never trusted from client input anywhere in this flow; org()/user() in the controller always read from the JWT-derived principal.",
+      "No new telephony/export provider was connected; no automated calling was added; no existing permission or the export-vs-contact policy distinction was changed."
+    ]
+  },
+  "filesChanged": [
+    {
+      "file": "apps/api/src/recruitment/recruitment-export-worker.ts",
+      "reason": "Injected AuthorizationService; added isRequesterAuthorized() re-derivation of membership+permission at the top of handle() (covering first attempt and every retry); fail-closed branches for 'revoked' (CANCELLED) and 'lookup failed' (FAILED), both before any file generation begins."
+    },
+    {
+      "file": "apps/api/src/recruitment/recruitment-export.service.ts",
+      "reason": "Added a requestedByUserId parameter to getExportStatus, cancelExport and getDownloadUrl, scoping each lookup to the original requester in addition to the existing organizationId scope."
+    },
+    {
+      "file": "apps/api/src/recruitment/recruitment-candidates.controller.ts",
+      "reason": "Threaded user(p) through to the three service calls above so the new ownership scoping has the current caller's id to check against."
+    },
+    {
+      "file": "apps/api/src/recruitment/recruitment-export-worker.e2e.spec.ts",
+      "reason": "Updated three pre-existing call sites (getDownloadUrl, cancelExport x2) to pass the now-required requestedByUserId argument. No behavioral change to these tests; all 6 continue to pass."
+    },
+    {
+      "file": "apps/api/src/recruitment/recruitment-export-revocation.e2e.spec.ts",
+      "reason": "New file. 10 real, executed regression tests (EXPREV-001 through EXPREV-010) covering every scenario listed in the task: still-authorized control case, revoked-while-queued, revoked-before-retry, membership-lost-before-execution, cross-tenant job-ID guessing, same-org different-user polling/cancelling/downloading, revoked-after-generation-before-download (via the real HTTP guard), worker authorization-lookup failure (simulated fault injection on our own injected AuthorizationService dependency, not a real provider), filter/row-count correctness through the worker, and no stale/partial artifact ever being downloadable after a security-cancelled job."
+    }
+  ],
+  "testExecution": {
+    "commands": [
+      "npx tsc --noEmit -p tsconfig.json   (apps/api)",
+      "npx vitest run src/recruitment/recruitment-export-worker.e2e.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/recruitment/recruitment-export-revocation.e2e.spec.ts --reporter=verbose   (apps/api)",
+      "npx vitest run src/recruitment/ --reporter=verbose   (apps/api, full recruitment module regression)"
+    ],
+    "results": {
+      "backendTypecheck": {
+        "totalErrors": 84,
+        "newErrorsInTouchedFiles": 0,
+        "note": "84 is the pre-existing baseline across the whole apps/api project (employee-runtime.spec.ts, receptionist.service.spec.ts, recruitment-cross-platform.e2e.spec.ts, recruitment-scoring.service.spec.ts, recruitment-export-worker.e2e.spec.ts's 3 unused-var warnings, recruitment-export.benchmark.e2e.spec.ts, recruitment.e2e.spec.ts — none newly introduced by this task's edits). Verified by grepping the full error output for the 3 files this task modified for production logic plus the new spec file: zero matches."
+      },
+      "newExportRevocationSuite": { "file": "recruitment-export-revocation.e2e.spec.ts", "passed": 10, "failed": 0, "skipped": 0, "testCount": 10 },
+      "preExistingExportWorkerSuite": { "file": "recruitment-export-worker.e2e.spec.ts", "passed": 6, "failed": 0, "skipped": 0, "note": "All 6 pre-existing tests still pass with the new authorization recheck in place — the synthetic test users are OWNER-role (all-permissions fallback) or carry a real export-permission grant, so the recheck legitimately succeeds for them." },
+      "fullRecruitmentModuleRegression": { "testFiles": 8, "passed": 71, "skipped": 5, "failed": 0, "totalTests": 76, "note": "5 skipped are the pre-existing, previously-verified NOT APPLICABLE provider-callback stubs (SEC-CALL-012 through 016) from the prior Phase 5 audit — unrelated to this task, unchanged." },
+      "orphanedTestDataCheck": { "organizationsNamedExportRevocation": 0, "note": "Confirmed via a direct query against TEST_DATABASE_URL after the full suite run." }
+    },
+    "environmentLimitations": [
+      "Website (Playwright) and iOS test suites were NOT run for this task — the change is backend-only (RecruitmentExportWorkerService, RecruitmentExportService, RecruitmentCandidatesController) and the dashboard's export API calls (apps/dashboard/src/features/recruitment/recruitment-api.ts) are plain HTTP calls with no coupling to the changed TypeScript method signatures, confirmed by inspection. Per the task's own instruction ('Run website or iOS tests only if affected'), these were correctly out of scope.",
+      "No real external telephony or storage provider was used; the existing local object-storage adapter (already used by every other export test in this module) was used for all file generation in these tests.",
+      "Disk space was checked before any test run (15Gi available of 119Gi) — no expensive browser/build/simulator task was needed for this backend-only task."
+    ]
+  },
+  "requirementsChecklist": [
+    { "requirement": "Check export permission when the job is requested", "status": "VERIFIED — pre-existing, unchanged (PermissionGuard)" },
+    { "requirement": "Recheck current organization membership and export permission before processing begins", "status": "IMPLEMENTED AND TESTED (EXPREV-002, EXPREV-004)" },
+    { "requirement": "Recheck authorization before each retry or resumed execution", "status": "IMPLEMENTED AND TESTED (EXPREV-003) — the recheck runs at the top of handle(), which is the sole entry point for every retry" },
+    { "requirement": "Prevent unauthorized users from polling or downloading another user's or another tenant's export", "status": "IMPLEMENTED AND TESTED (EXPREV-005 cross-tenant, EXPREV-006 cross-user same tenant)" },
+    { "requirement": "Revoke or cancel pending jobs if authorization has been revoked before processing", "status": "IMPLEMENTED AND TESTED (EXPREV-002) — job status set to CANCELLED, not silently left QUEUED" },
+    { "requirement": "A completed artifact cannot be downloaded by a requester whose access is no longer authorized", "status": "VERIFIED, PRE-EXISTING BEHAVIOR, TESTED (EXPREV-007) — PermissionGuard already rechecks on every HTTP request" },
+    { "requirement": "Never trust organization or user IDs supplied by the client", "status": "VERIFIED, PRE-EXISTING, UNCHANGED — org()/user() always read from the JWT principal" },
+    { "requirement": "Preserve the existing distinction between recruitment.candidates.export and contact-view permissions", "status": "VERIFIED UNCHANGED — no permission or policy was altered" },
+    { "requirement": "If authorization state cannot be retrieved safely, fail closed", "status": "IMPLEMENTED AND TESTED (EXPREV-008) — lookup failure produces FAILED with no file, not a guess" }
+  ],
+  "regressionTestCaseMapping": [
+    { "id": "EXPREV-001", "case": "Export permission held at both request and execution time", "result": "PASS" },
+    { "id": "EXPREV-002", "case": "Permission revoked while the job is queued", "result": "PASS" },
+    { "id": "EXPREV-003", "case": "Permission revoked before a retry", "result": "PASS" },
+    { "id": "EXPREV-004", "case": "User loses organization membership before execution", "result": "PASS" },
+    { "id": "EXPREV-005", "case": "Cross-tenant job ID guessing", "result": "PASS" },
+    { "id": "EXPREV-006", "case": "Another user attempts to poll or download the export", "result": "PASS" },
+    { "id": "EXPREV-007", "case": "Permission revoked after artifact generation but before download", "result": "PASS" },
+    { "id": "EXPREV-008", "case": "Worker authorization lookup fails", "result": "PASS" },
+    { "id": "EXPREV-009", "case": "Authorized export preserves expected row counts and filtering", "result": "PASS" },
+    { "id": "EXPREV-010", "case": "Cancellation does not leak partial files or leave accessible stale artifacts", "result": "PASS" }
+  ],
+  "remainingBlockers": [
+    {
+      "id": "BLOCKER-1",
+      "severity": "LOW",
+      "description": "Authorization is rechecked once at the start of a worker attempt, not per page during a single long-running attempt. A permission revoked in the middle of an already-in-progress single attempt (not between attempts/retries) will not stop that in-progress attempt from completing.",
+      "scope": "Deliberately not fixed in this pass — not part of the originally-reported blocker (which was specifically about the QUEUED-to-PROCESSING gap, now closed) and fixing it would mean adding a per-page authorization check, a broader change than this task's 'minimal remediation only' instruction allows.",
+      "exposureBound": "Bounded by a single attempt's real duration — the Phase 3 scale benchmark re-run in this task shows even a 25,000-row export completes in under 17 seconds.",
+      "proposedSmallestFix": "Extend the existing per-page isCancelled() check in RecruitmentExportWorkerService.writeCsv/writeXlsx to also call isRequesterAuthorized() on the same cadence, treating 'no longer authorized' exactly like 'cancelled' (break out of the loop, discard the partial temp file).",
+      "owner": "Product/security sign-off needed before implementing, since it changes worker behavior beyond what was explicitly requested.",
+      "acceptanceCriteria": "A new test that revokes permission between two pages of a multi-page export and asserts the job stops with CANCELLED and no uploaded artifact."
+    },
+    {
+      "id": "BLOCKER-2",
+      "severity": "LOW",
+      "description": "AuthorizationService.hasPermission caches effective permissions for 5 minutes, invalidated immediately by every revocation path that goes through ManagementService. If a future revocation path is added that mutates role/permission data directly (bypassing ManagementService's invalidateUser/invalidateOrganization calls), the worker's recheck could read a stale cached grant for up to 5 minutes.",
+      "scope": "Inherited, pre-existing limitation of AuthorizationService's design (already documented in the prior Phase 5 Remaining Verification audit's AUDIT-009) — not introduced or changed by this task, and changing the cache's design is out of scope here.",
+      "proposedSmallestFix": "None proposed in this pass; flagging so any future revocation code path is written to call AuthorizationService.invalidateUser/invalidateOrganization, matching the existing convention.",
+      "owner": "Whoever implements the next permission-revocation code path.",
+      "acceptanceCriteria": "N/A — advisory note, not an open defect in current code."
+    }
+  ],
+  "safetyConstraintsObserved": [
+    "No real external telephony or storage provider was called.",
+    "No production candidate data was used — every test seeds its own synthetic organizations, users, candidates and resumes with .invalid emails and placeholder phone numbers.",
+    "No credentials or secrets were printed in test output or in this report.",
+    "No project or user data was deleted to free disk space — disk space was simply checked (15Gi free) before running any test.",
+    "No permission, role, or the export-vs-contact policy distinction was changed.",
+    "All reported test counts are from commands actually executed in this session, with full command text and output reviewed before being summarized here."
+  ]
+}

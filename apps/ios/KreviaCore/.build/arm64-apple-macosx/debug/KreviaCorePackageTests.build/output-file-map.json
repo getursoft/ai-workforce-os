@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/primary.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.derived/runner.swift": {
+    "dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/runner.d",
+    "object": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/runner.swift.o",
+    "swiftmodule": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/KreviaCore/.build/arm64-apple-macosx/debug/KreviaCorePackageTests.build/runner.dia"
+  }
+}

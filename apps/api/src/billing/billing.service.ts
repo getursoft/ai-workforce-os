@@ -61,6 +61,35 @@ export interface CapabilityUsage {
   sharePercentage: number;
 }
 
+export interface EmployeeOverview {
+  pluginInstallationId: string;
+  name: string;
+  type: string;
+  active: boolean;
+  conversations: number;
+  leadsGenerated: number;
+  creditsConsumed: number;
+  lastActivityAt: string | null;
+}
+
+export interface EmployeeUsageWindow {
+  creditsConsumed: number;
+  executions: number;
+}
+
+export interface EmployeeDetail {
+  pluginInstallationId: string;
+  name: string;
+  type: string;
+  active: boolean;
+  usageToday: EmployeeUsageWindow;
+  usageWeek: EmployeeUsageWindow;
+  usageMonth: EmployeeUsageWindow;
+  leadsGenerated: number;
+  conversations: number;
+  recentActivity: Array<{ id: string; status: string; occurredAt: string; creditsConsumed: number }>;
+}
+
 export interface ModelUsage {
   provider: string;
   model: string;
@@ -341,6 +370,95 @@ export class BillingService {
         executions: g._count.id
       };
     });
+  }
+
+  /** One row per installed AI Employee (tenant-scoped) — status, conversations/leads/credits for the
+   *  given window, and last activity. Backs the mobile app's Employees screen; avoids a mobile-only
+   *  N-call fan-out over `/plugins` + `/billing/usage/by-employee` + `/leads`. */
+  async employeesOverview(organizationId: string, start: Date, end: Date): Promise<EmployeeOverview[]> {
+    const plugins = await this.prisma.plugin.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { id: true, displayName: true, slug: true, status: true }
+    });
+    if (plugins.length === 0) return [];
+    const ids = plugins.map((p) => p.id);
+    const [execGroups, leadGroups] = await Promise.all([
+      this.prisma.agentExecution.groupBy({
+        by: ["pluginInstallationId"],
+        where: { organizationId, pluginInstallationId: { in: ids }, status: "COMPLETED", createdAt: { gte: start, lte: end } },
+        _sum: { totalTokens: true }, _count: { id: true }, _max: { createdAt: true }
+      }),
+      this.prisma.lead.groupBy({
+        by: ["agentId"],
+        where: { organizationId, agentId: { in: ids }, createdAt: { gte: start, lte: end } },
+        _count: { id: true }
+      })
+    ]);
+    const execMap = new Map(execGroups.map((g) => [g.pluginInstallationId, g]));
+    const leadMap = new Map(leadGroups.map((g) => [g.agentId as string, g._count.id]));
+    return plugins.map((p) => {
+      const exec = execMap.get(p.id);
+      return {
+        pluginInstallationId: p.id,
+        name: p.displayName,
+        type: p.slug,
+        active: p.status === "ACTIVE",
+        conversations: exec?._count.id ?? 0,
+        leadsGenerated: leadMap.get(p.id) ?? 0,
+        creditsConsumed: Math.ceil(((exec?._sum.totalTokens ?? 0) * 4) / 1000),
+        lastActivityAt: exec?._max.createdAt?.toISOString() ?? null
+      };
+    });
+  }
+
+  /** Single-employee drill-down: today/7-day/30-day usage windows (server-computed, never estimated on
+   *  the client), lifetime-in-window leads/conversations, and the last 20 executions as an activity feed. */
+  async employeeDetail(organizationId: string, pluginInstallationId: string): Promise<EmployeeDetail | null> {
+    const plugin = await this.prisma.plugin.findFirst({
+      where: { id: pluginInstallationId, organizationId, deletedAt: null },
+      select: { id: true, displayName: true, slug: true, status: true }
+    });
+    if (!plugin) return null;
+
+    const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const startOfWeek = new Date(startOfToday.getTime() - 6 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(startOfToday.getTime() - 29 * 24 * 60 * 60 * 1000);
+
+    const windowUsage = async (start: Date): Promise<EmployeeUsageWindow> => {
+      const agg = await this.prisma.agentExecution.aggregate({
+        where: { organizationId, pluginInstallationId, status: "COMPLETED", createdAt: { gte: start, lte: now } },
+        _sum: { totalTokens: true }, _count: { id: true }
+      });
+      return { creditsConsumed: Math.ceil(((agg._sum.totalTokens ?? 0) * 4) / 1000), executions: agg._count.id };
+    };
+
+    const [usageToday, usageWeek, usageMonth, leadsGenerated, conversations, recent] = await Promise.all([
+      windowUsage(startOfToday),
+      windowUsage(startOfWeek),
+      windowUsage(startOfMonth),
+      this.prisma.lead.count({ where: { organizationId, agentId: pluginInstallationId, createdAt: { gte: startOfMonth } } }),
+      this.prisma.agentExecution.count({ where: { organizationId, pluginInstallationId, status: "COMPLETED", createdAt: { gte: startOfMonth } } }),
+      this.prisma.agentExecution.findMany({
+        where: { organizationId, pluginInstallationId },
+        select: { id: true, status: true, createdAt: true, totalTokens: true },
+        orderBy: { createdAt: "desc" },
+        take: 20
+      })
+    ]);
+
+    return {
+      pluginInstallationId: plugin.id,
+      name: plugin.displayName,
+      type: plugin.slug,
+      active: plugin.status === "ACTIVE",
+      usageToday, usageWeek, usageMonth,
+      leadsGenerated, conversations,
+      recentActivity: recent.map((r) => ({
+        id: r.id, status: r.status, occurredAt: r.createdAt.toISOString(),
+        creditsConsumed: Math.ceil((r.totalTokens * 4) / 1000)
+      }))
+    };
   }
 
   billingPeriod(sub?: { billingCycleStart: Date; billingCycleEnd: Date }): { start: Date; end: Date } {

@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma, TravelLead, TravelLeadCrmSyncStatus } from "@prisma/client";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { generateLeadReference } from "../conversation/conversation-completion";
+import { LeadService } from "../leads/lead.service";
 
 /**
  * Everything needed to persist a {@link TravelLead}, from any Travel Employee execution path (LLM
@@ -44,7 +45,10 @@ export interface CreateInternalLeadInput {
 export class TravelLeadService {
   private readonly logger = new Logger(TravelLeadService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly leadService: LeadService
+  ) {}
 
   async findCurrentLead(input: {
     organizationId: string;
@@ -89,6 +93,29 @@ export class TravelLeadService {
    * phone number were already collected, so consent is implicit in the row existing at all.
    */
   async createInternalLead(input: CreateInternalLeadInput): Promise<TravelLead> {
+    const lead = await this.persistTravelLead(input);
+    // Krevia CRM mirror: best-effort, never allowed to affect the domain TravelLead this method's callers
+    // actually depend on — same "internal record always wins" contract as the CRM-connector sync below.
+    // Runs for EVERY call (including the idempotent-return path), so a continued conversation keeps the
+    // canonical Lead's requirement/lastActivityAt current instead of only ever reflecting the first turn.
+    try {
+      await this.leadService.captureFromChannel({
+        organizationId: input.organizationId,
+        source: "WEB_CHAT",
+        agentId: input.pluginInstallationId,
+        conversationId: input.conversationId,
+        name: lead.customerName,
+        phone: lead.phoneNumber,
+        email: lead.email,
+        requirement: input.conversationSummary
+      });
+    } catch (error) {
+      this.logger.warn({ event: "KREVIA_CRM_LEAD_CAPTURE_FAILED", leadId: lead.id, error: String(error) });
+    }
+    return lead;
+  }
+
+  private async persistTravelLead(input: CreateInternalLeadInput): Promise<TravelLead> {
     const idempotencyKey = this.buildIdempotencyKey(input.organizationId, input.conversationId, input.journeyId);
     const existing = await this.prisma.travelLead.findUnique({ where: { idempotencyKey } });
     // Tenant isolation: even though the key already embeds organizationId (so a cross-tenant collision on

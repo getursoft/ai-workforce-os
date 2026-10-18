@@ -12,6 +12,7 @@ import { resolveCustomerIdentity } from "../customer-identity/customer-identity.
 import { TRAVEL_EMPLOYEE_PLUGIN_SLUG } from "../travel/travel.runtime";
 import { AgentService, type MemoryService } from "./agent.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 
 /**
  * Regression coverage for the AiConfigurationResolverService metadata-propagation gap found during the
@@ -109,7 +110,7 @@ describe("AgentService: shared AI-configuration resolution metadata propagation"
       { toolHandlers: () => [], availableToolNames: vi.fn().mockResolvedValue([]) } as unknown as ConnectorService,
       { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
-      new TravelLeadService(prisma as unknown as PrismaService),
+      new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService)),
       SECURITY_CONFIG_STUB,
       undefined,
       undefined,
@@ -163,7 +164,7 @@ describe("AgentService: shared AI-configuration resolution metadata propagation"
       { toolHandlers: () => [], availableToolNames: vi.fn().mockResolvedValue([]) } as unknown as ConnectorService,
       { search: vi.fn().mockResolvedValue([]) } as unknown as KnowledgeSearchService,
       CUSTOMER_IDENTITY_STUB,
-      new TravelLeadService(prisma as unknown as PrismaService),
+      new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService)),
       SECURITY_CONFIG_STUB,
       undefined,
       undefined,

@@ -1,0 +1,23 @@
+{
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Conversations/ConversationDetailView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/ConversationDetailView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/ConversationDetailView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/ConversationDetailView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/ConversationDetailView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/ConversationDetailView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Usage/UsageView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/UsageView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/UsageView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/UsageView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/UsageView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/UsageView.swiftdeps"
+  },
+  "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/Krevia/Views/Usage/WalletView.swift" : {
+    "const-values" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/WalletView.swiftconstvalues",
+    "dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/WalletView.d",
+    "diagnostics" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/WalletView.dia",
+    "object" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/WalletView.o",
+    "swift-dependencies" : "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/ios/build/Krevia.build/Debug-iphonesimulator/Krevia.build/Objects-normal/x86_64/WalletView.swiftdeps"
+  }
+}

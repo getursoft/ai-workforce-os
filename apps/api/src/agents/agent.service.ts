@@ -20,9 +20,10 @@ import {
   ConversationStatus,
   PluginStatus,
   Prisma,
+  RecruitmentDecision,
   TravelLeadCrmSyncStatus
 } from "@prisma/client";
-import type { AiProvider } from "@ai-workforce-os/plugin-sdk";
+import type { AiCompletionResult, AiProvider } from "@ai-workforce-os/plugin-sdk";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { BillingEnforcementService } from "../billing/billing-enforcement.service";
 import { ObservabilityService } from "../observability/observability.service";
@@ -95,6 +96,7 @@ import { classifyRequestIntent, isKnowledgeEligible } from "./request-classifier
 import { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import type { CustomerIdentity } from "../customer-identity/customer-identity.types";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import { TravelBookingService } from "../travel/booking/travel-booking.service";
 import { formatMoney } from "../travel/currency.service";
 import {
@@ -164,6 +166,12 @@ import {
   MEMORY_SUMMARIZE_THRESHOLD
 } from "../memory/memory.service";
 import { formatMemoryContextBlock } from "../memory/memory.prompt";
+import { RecruitmentJobService } from "../recruitment/recruitment-job.service";
+import { RecruitmentParsingService } from "../recruitment/recruitment-parsing.service";
+import { RecruitmentResumeService, type UploadedResumeFile } from "../recruitment/recruitment-resume.service";
+import { RecruitmentCandidateQueryService } from "../recruitment/recruitment-candidate-query.service";
+import { ConversationAttachmentService } from "../attachments/attachment.service";
+import { RecruitmentChatIdentityVerificationService } from "../recruitment/recruitment-chat-identity-verification.service";
 
 @Injectable()
 export class MemoryService {
@@ -315,6 +323,40 @@ const EMPLOYEE_PROVIDER_SETTINGS: ProviderSettings = {
   timeoutMs: 15000
 };
 
+/** Placeholder settings used for logging/telemetry when NoAiProviderConfiguredFallback runs. */
+const NO_PROVIDER_CONFIGURED_SETTINGS: ProviderSettings = {
+  providerType: "DETERMINISTIC",
+  timeoutMs: 15000
+};
+
+/**
+ * Used only by a generic plugin (not Travel, not Legal, not in EMPLOYEE_DOMAIN_REGISTRY — e.g. Recruitment
+ * Consultant) when NO AI provider resolves for it at all: no per-employee assignment, no org default.
+ * AiConfigurationResolverService has no platform-managed fallback for this case (see its own "Step 6 is
+ * intentionally a no-op" comment) — without this, resolveProvider()'s BadRequestException("AI_PROVIDER_
+ * NOT_CONFIGURED") would propagate uncaught (this call sits before this file's main try/catch, which only
+ * wraps the later conversational turn starting further down), and the turn would fail outright with an
+ * opaque "Agent execution failed" that never tells anyone what's actually missing. Travel and the
+ * EMPLOYEE_DOMAIN_REGISTRY employees avoid this because they fall back to their own deterministic
+ * conversation engine on the same error — a generic plugin has no such engine to fall back to, so this
+ * returns one clear, honest line instead of inventing a conversation it can't actually have.
+ */
+class NoAiProviderConfiguredFallback implements AiProvider {
+  constructor(private readonly employeeName: string) {}
+
+  async complete(): Promise<AiCompletionResult> {
+    return {
+      content:
+        `I'm not able to respond yet — no AI provider has been configured for ${this.employeeName}. ` +
+        "An administrator can set one up from Settings → AI Providers.",
+      toolCalls: [],
+      provider: "none",
+      model: "none",
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+    };
+  }
+}
+
 // Sprint 6.7 — Part 21: an explicit customer request to be connected to a human, checked before any
 // employee dispatch runs (the same gate point as the human-takeover pause check below). English and
 // Hinglish are matched with separate patterns so the acknowledgement can be returned in the same
@@ -456,7 +498,14 @@ export class AgentService {
     @Optional() private readonly skillRegistry?: SkillRegistryService,
     @Optional() private readonly interactions?: InteractionService,
     @Optional() private readonly interactionCompletion?: InteractionCompletionService,
-    @Optional() private readonly interactionLookup?: InteractionReferenceLookupService
+    @Optional() private readonly interactionLookup?: InteractionReferenceLookupService,
+    @Optional() private readonly leadService?: LeadService,
+    @Optional() private readonly recruitmentJobs?: RecruitmentJobService,
+    @Optional() private readonly recruitmentParsing?: RecruitmentParsingService,
+    @Optional() private readonly recruitmentResumes?: RecruitmentResumeService,
+    @Optional() private readonly recruitmentCandidates?: RecruitmentCandidateQueryService,
+    @Optional() private readonly attachments?: ConversationAttachmentService,
+    @Optional() private readonly recruitmentIdentityVerification?: RecruitmentChatIdentityVerificationService
   ) {
     this.skillRuntime = skillRuntime ?? createDefaultSkillRuntime();
     // Nest always injects the durable mirror service. Keeping it nullable preserves the
@@ -469,6 +518,7 @@ export class AgentService {
     this.registerTools();
     this.registerTravelTools();
     this.registerEmployeeTools();
+    this.registerRecruitmentTools();
     this.registerSkillTools();
     this.registerInteractionTools();
     for (const handler of this.connectors.toolHandlers()) this.tools.register(handler);
@@ -680,12 +730,19 @@ export class AgentService {
     let aiProviderConnectionId: string | null = null;
     let aiModelProfileId: string | null = null;
     if (!travelConfig && !employeeConfig) {
-      const resolvedProvider = await this.pluginAi.resolveProvider(organizationId, plugin.id);
-      provider = resolvedProvider.provider;
-      settings = resolvedProvider.settings;
-      aiResolutionSource = resolvedProvider.resolutionSource ?? null;
-      aiProviderConnectionId = resolvedProvider.providerConnectionId ?? null;
-      aiModelProfileId = resolvedProvider.modelProfileId ?? null;
+      try {
+        const resolvedProvider = await this.pluginAi.resolveProvider(organizationId, plugin.id);
+        provider = resolvedProvider.provider;
+        settings = resolvedProvider.settings;
+        aiResolutionSource = resolvedProvider.resolutionSource ?? null;
+        aiProviderConnectionId = resolvedProvider.providerConnectionId ?? null;
+        aiModelProfileId = resolvedProvider.modelProfileId ?? null;
+      } catch (error) {
+        if (!(error instanceof BadRequestException) || error.message !== "AI_PROVIDER_NOT_CONFIGURED")
+          throw error;
+        provider = new NoAiProviderConfiguredFallback(plugin.displayName);
+        settings = NO_PROVIDER_CONFIGURED_SETTINGS;
+      }
     }
     // carries a durable phone identity; a dashboard USER actor is a staff member testing/operating the
     // employee, not the customer being served, so it always resolves ANONYMOUS. A brand-new conversation
@@ -726,6 +783,87 @@ export class AgentService {
     if (!conversation) throw new NotFoundException("CONVERSATION_NOT_FOUND");
     if (conversation.status === ConversationStatus.ARCHIVED)
       throw new ConflictException("CONVERSATION_ARCHIVED");
+    // Live UAT request (2026-10-18): Recruitment Consultant is an internal org tool, not a general
+    // application — a Krevia user's FIRST message to it (dashboard or iOS; both reach this same generic
+    // path) must verify a phone number or email via a one-time code before anything real happens (list/
+    // create jobs, upload resumes, shortlist candidates). Mirrors RecruitmentWhatsAppLinkService's own
+    // "prove possession, never trust the claim alone" principle for the WhatsApp surface. Scoped by slug
+    // (matches the isTravelEmployee/isLegalEmployee convention already used in this file) and to real
+    // dashboard/app users only — a CHANNEL/SYSTEM actor never reaches this plugin today.
+    if (
+      plugin.slug === "recruitment-consultant" &&
+      input.actor.type === "USER" &&
+      this.recruitmentIdentityVerification &&
+      !(await this.recruitmentIdentityVerification.isVerified(organizationId, input.actor.userId, plugin.id))
+    ) {
+      const trimmedText = input.text.trim();
+      if (trimmedText) {
+        await this.prisma.conversationMessage.create({
+          data: {
+            conversationId: conversation.id,
+            organizationId,
+            role: ConversationMessageRole.USER,
+            actorType: ConversationMessageActorType.USER,
+            content: trimmedText
+          }
+        });
+      }
+      const gate = await this.recruitmentIdentityVerification.handleTurn(
+        organizationId,
+        input.actor.userId,
+        plugin.id,
+        input.text
+      );
+      if (gate.handled) {
+        const replyText = gate.reply ?? "Please verify your identity to continue.";
+        const gateStarted = Date.now();
+        const assistant = await this.prisma.conversationMessage.create({
+          data: {
+            conversationId: conversation.id,
+            organizationId,
+            role: ConversationMessageRole.ASSISTANT,
+            content: replyText,
+            model: "identity-verification-v1",
+            inputTokens: 0,
+            outputTokens: estimateTokens(replyText)
+          }
+        });
+        const gateExecution = await this.prisma.agentExecution.create({
+          data: {
+            organizationId,
+            conversationId: conversation.id,
+            pluginInstallationId: plugin.id,
+            userId: actorUserId,
+            status: AgentExecutionStatus.COMPLETED,
+            modelProvider: "identity-verification",
+            model: "identity-verification-v1",
+            requestId: input.requestId,
+            metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+            startedAt: new Date(gateStarted),
+            completedAt: new Date(),
+            latencyMs: Date.now() - gateStarted,
+            inputTokens: 0,
+            outputTokens: estimateTokens(replyText),
+            totalTokens: estimateTokens(replyText)
+          }
+        });
+        return {
+          conversationId: conversation.id,
+          executionId: gateExecution.id,
+          messageId: assistant.id,
+          response: replyText,
+          status: "COMPLETED" as const,
+          model: "identity-verification-v1",
+          usage: {
+            inputTokens: 0,
+            outputTokens: estimateTokens(replyText),
+            totalTokens: estimateTokens(replyText),
+            estimatedCost: null
+          },
+          sources: []
+        };
+      }
+    }
     if (span) await this.observability?.linkTrace(span, { conversationId: conversation.id });
     // Sprint 7.12 STEP 3/4/7 — the single, channel-agnostic Interaction creation/link point for every
     // DIRECT execution (a dashboard chat or handoff dispatch pointed straight at this specific plugin).
@@ -793,8 +931,20 @@ export class AgentService {
     if (receptionistCustomerName) {
       if (!persistedTravelState && !parsedEntities.customerName)
         parsedEntities.customerName = receptionistCustomerName;
-      if (!persistedEmployeeState && !parsedEmployeeEntities.customerName)
+      if (!persistedEmployeeState && !parsedEmployeeEntities.customerName) {
         parsedEmployeeEntities.customerName = receptionistCustomerName;
+        // Bug fix: the employee engine's own COLLECT_NAME gate (employee-runtime.ts's `complete()`) is
+        // what normally sets `intentDiscovered: true` as a side effect of capturing the name from a real
+        // turn — pre-seeding customerName here (so that gate never fires at all for a handoff turn, per
+        // the comment above) skipped that side effect too, leaving `intentDiscovered` permanently false.
+        // With no persisted state, `resolveInfoAnswer`'s FAQ-interception guard and the intent-discovery
+        // gate are BOTH conditioned on `!intentDiscovered`, so every subsequent handoff turn kept getting
+        // intercepted as an informational question or re-shown the "what can I help you with?" menu,
+        // never reaching field collection — the conversation's own already-classified routing intent (the
+        // very reason Receptionist handed off here) is a stronger signal than a specialist-side menu the
+        // customer would never see anyway.
+        parsedEmployeeMemory.intentDiscovered = true;
+      }
     }
     if (travelConfig) {
       let resolvedReal:
@@ -1471,7 +1621,15 @@ export class AgentService {
           ...recentMemories.map((x) => `${x.key}: ${x.searchableText ?? "configured"}`)
         ],
         ...(knowledgePrompt ? { retrievedKnowledge: knowledgePrompt } : {}),
-        history: promptHistory.map(toModelMessage),
+        // A past turn's raw tool call/response exchange is never replayed into a NEW provider request —
+        // only the assistant's eventual persisted natural-language reply is (role ASSISTANT, written
+        // separately once the tool loop finishes). The pairing a `tool` role message needs (a preceding
+        // `assistant` message carrying matching `tool_calls`) is never persisted to conversationMessage
+        // in the first place, so replaying an orphaned past TOOL row here would make OpenAI reject the
+        // whole request outright — exactly the live bug this guards against.
+        history: promptHistory
+          .filter((row) => row.role !== ConversationMessageRole.TOOL)
+          .map(toModelMessage),
         message: effectiveText,
         tools: this.tools.definitions(available)
       });
@@ -1846,7 +2004,8 @@ export class AgentService {
                     organizationId,
                     userId: actorUserId,
                     pluginInstallationId: plugin.id,
-                    conversationId: conversation.id
+                    conversationId: conversation.id,
+                    attachmentIds: input.attachmentIds ?? []
                   },
                   available,
                   permissions
@@ -1891,7 +2050,7 @@ export class AgentService {
                   ...request,
                   messages: [
                     ...request.messages,
-                    { role: "assistant", content: "", toolCallId: call.id },
+                    { role: "assistant", content: "", toolCalls: [{ id: call.id, name: call.name, arguments: call.arguments }] },
                     { role: "tool", content, toolCallId: call.id }
                   ]
                 };
@@ -1976,7 +2135,7 @@ export class AgentService {
                     ...request,
                     messages: [
                       ...request.messages,
-                      { role: "assistant", content: "", toolCallId: call.id },
+                      { role: "assistant", content: "", toolCalls: [{ id: call.id, name: call.name, arguments: call.arguments }] },
                       { role: "tool", content, toolCallId: call.id }
                     ]
                   };
@@ -1997,6 +2156,54 @@ export class AgentService {
                     ? buildSalesHandoffFallbackMessage(language)
                     : buildToolFailureRecoveryMessage(language);
                   break;
+                }
+                // Live UAT finding (2026-10-18): a malformed tool call (wrong argument shape, or an id the
+                // model referenced that doesn't actually exist — e.g. it tried to act on an applicationId
+                // from earlier in the conversation that it misremembered) previously crashed the WHOLE
+                // turn with an opaque "could not be completed safely" error, for every non-Travel tool.
+                // Fed back as a `tool` role error instead — same mechanism the search-tool recovery above
+                // already uses — so the model gets a chance to re-fetch the right id and retry. `_NOT_
+                // FOUND` is deliberately matched by suffix rather than one code at a time: it's a stable,
+                // self-describing pattern ("the referenced entity doesn't exist") any current or future
+                // tool can throw, not something to special-case per tool. A genuine system failure
+                // (timeout, permission denial, an actual execution crash) is NOT covered and still
+                // surfaces as a real failure, not silently retried forever.
+                if (code === "INVALID_TOOL_INPUT" || code.endsWith("_NOT_FOUND")) {
+                  this.logger.warn({
+                    event: "TOOL_CALL_ERROR_RECOVERED",
+                    executionId: execution.id,
+                    failedTool: call.name,
+                    errorCode: code,
+                    attemptedArguments: redact(call.arguments, handler.definition.sensitiveInputPaths)
+                  });
+                  const errorPayload = {
+                    error: true,
+                    errorCode: code,
+                    message:
+                      code === "INVALID_TOOL_INPUT"
+                        ? `Invalid arguments for ${call.name} — check the tool's required field names and types, then retry.`
+                        : `${call.name} failed: ${code}. The id you used doesn't exist — call the matching list/read tool again to get a current, correct id, then retry.`
+                  };
+                  const content = JSON.stringify(errorPayload).slice(0, 2000);
+                  await this.prisma.conversationMessage.create({
+                    data: {
+                      conversationId: conversation.id,
+                      organizationId,
+                      toolExecutionId: row.id,
+                      role: ConversationMessageRole.TOOL,
+                      content,
+                      contentJson: errorPayload as Prisma.InputJsonValue
+                    }
+                  });
+                  request = {
+                    ...request,
+                    messages: [
+                      ...request.messages,
+                      { role: "assistant", content: "", toolCalls: [{ id: call.id, name: call.name, arguments: call.arguments }] },
+                      { role: "tool", content, toolCallId: call.id }
+                    ]
+                  };
+                  continue;
                 }
                 throw error;
               }
@@ -3909,6 +4116,31 @@ export class AgentService {
               fields: domain.mapFields(input)
             }
           );
+          // Krevia CRM mirror — only for a domain whose artifact represents genuine commercial/customer
+          // lead intent (see EmployeeDomainDescriptor.isLeadGenerating), never HR/IT/Finance/Legal/
+          // Marketing/Customer Support's internal or service/ticket workflows. Best-effort, same
+          // never-blocks-the-domain-record contract as TravelLeadService.createInternalLead's own mirror.
+          if (domain.isLeadGenerating && this.leadService) {
+            try {
+              await this.leadService.captureFromChannel({
+                organizationId: context.organizationId,
+                source: "WEB_CHAT",
+                agentId: context.pluginInstallationId,
+                conversationId: context.conversationId,
+                name: typeof input.customerName === "string" ? input.customerName : null,
+                phone: String(input.phoneNumber),
+                email: typeof input.email === "string" ? input.email : null,
+                requirement: String(input.conversationSummary)
+              });
+            } catch (error) {
+              this.logger.warn({
+                event: "KREVIA_CRM_LEAD_CAPTURE_FAILED",
+                domain: domain.slug,
+                artifactId: artifact.id,
+                error: String(error)
+              });
+            }
+          }
           return { artifactId: artifact.id, reference: artifact.reference };
         }
       });
@@ -3977,6 +4209,304 @@ export class AgentService {
           documentId: row.id,
           downloadUrl: `/api/v1/legal-employee/documents/${row.id}/pdf`,
           title
+        };
+      }
+    });
+  }
+
+  /**
+   * AI Recruitment Consultant's dashboard/iOS chat tools (Sprint 7.17 follow-up) — reuses the SAME
+   * services the website forms and the WhatsApp menu (RecruitmentWhatsAppMenuService) already go
+   * through, so "create a job", "show me candidates" and "shortlist them" answered conversationally here
+   * produce identical results/permission enforcement to every other surface. Only registered when
+   * RecruitmentModule's services were actually injected (optional — see constructor) and only reachable
+   * at all for a plugin whose manifest declares these tool names (plugins/recruitment-consultant/
+   * plugin.json) and has the TOOLS grant — see the `available` set built in executeTraced().
+   */
+  /**
+   * Resolves a job from whatever a recruitment tool's caller supplied in `jobId`/`jobCode`, accepting
+   * either field holding either shape. Live UAT finding (2026-10-18): a strict `jobId` UUID pattern
+   * rejected the model's call outright when the user had only ever given it the human-readable job code
+   * (e.g. "JOB-2026-00002") — the model reasonably put that string in `jobId` since it's the only
+   * identifier it had, and AJV validation failed the whole tool call before this code ever ran. Tenant
+   * isolation always applies regardless of which shape was supplied.
+   */
+  private async resolveRecruitmentJob(
+    organizationId: string,
+    input: Record<string, unknown>
+  ): Promise<{ id: string; jobCode: string } | null> {
+    const identifier =
+      (typeof input.jobId === "string" && input.jobId.trim()) ||
+      (typeof input.jobCode === "string" && input.jobCode.trim()) ||
+      null;
+    if (!identifier) return null;
+    const looksLikeUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(
+      identifier
+    );
+    return this.recruitmentJobs!.get(organizationId, identifier)
+      .then((job) => ({ id: job.id, jobCode: job.jobCode }))
+      .catch(async () => {
+        if (looksLikeUuid) return null;
+        const byCode = await this.prisma.recruitmentJob.findFirst({
+          where: { organizationId, jobCode: identifier },
+          select: { id: true, jobCode: true }
+        });
+        return byCode;
+      });
+  }
+
+  private registerRecruitmentTools() {
+    if (!this.recruitmentJobs || !this.recruitmentResumes || !this.recruitmentCandidates) return;
+
+    this.tools.register({
+      definition: {
+        name: "recruitment.list_jobs",
+        version: "1.0.0",
+        description: "List the organization's job openings, optionally filtered by status or a title search",
+        requiredPermissions: ["agents.tools.execute", "recruitment.jobs.read"],
+        timeoutMs: 5000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            status: { type: "string", enum: ["DRAFT", "OPEN", "ON_HOLD", "CLOSED"] },
+            search: { type: "string", maxLength: 160 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        const result = await this.recruitmentJobs!.list(context.organizationId, {
+          page: 1,
+          pageSize: 20,
+          ...(typeof input.status === "string" ? { status: input.status as never } : {}),
+          ...(typeof input.search === "string" ? { search: input.search } : {})
+        });
+        return {
+          total: result.total,
+          jobs: result.items.map((job) => ({
+            jobId: job.id,
+            jobCode: job.jobCode,
+            title: job.title,
+            department: job.department,
+            status: job.status,
+            totalResumes: job.totalResumes,
+            aiRecommendedCount: job.aiRecommendedCount,
+            recruiterShortlistedCount: job.recruiterShortlistedCount
+          }))
+        };
+      }
+    });
+
+    this.tools.register({
+      definition: {
+        name: "recruitment.create_job",
+        version: "1.0.0",
+        description:
+          "Post a new job opening from a title and a full job description. Required skills are extracted automatically from the description when an AI provider is available.",
+        requiredPermissions: ["agents.tools.execute", "recruitment.jobs.create"],
+        timeoutMs: 20000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["title", "description"],
+          properties: {
+            title: { type: "string", minLength: 1, maxLength: 200 },
+            description: { type: "string", minLength: 1 },
+            department: { type: ["string", "null"], maxLength: 120 },
+            location: { type: ["string", "null"], maxLength: 160 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        if (!context.userId) return { error: "A dashboard user is required to create a job opening." };
+        const title = String(input.title);
+        const description = String(input.description);
+        const criteria = this.recruitmentParsing
+          ? await this.recruitmentParsing
+              .parseJobDescription(context.organizationId, context.pluginInstallationId, description)
+              .catch(() => null)
+          : null;
+        const requiredCriteria = criteria ?? {
+          mandatorySkills: [],
+          preferredSkills: [],
+          certifications: [],
+          educationRequirements: [],
+          domainKnowledge: []
+        };
+        const job = await this.recruitmentJobs!.create(context.organizationId, context.userId, {
+          title,
+          description,
+          ...(typeof input.department === "string" ? { department: input.department } : {}),
+          ...(typeof input.location === "string" ? { location: input.location } : {}),
+          requiredCriteria
+        } as never);
+        return {
+          jobId: job.id,
+          jobCode: job.jobCode,
+          title: job.title,
+          extractedMandatorySkills: requiredCriteria.mandatorySkills
+        };
+      }
+    });
+
+    this.tools.register({
+      definition: {
+        name: "recruitment.list_candidates",
+        version: "1.0.0",
+        description:
+          "Search/list candidate applications, optionally scoped to one job, filtered by minimum score/skills/experience/city/selection status. Never includes phone/email — use the website to view masked contact details.",
+        requiredPermissions: ["agents.tools.execute", "recruitment.candidates.review"],
+        timeoutMs: 5000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            // Deliberately lenient: a live UAT finding showed the model passing the human-readable job
+            // code (e.g. "JOB-2026-00002") into `jobId` when the user only ever gave it that — accept
+            // either field with either shape rather than rejecting a reasonable model guess outright (see
+            // resolveRecruitmentJob()).
+            jobId: { type: "string", maxLength: 60 },
+            jobCode: { type: "string", maxLength: 40 },
+            scoreGreaterThanOrEqual: { type: "number", minimum: 0, maximum: 100 },
+            minRelevantExperienceYears: { type: "number", minimum: 0 },
+            currentCity: { type: "array", items: { type: "string" }, maxItems: 10 },
+            anySkills: { type: "array", items: { type: "string" }, maxItems: 20 },
+            recruiterDecision: {
+              type: "array",
+              items: {
+                type: "string",
+                enum: ["PENDING_REVIEW", "SHORTLISTED", "NOT_SELECTED", "INTERVIEW_SCHEDULED", "INTERVIEW_COMPLETED", "ON_HOLD", "HIRED"]
+              },
+              maxItems: 7
+            },
+            sortBy: { type: "string", enum: ["score_desc", "score_asc", "experience_desc", "experience_asc"] },
+            limit: { type: "integer", minimum: 1, maximum: 25 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        const job = await this.resolveRecruitmentJob(context.organizationId, input);
+        if ((input.jobId || input.jobCode) && !job)
+          return { error: "That job could not be found. Use recruitment.list_jobs to see the valid job codes." };
+        const result = await this.recruitmentCandidates!.query(context.organizationId, {
+          ...(job ? { jobId: job.id } : {}),
+          ...(typeof input.scoreGreaterThanOrEqual === "number"
+            ? { scoreGreaterThanOrEqual: input.scoreGreaterThanOrEqual }
+            : {}),
+          ...(typeof input.minRelevantExperienceYears === "number"
+            ? { minRelevantExperienceYears: input.minRelevantExperienceYears }
+            : {}),
+          ...(Array.isArray(input.currentCity) ? { currentCity: input.currentCity as string[] } : {}),
+          ...(Array.isArray(input.anySkills) ? { anySkills: input.anySkills as string[] } : {}),
+          ...(Array.isArray(input.recruiterDecision)
+            ? { recruiterDecision: input.recruiterDecision as never }
+            : {}),
+          sortBy: (typeof input.sortBy === "string" ? input.sortBy : "score_desc") as never,
+          limit: typeof input.limit === "number" ? input.limit : 10
+        });
+        return {
+          totalCount: result.totalCount,
+          candidates: result.items.map((app) => ({
+            applicationId: app.id,
+            candidateName: app.candidate.fullName ?? "Not Available",
+            matchScore: app.evaluation?.matchScore ?? null,
+            currentCity: app.candidate.currentCity ?? null,
+            aiRecommendation: app.aiRecommendation,
+            recruiterDecision: app.recruiterDecision
+          }))
+        };
+      }
+    });
+
+    this.tools.register({
+      definition: {
+        name: "recruitment.shortlist_candidate",
+        version: "1.0.0",
+        description:
+          "Mark a candidate application as SHORTLISTED. Requires the applicationId from recruitment.list_candidates.",
+        requiredPermissions: ["agents.tools.execute", "recruitment.candidates.review"],
+        timeoutMs: 5000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["applicationId"],
+          properties: {
+            applicationId: { type: "string", pattern: "^[0-9a-fA-F-]{36}$" },
+            overrideReason: { type: "string", maxLength: 2000 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        if (!context.userId) return { error: "A dashboard user is required to shortlist a candidate." };
+        const application = await this.recruitmentResumes!.reviewApplication(
+          context.organizationId,
+          String(input.applicationId),
+          context.userId,
+          {
+            recruiterDecision: RecruitmentDecision.SHORTLISTED,
+            ...(typeof input.overrideReason === "string" ? { overrideReason: input.overrideReason } : {})
+          } as never
+        );
+        return { applicationId: application.id, recruiterDecision: application.recruiterDecision };
+      }
+    });
+
+    this.tools.register({
+      definition: {
+        name: "recruitment.upload_resume",
+        version: "1.0.0",
+        description:
+          "Upload the resume file the user just attached to THIS message against a job opening, identified by its job code or job ID. Only call this when the user's message actually has a file attached.",
+        requiredPermissions: ["agents.tools.execute", "recruitment.resumes.upload"],
+        timeoutMs: 20000,
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            // Deliberately lenient — see resolveRecruitmentJob()'s own comment.
+            jobCode: { type: "string", maxLength: 40 },
+            jobId: { type: "string", maxLength: 60 }
+          }
+        }
+      },
+      execute: async (input, context) => {
+        if (!context.userId) return { error: "A dashboard user is required to upload a resume." };
+        if (!this.attachments) return { error: "File upload is not available right now." };
+        const attachmentIds = context.attachmentIds ?? [];
+        if (attachmentIds.length === 0)
+          return {
+            error: "No file was attached to this message. Attach the resume (PDF or DOCX) and ask again."
+          };
+        const job = await this.resolveRecruitmentJob(context.organizationId, input);
+        if (!job)
+          return { error: "That job could not be found. Use recruitment.list_jobs to see the valid job codes." };
+        const files: UploadedResumeFile[] = [];
+        for (const attachmentId of attachmentIds) {
+          const file = await this.attachments.readBytes(context.organizationId, attachmentId).catch(() => null);
+          if (file)
+            files.push({
+              originalname: file.originalFilename,
+              mimetype: file.mimeType,
+              size: file.buffer.length,
+              buffer: file.buffer
+            });
+        }
+        if (!files.length) return { error: "The attached file could not be read. Please try attaching it again." };
+        const result = await this.recruitmentResumes!.createBatch(
+          context.organizationId,
+          job.id,
+          context.userId,
+          files,
+          "WEBSITE"
+        );
+        return {
+          jobCode: job.jobCode,
+          totalFiles: result.totalFiles,
+          results: result.results.map((row: { status: string; resumeId?: string; error?: string }) => ({
+            status: row.status,
+            resumeId: row.resumeId ?? null,
+            error: row.error ?? null
+          }))
         };
       }
     });

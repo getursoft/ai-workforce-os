@@ -858,6 +858,26 @@ button {
   grid-template-columns: 120px 1fr;
   gap: 8px 12px;
 }
+.ui-timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+.ui-timeline li {
+  padding-left: 14px;
+  border-left: 2px solid var(--border);
+}
+.ui-timeline li span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.ui-timeline li p {
+  margin: 4px 0 0;
+  font-size: 0.92rem;
+  white-space: pre-wrap;
+}
 .admin-details dt {
   color: var(--muted);
   font-size: 0.85rem;

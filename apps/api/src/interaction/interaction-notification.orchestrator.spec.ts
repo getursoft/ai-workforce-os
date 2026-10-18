@@ -36,10 +36,12 @@ function buildHarness(overrides: {
   config?: Record<string, boolean>;
   existingNotification?: unknown;
   emailSend?: () => Promise<{ messageId: string }>;
+  // Phase 5.3 — defaults to ACTIVE so none of the pre-existing tests below are affected.
+  organizationStatus?: string;
 }) {
   const interaction = baseInteraction(overrides.interaction);
   const findFirst = vi.fn().mockResolvedValue(interaction);
-  const findUnique = vi.fn().mockResolvedValue({ id: "org-1", name: "Krevia" });
+  const findUnique = vi.fn().mockResolvedValue({ id: "org-1", name: "Krevia", status: overrides.organizationStatus ?? "ACTIVE" });
   const notificationFindFirst = vi.fn().mockResolvedValue(overrides.existingNotification ?? null);
   const notificationCreate = vi.fn().mockImplementation(({ data }) => Promise.resolve({ id: "notification-1", ...data }));
   const notificationUpdate = vi.fn().mockResolvedValue({});
@@ -135,5 +137,18 @@ describe("InteractionNotificationOrchestrator (Sprint 7.12 STEP 13)", () => {
     const h = buildHarness({ config: { REFERENCE_NOTIFICATION_ENABLED: false } });
     await h.orchestrator.notifyReferenceIssued("org-1", "interaction-1");
     expect(h.channelProcessor.sendHumanMessage).not.toHaveBeenCalled();
+  });
+
+  // --- Phase 5.3 — background worker suspension audit ---------------------------------------------------
+
+  it("sends no real WhatsApp/email notification for a suspended organization — this runs via the NOTIFICATION_JOBS queue, with no HTTP request and no JwtAccessGuard at all", async () => {
+    const h = buildHarness({
+      organizationStatus: "SUSPENDED",
+      interaction: { channel: "WEB_CHAT", externalUserId: null, email: "traveler@example.com" }
+    });
+    await h.orchestrator.notifyReferenceIssued("org-1", "interaction-1");
+    expect(h.channelProcessor.sendHumanMessage).not.toHaveBeenCalled();
+    expect(h.email.sendMail).not.toHaveBeenCalled();
+    expect(h.notificationCreate).not.toHaveBeenCalled();
   });
 });

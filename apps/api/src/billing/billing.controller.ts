@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { JwtAccessGuard } from "../identity/presentation/http/jwt-access.guard";
 import { PermissionGuard } from "../identity/presentation/http/permission.guard";
@@ -82,6 +82,27 @@ export class BillingController {
   ) {
     const period = this.resolvePeriod(p, start, end);
     return this.billing.byUser(p.organizationId.toString(), period.start, period.end);
+  }
+
+  @Get("usage/employees")
+  @RequirePermission("usage.read")
+  async employees(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Query("start") start?: string, @Query("end") end?: string
+  ) {
+    const period = this.resolvePeriod(p, start, end);
+    return this.billing.employeesOverview(p.organizationId.toString(), period.start, period.end);
+  }
+
+  @Get("usage/employees/:id")
+  @RequirePermission("usage.read")
+  async employeeDetail(
+    @CurrentPrincipal() p: AuthenticatedPrincipal,
+    @Param("id", new ParseUUIDPipe()) id: string
+  ) {
+    const detail = await this.billing.employeeDetail(p.organizationId.toString(), id);
+    if (!detail) throw new NotFoundException("EMPLOYEE_NOT_FOUND");
+    return detail;
   }
 
   private resolvePeriod(_p: AuthenticatedPrincipal, start?: string, end?: string) {

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../infrastructure/prisma/prisma.service";
+import type { PlatformOwnerService } from "../identity/infrastructure/security/platform-owner.service";
 import { EntitlementService } from "./entitlement.service";
 
 function makePrisma(input: {
@@ -91,5 +92,31 @@ describe("EntitlementService", () => {
     expect(await service.getUsage("org-1", "MAX_USERS")).toBe(9);
     expect(await service.getUsage("org-1", "MAX_WHATSAPP_CHANNELS")).toBe(1);
     expect(await service.getUsage("org-1", "MAX_SCHEDULED_JOBS")).toBe(6);
+  });
+
+  it("the platform owner's own organization gets every entitlement unlocked, bypassing the plan entirely", async () => {
+    const platformOwner = {
+      isPlatformOwnerOrganization: vi.fn().mockResolvedValue(true)
+    } as unknown as PlatformOwnerService;
+    const service = new EntitlementService(
+      makePrisma({
+        sub: { plan: { metadataJson: { entitlements: { SKILLS_AI_BACKED: false, MAX_EMPLOYEES: 1 } }, activeEmployeeLimit: 1 } },
+        pluginCount: 1
+      }),
+      platformOwner
+    );
+    const entitlements = await service.resolveEntitlements("platform-owner-org");
+    expect(entitlements.SKILLS_AI_BACKED).toBe(true);
+    expect(entitlements.MAX_EMPLOYEES).toBe(Number.POSITIVE_INFINITY);
+    await expect(service.assertFeature("platform-owner-org", "SKILLS_AI_BACKED")).resolves.toBeUndefined();
+    // Already "at" the plan's MAX_EMPLOYEES: 1 — an ordinary org would be blocked here (see the
+    // consumeCapacity test above), but the platform-owner org's limit is unbounded.
+    await expect(service.consumeCapacity("platform-owner-org", "MAX_EMPLOYEES")).resolves.toBeUndefined();
+  });
+
+  it("never bypasses anything when no PlatformOwnerService is wired in (e.g. an isolated unit test)", async () => {
+    const service = new EntitlementService(makePrisma({}));
+    const entitlements = await service.resolveEntitlements("org-1");
+    expect(entitlements.SKILLS_AI_BACKED).toBe(false);
   });
 });

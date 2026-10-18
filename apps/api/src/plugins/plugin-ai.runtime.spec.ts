@@ -50,6 +50,58 @@ describe("AI provider adapters", () => {
       usage: { totalTokens: 3 }
     });
   });
+  // Live UAT finding (2026-10-17): a follow-up completion after a tool executed sent an `assistant`
+  // message with no `tool_calls` at all, which OpenAI rejects outright ("messages with role 'tool' must
+  // be a response to a preceeding message with 'tool_calls'") — any tool-calling conversation with a real
+  // OpenAI-compatible provider failed on its second round-trip. Fixed by threading AiMessage.toolCalls
+  // through mapRequest(); this proves the actual wire-format request OpenAI receives is now valid.
+  it("includes tool_calls on the assistant message that proposed a call, pairing correctly with the tool response", async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.messages).toContainEqual({
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: { name: "recruitment_dlist_ujobs", arguments: "{}" }
+          }
+        ]
+      });
+      expect(body.messages).toContainEqual({
+        role: "tool",
+        content: '{"jobs":[]}',
+        tool_call_id: "call-1"
+      });
+      return new Response(
+        JSON.stringify({
+          model: "configured-model",
+          choices: [{ message: { content: "No jobs found.", tool_calls: [] } }],
+          usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 }
+        }),
+        { status: 200 }
+      );
+    });
+    await new OpenAiCompatibleProvider(
+      { providerType: "OPENAI_COMPATIBLE", model: "configured-model", timeoutMs: 1000 },
+      "private-key",
+      fetcher
+    ).complete({
+      messages: [
+        { role: "user", content: "show me open jobs" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [{ id: "call-1", name: "recruitment.list_jobs", arguments: {} }]
+        },
+        { role: "tool", content: '{"jobs":[]}', toolCallId: "call-1" }
+      ],
+      tools: [
+        { name: "recruitment.list_jobs", description: "List jobs", inputSchema: { type: "object" } }
+      ]
+    });
+  });
   it("rejects a malformed successful upstream response", async () => {
     const provider = new OpenAiCompatibleProvider(
       { providerType: "OPENAI_COMPATIBLE", model: "m", timeoutMs: 1000 },

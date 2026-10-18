@@ -43,6 +43,7 @@ import {
   Target,
   Phone,
   Hash,
+  Contact2,
   type LucideProps
 } from "lucide-react";
 import { useAuth, useLogout } from "../../features/auth/auth-provider";
@@ -67,6 +68,12 @@ const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permissi
   { href: "/ask-krevia", label: "Ask Krevia", icon: Sparkles, permission: "agents.run" },
   { href: "/ai-employees", label: "AI Employees", icon: Bot, permission: "agents.run" },
   { href: "/tools", label: "Tools", icon: Wrench, permission: "agents.run" },
+  { href: "/crm", label: "Krevia CRM", icon: Contact2, permission: "leads.read" },
+  // Internal only — never shown in the public marketplace/customer-facing catalog, and the AI employee
+  // itself is never reachable through AI Receptionist routing (plugins/recruitment-consultant/
+  // plugin.json's routing.delegationEnabled: false). Gated the same way every other nav item is: by
+  // permission only, since there's no separate "internal" visibility mechanism in this nav.
+  { href: "/dashboard/recruitment/jobs", label: "Recruitment", icon: UserCog, permission: "recruitment.jobs.read" },
   {
     href: "/conversations",
     label: "Conversations",

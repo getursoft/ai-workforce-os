@@ -22,6 +22,7 @@ import type { SecurityConfig } from "../identity/infrastructure/security/securit
 import { TRAVEL_EMPLOYEE_PLUGIN_SLUG } from "../travel/travel.runtime";
 import { AgentService, type MemoryService } from "./agent.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import type { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import { resolveCustomerIdentity } from "../customer-identity/customer-identity.types";
 import type { SkillRuntimeService } from "../skills/skill-runtime.service";
@@ -1730,7 +1731,7 @@ describe("AgentService: travel.create_lead tool (Conversation Completion & Lead 
     };
     // A REAL TravelLeadService against the same mocked Prisma — idempotency and persistence behavior is
     // actually exercised here, not stubbed out (contrast with TRAVEL_LEAD_SERVICE_STUB used elsewhere).
-    const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService);
+    const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const service = new AgentService(
       prisma as unknown as PrismaService,
       { getEffectivePermissions: vi.fn().mockResolvedValue([]) } as unknown as AuthorizationService,
@@ -1851,7 +1852,7 @@ describe("AgentService: travel.create_lead tool (Conversation Completion & Lead 
       toolHandlers: () => [timedOutHandler],
       availableToolNames: vi.fn().mockResolvedValue(["connector.dummy-crm.crm.create_lead"])
     };
-    const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService);
+    const travelLeadService = new TravelLeadService(prisma as unknown as PrismaService, new LeadService(prisma as unknown as PrismaService));
     const service = new AgentService(
       prisma as unknown as PrismaService,
       { getEffectivePermissions: vi.fn().mockResolvedValue([]) } as unknown as AuthorizationService,

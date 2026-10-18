@@ -1,0 +1,467 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		C8598F22BEAD41259D8929F0 /* KreviaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1168FA914E4DE1AA66250C /* KreviaApp.swift */; };
+		E94862D3482744CF91903BAA /* KreviaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8079C45C36234438B85D1721 /* KreviaTheme.swift */; };
+		0541B8F119B64DCDAC96628A /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70A077004E454414935985DD /* RootView.swift */; };
+		603EFD840897497192EF15AA /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 522E707B81AA42D78B511240 /* LoginView.swift */; };
+		EE124126519A459E96D431C3 /* AppShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C08138A8A6F34B08B8395E76 /* AppShellView.swift */; };
+		97A75E3F4B6B4979BF49BCCC /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349443944E5348808D00A7CA /* HomeView.swift */; };
+		2EA635C3F4B2413484913BF8 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B7892F005214CD1A3806E27 /* SettingsView.swift */; };
+		C5D3B1FB3F53429AB41DB5E0 /* LeadListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8E347DFE0343ADBD689954 /* LeadListView.swift */; };
+		DB6FBC17B3E444D6B2665D3B /* LeadDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EBC57E5C840B44D48EEF5921 /* LeadDetailView.swift */; };
+		2B553CAC6CAF43068E3C294C /* ManualLeadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22E5BAEAAB9D4A1A989CE9E9 /* ManualLeadView.swift */; };
+		85954543C0364ED1B2784835 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 609B7F61FF9F4F9C8BAA6785 /* Assets.xcassets */; };
+		4C86CC161E0C4DE7A67E5998 /* KreviaCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4C86CC161E0C4DE7A67E5998_ref /* KreviaCore */; };
+		F20671CA9E9547B1ACBBEE5B /* EmployeesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863C65DE62464C8EB8BCAC9E /* EmployeesListView.swift */; };
+		AF2AE4DE2A424793BA856170 /* EmployeeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73501EA73C9842CF9542A423 /* EmployeeDetailView.swift */; };
+		AA4823FD16E143ECA356B416 /* RecruitmentJobsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F72871D63E74F3489FB2ACD /* RecruitmentJobsListView.swift */; };
+		96AE40EDD1BA481E88EF96A2 /* RecruitmentJobDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 919D30CB637346B9B0FEEDD4 /* RecruitmentJobDetailView.swift */; };
+		9546F3280DB247308AA7CAE6 /* CreateJobView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C244DDDC6B9D496DB8BBC149 /* CreateJobView.swift */; };
+		E0C371CCC3D0402C82B2A66B /* RecruitmentCandidateDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4DB98F3F182D45FEA6C8DDE4 /* RecruitmentCandidateDetailView.swift */; };
+		32298E40C6784321BBA3CD65 /* RecruitmentAdvancedFilterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D460C305A444AB4956CD094 /* RecruitmentAdvancedFilterView.swift */; };
+		BD578B416A81424892C75A27 /* EmployeeChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE46E5A32FF04E1EAA6EE707 /* EmployeeChatView.swift */; };
+		5BD353D08F584963930212FB /* OrganizationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC5F3CEAA1B4231AA259F5F /* OrganizationSettingsView.swift */; };
+		07E70B9E35E649558DED695D /* RolesListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8377FA0DB4040EBAB837369 /* RolesListView.swift */; };
+		CBAC4F808F774EB3AB3D6782 /* EmployeeCatalogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04B57D1823514F348DB82C3E /* EmployeeCatalogView.swift */; };
+		E7DB42D9CAF44121935928EC /* ConversationsListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F60740DB364E52BBFDFDAA /* ConversationsListView.swift */; };
+		E51133752A0949B887686BF3 /* ConversationDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 528959698E6D45C29CE06219 /* ConversationDetailView.swift */; };
+		1D13F320455F4E12AEC30CF0 /* UsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 523AF9D41A744459BAAAF849 /* UsageView.swift */; };
+		23B0FE1BFCB744A2B5A22581 /* WalletView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 540BE7E826A7472B8D6976AA /* WalletView.swift */; };
+		7DBB7C1CA2244EDA9071DF42 /* RechargeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E3F74BF5A7A4B46B5B65584 /* RechargeView.swift */; };
+		F924163420194ECA8F1DD274 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914C1AC416734DC3B36196A8 /* TransactionsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		3A1168FA914E4DE1AA66250C /* KreviaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KreviaApp.swift; sourceTree = "<group>"; };
+		8079C45C36234438B85D1721 /* KreviaTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KreviaTheme.swift; sourceTree = "<group>"; };
+		70A077004E454414935985DD /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		522E707B81AA42D78B511240 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		C08138A8A6F34B08B8395E76 /* AppShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellView.swift; sourceTree = "<group>"; };
+		349443944E5348808D00A7CA /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		5B7892F005214CD1A3806E27 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		BC8E347DFE0343ADBD689954 /* LeadListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeadListView.swift; sourceTree = "<group>"; };
+		EBC57E5C840B44D48EEF5921 /* LeadDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeadDetailView.swift; sourceTree = "<group>"; };
+		22E5BAEAAB9D4A1A989CE9E9 /* ManualLeadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualLeadView.swift; sourceTree = "<group>"; };
+		609B7F61FF9F4F9C8BAA6785 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		13FCBA8D823849E384E224C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		CCD40A1096D44ADA9BB17F80 /* Krevia.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Krevia.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		863C65DE62464C8EB8BCAC9E /* EmployeesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmployeesListView.swift; sourceTree = "<group>"; };
+		73501EA73C9842CF9542A423 /* EmployeeDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmployeeDetailView.swift; sourceTree = "<group>"; };
+		3F72871D63E74F3489FB2ACD /* RecruitmentJobsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecruitmentJobsListView.swift; sourceTree = "<group>"; };
+		919D30CB637346B9B0FEEDD4 /* RecruitmentJobDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecruitmentJobDetailView.swift; sourceTree = "<group>"; };
+		C244DDDC6B9D496DB8BBC149 /* CreateJobView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateJobView.swift; sourceTree = "<group>"; };
+		4DB98F3F182D45FEA6C8DDE4 /* RecruitmentCandidateDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecruitmentCandidateDetailView.swift; sourceTree = "<group>"; };
+		9D460C305A444AB4956CD094 /* RecruitmentAdvancedFilterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecruitmentAdvancedFilterView.swift; sourceTree = "<group>"; };
+		EE46E5A32FF04E1EAA6EE707 /* EmployeeChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmployeeChatView.swift; sourceTree = "<group>"; };
+		5DC5F3CEAA1B4231AA259F5F /* OrganizationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrganizationSettingsView.swift; sourceTree = "<group>"; };
+		F8377FA0DB4040EBAB837369 /* RolesListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RolesListView.swift; sourceTree = "<group>"; };
+		04B57D1823514F348DB82C3E /* EmployeeCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmployeeCatalogView.swift; sourceTree = "<group>"; };
+		B4F60740DB364E52BBFDFDAA /* ConversationsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationsListView.swift; sourceTree = "<group>"; };
+		528959698E6D45C29CE06219 /* ConversationDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationDetailView.swift; sourceTree = "<group>"; };
+		523AF9D41A744459BAAAF849 /* UsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UsageView.swift; sourceTree = "<group>"; };
+		540BE7E826A7472B8D6976AA /* WalletView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletView.swift; sourceTree = "<group>"; };
+		6E3F74BF5A7A4B46B5B65584 /* RechargeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RechargeView.swift; sourceTree = "<group>"; };
+		914C1AC416734DC3B36196A8 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5D11667C777D45DEA4884B2D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4C86CC161E0C4DE7A67E5998 /* KreviaCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+
+		49136AD147CE4A069ADFDFDB /* App */ = {
+			isa = PBXGroup;
+			children = (
+				3A1168FA914E4DE1AA66250C /* KreviaApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		C0A621814E1647E49CF9F8EB /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				8079C45C36234438B85D1721 /* KreviaTheme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		2ABF400AEB57432591824912 /* CRM */ = {
+			isa = PBXGroup;
+			children = (
+				BC8E347DFE0343ADBD689954 /* LeadListView.swift */,
+				EBC57E5C840B44D48EEF5921 /* LeadDetailView.swift */,
+				22E5BAEAAB9D4A1A989CE9E9 /* ManualLeadView.swift */,
+			);
+			path = CRM;
+			sourceTree = "<group>";
+		};
+		0D8E2C80649D4B31B4336476 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				70A077004E454414935985DD /* RootView.swift */,
+				522E707B81AA42D78B511240 /* LoginView.swift */,
+				C08138A8A6F34B08B8395E76 /* AppShellView.swift */,
+				349443944E5348808D00A7CA /* HomeView.swift */,
+				5B7892F005214CD1A3806E27 /* SettingsView.swift */,
+				2ABF400AEB57432591824912 /* CRM */,
+				75E7F1B0A6B6453A9424C830 /* Employees */,
+				AA3DFA28A9894B468BE22C8A /* Conversations */,
+				E6D2232A2FAF47BF8BE86A2A /* Recruitment */,
+				AE48D404562B4D5FB5074066 /* Organization */,
+				F3DA2CAE439C454EAB300042 /* Roles */,
+				6219054BFDEA432B907A2017 /* Usage */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		3AD342BCEAAA4296914D3B67 /* Krevia */ = {
+			isa = PBXGroup;
+			children = (
+				49136AD147CE4A069ADFDFDB /* App */,
+				C0A621814E1647E49CF9F8EB /* Theme */,
+				0D8E2C80649D4B31B4336476 /* Views */,
+				609B7F61FF9F4F9C8BAA6785 /* Assets.xcassets */,
+				13FCBA8D823849E384E224C9 /* Info.plist */,
+			);
+			path = Krevia;
+			sourceTree = "<group>";
+		};
+		D5212E767C0A4708B5EDB3A7 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				CCD40A1096D44ADA9BB17F80 /* Krevia.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D569353B72F34E1292C101CB = {
+			isa = PBXGroup;
+			children = (
+				3AD342BCEAAA4296914D3B67 /* Krevia */,
+				D5212E767C0A4708B5EDB3A7 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+
+		75E7F1B0A6B6453A9424C830 /* Employees */ = {
+			isa = PBXGroup;
+			children = (
+				863C65DE62464C8EB8BCAC9E /* EmployeesListView.swift */,
+				73501EA73C9842CF9542A423 /* EmployeeDetailView.swift */,
+				04B57D1823514F348DB82C3E /* EmployeeCatalogView.swift */,
+				EE46E5A32FF04E1EAA6EE707 /* EmployeeChatView.swift */,
+			);
+			path = Employees;
+			sourceTree = "<group>";
+		};
+		AA3DFA28A9894B468BE22C8A /* Conversations */ = {
+			isa = PBXGroup;
+			children = (
+				B4F60740DB364E52BBFDFDAA /* ConversationsListView.swift */,
+				528959698E6D45C29CE06219 /* ConversationDetailView.swift */,
+			);
+			path = Conversations;
+			sourceTree = "<group>";
+		};
+		E6D2232A2FAF47BF8BE86A2A /* Recruitment */ = {
+			isa = PBXGroup;
+			children = (
+				3F72871D63E74F3489FB2ACD /* RecruitmentJobsListView.swift */,
+				919D30CB637346B9B0FEEDD4 /* RecruitmentJobDetailView.swift */,
+				C244DDDC6B9D496DB8BBC149 /* CreateJobView.swift */,
+				4DB98F3F182D45FEA6C8DDE4 /* RecruitmentCandidateDetailView.swift */,
+				9D460C305A444AB4956CD094 /* RecruitmentAdvancedFilterView.swift */,
+			);
+			path = Recruitment;
+			sourceTree = "<group>";
+		};
+		AE48D404562B4D5FB5074066 /* Organization */ = {
+			isa = PBXGroup;
+			children = (
+				5DC5F3CEAA1B4231AA259F5F /* OrganizationSettingsView.swift */,
+			);
+			path = Organization;
+			sourceTree = "<group>";
+		};
+		F3DA2CAE439C454EAB300042 /* Roles */ = {
+			isa = PBXGroup;
+			children = (
+				F8377FA0DB4040EBAB837369 /* RolesListView.swift */,
+			);
+			path = Roles;
+			sourceTree = "<group>";
+		};
+		6219054BFDEA432B907A2017 /* Usage */ = {
+			isa = PBXGroup;
+			children = (
+				523AF9D41A744459BAAAF849 /* UsageView.swift */,
+				540BE7E826A7472B8D6976AA /* WalletView.swift */,
+				6E3F74BF5A7A4B46B5B65584 /* RechargeView.swift */,
+				914C1AC416734DC3B36196A8 /* TransactionsView.swift */,
+			);
+			path = Usage;
+			sourceTree = "<group>";
+		};
+
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		199CBCA254B8470DB8A2E83D /* Krevia */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 489B2869A85A4605974DD33E /* Build configuration list for PBXNativeTarget "Krevia" */;
+			buildPhases = (
+				E34D312E321E4D49A03B5013 /* Sources */,
+				5D11667C777D45DEA4884B2D /* Frameworks */,
+				EC4172CD2E9A441EB65CC91D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Krevia;
+			packageProductDependencies = (
+				4C86CC161E0C4DE7A67E5998_ref /* KreviaCore */,
+			);
+			productName = Krevia;
+			productReference = CCD40A1096D44ADA9BB17F80 /* Krevia.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		F1E8440DCF6640D198F3EB39 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					199CBCA254B8470DB8A2E83D = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = CF3266CB65294602A84E2FDB /* Build configuration list for PBXProject "Krevia" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = D569353B72F34E1292C101CB;
+			packageReferences = (
+				9F1FFC3573974945BE64D6FF /* XCLocalSwiftPackageReference "KreviaCore" */,
+			);
+			productRefGroup = D5212E767C0A4708B5EDB3A7 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				199CBCA254B8470DB8A2E83D /* Krevia */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EC4172CD2E9A441EB65CC91D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				85954543C0364ED1B2784835 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		E34D312E321E4D49A03B5013 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C8598F22BEAD41259D8929F0 /* KreviaApp.swift in Sources */,
+				E94862D3482744CF91903BAA /* KreviaTheme.swift in Sources */,
+				0541B8F119B64DCDAC96628A /* RootView.swift in Sources */,
+				603EFD840897497192EF15AA /* LoginView.swift in Sources */,
+				EE124126519A459E96D431C3 /* AppShellView.swift in Sources */,
+				97A75E3F4B6B4979BF49BCCC /* HomeView.swift in Sources */,
+				2EA635C3F4B2413484913BF8 /* SettingsView.swift in Sources */,
+				C5D3B1FB3F53429AB41DB5E0 /* LeadListView.swift in Sources */,
+				DB6FBC17B3E444D6B2665D3B /* LeadDetailView.swift in Sources */,
+				2B553CAC6CAF43068E3C294C /* ManualLeadView.swift in Sources */,
+				F20671CA9E9547B1ACBBEE5B /* EmployeesListView.swift in Sources */,
+				AF2AE4DE2A424793BA856170 /* EmployeeDetailView.swift in Sources */,
+				AA4823FD16E143ECA356B416 /* RecruitmentJobsListView.swift in Sources */,
+				96AE40EDD1BA481E88EF96A2 /* RecruitmentJobDetailView.swift in Sources */,
+				9546F3280DB247308AA7CAE6 /* CreateJobView.swift in Sources */,
+				E0C371CCC3D0402C82B2A66B /* RecruitmentCandidateDetailView.swift in Sources */,
+				32298E40C6784321BBA3CD65 /* RecruitmentAdvancedFilterView.swift in Sources */,
+				BD578B416A81424892C75A27 /* EmployeeChatView.swift in Sources */,
+				5BD353D08F584963930212FB /* OrganizationSettingsView.swift in Sources */,
+				07E70B9E35E649558DED695D /* RolesListView.swift in Sources */,
+				CBAC4F808F774EB3AB3D6782 /* EmployeeCatalogView.swift in Sources */,
+				E7DB42D9CAF44121935928EC /* ConversationsListView.swift in Sources */,
+				E51133752A0949B887686BF3 /* ConversationDetailView.swift in Sources */,
+				1D13F320455F4E12AEC30CF0 /* UsageView.swift in Sources */,
+				23B0FE1BFCB744A2B5A22581 /* WalletView.swift in Sources */,
+				7DBB7C1CA2244EDA9071DF42 /* RechargeView.swift in Sources */,
+				F924163420194ECA8F1DD274 /* TransactionsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		61AB2F9867524516A9E6A7B3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		74BE70258ED744269FE80ACB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		D15137F22EE54A4790CA3F6E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Krevia/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.krevia.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D22FAC05D6E74F6B9E88CC73 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Krevia/Info.plist;
+				INFOPLIST_KEY_UILaunchScreen_Generation = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = in.krevia.ios;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CF3266CB65294602A84E2FDB /* Build configuration list for PBXProject "Krevia" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				61AB2F9867524516A9E6A7B3 /* Debug */,
+				74BE70258ED744269FE80ACB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		489B2869A85A4605974DD33E /* Build configuration list for PBXNativeTarget "Krevia" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D15137F22EE54A4790CA3F6E /* Debug */,
+				D22FAC05D6E74F6B9E88CC73 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		9F1FFC3573974945BE64D6FF /* XCLocalSwiftPackageReference "KreviaCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = KreviaCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4C86CC161E0C4DE7A67E5998_ref /* KreviaCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KreviaCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = F1E8440DCF6640D198F3EB39 /* Project object */;
+}

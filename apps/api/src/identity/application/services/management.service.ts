@@ -99,6 +99,19 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "travel.conversation.reset",
     "travel.leads.read",
     "travel.leads.update",
+    "recruitment.jobs.read",
+    "recruitment.jobs.create",
+    "recruitment.jobs.update",
+    "recruitment.jobs.delete",
+    "recruitment.resumes.upload",
+    "recruitment.resumes.read",
+    "recruitment.resumes.delete",
+    "recruitment.candidates.review",
+    "recruitment.candidates.export",
+    "recruitment.candidates.contact",
+    "recruitment.candidates.call",
+    "recruitment.whatsapp.link",
+    "recruitment.settings.manage",
     "usage.read",
     "billing.read",
     "billing.manage",
@@ -131,6 +144,11 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "sales.conversation.reset",
     "sales.leads.read",
     "sales.leads.update",
+    "leads.read",
+    "leads.create",
+    "leads.update",
+    "leads.assign",
+    "leads.notes",
     "marketing.config.read",
     "marketing.config.update",
     "marketing.conversation.reset",
@@ -245,6 +263,11 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "sales.conversation.reset",
     "sales.leads.read",
     "sales.leads.update",
+    "leads.read",
+    "leads.create",
+    "leads.update",
+    "leads.assign",
+    "leads.notes",
     "marketing.config.read",
     "marketing.config.update",
     "marketing.conversation.reset",
@@ -321,6 +344,7 @@ const DEFAULT_PERMISSIONS: Record<(typeof SYSTEM_ROLES)[number], string[]> = {
     "sales.config.read",
     "sales.conversation.reset",
     "sales.leads.read",
+    "leads.read",
     "marketing.config.read",
     "marketing.conversation.reset",
     "marketing.campaigns.read",
@@ -519,7 +543,15 @@ export class ManagementService {
       throw new ForbiddenException("You cannot deactivate yourself");
     if (this.isOwner(user) && input.status && input.status !== UserStatus.ACTIVE)
       throw new ForbiddenException("The owner cannot be deactivated");
-    return this.prisma.user.update({ where: { id }, data: input, omit: { passwordHash: true } });
+    const result = await this.prisma.user.update({ where: { id }, data: input, omit: { passwordHash: true } });
+    // Phase 5.1 cache-invalidation audit: this is the one path in the codebase that can change a user's
+    // UserStatus (e.g. ACTIVE -> SUSPENDED/DISABLED) without going through deleteUser, and it was the one
+    // path of its kind that never called this. AuthorizationService.canAccessOrganization re-queries the
+    // DB fresh on every call, so membership loss via status change was never actually stale — but
+    // getEffectivePermissions/hasPermission DO cache for up to 5 minutes, and nothing was clearing that
+    // cache for this specific mutation, unlike every sibling mutation below.
+    if (input.status) this.authorization.invalidateUser(id, org);
+    return result;
   }
 
   /** Owner/admin reset of another user's password — the target's sessions are revoked so they must

@@ -140,6 +140,9 @@ function buildFakePrisma(row: DeliveryRow) {
       findFirst: vi.fn(async () => null)
     },
     conversation: { findFirst: vi.fn(async () => null) },
+    // Phase 5.3 — ChannelMessageProcessor now checks organization status before any retry; every fixture
+    // row here belongs to an ACTIVE org, consistent with every pre-existing test in this file.
+    organization: { findUnique: vi.fn(async () => ({ status: "ACTIVE" })) },
     store,
     attempts
   };

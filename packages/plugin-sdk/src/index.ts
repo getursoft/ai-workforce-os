@@ -30,6 +30,10 @@ export interface AiMessage {
   content: string;
   name?: string;
   toolCallId?: string;
+  /** Set only on an `assistant` message that proposed one or more tool calls — required by every
+   *  OpenAI-compatible provider's wire format to pair a later `tool` role message back to the call it
+   *  answers (the API rejects a `tool` message whose preceding `assistant` message lacks this). */
+  toolCalls?: AiToolCall[];
 }
 export interface AiToolDefinition {
   name: string;

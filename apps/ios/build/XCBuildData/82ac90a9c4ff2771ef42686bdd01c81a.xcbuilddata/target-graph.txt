@@ -1,0 +1,6 @@
+Target dependency graph (3 targets)
+Target 'Krevia' in project 'Krevia'
+➜ Explicit dependency on target 'KreviaCore' in project 'KreviaCore'
+Target 'KreviaCore' in project 'KreviaCore'
+➜ Explicit dependency on target 'KreviaCore' in project 'KreviaCore'
+Target 'KreviaCore' in project 'KreviaCore' (no dependencies)

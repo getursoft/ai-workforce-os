@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Inject, Logger, Post, Req, Res, UseGuards } from "@nestjs/common";
 import { RateLimit } from "../../../security/rate-limit.decorator";
 import {
   GET_CURRENT_USER,
@@ -47,6 +47,8 @@ import { RESET_TOKEN_LIFETIME_MINUTES } from "../../application/services/passwor
 
 @Controller("auth")
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     @Inject(REGISTER_ORGANIZATION)
     private readonly registerOrganization: RegisterOrganizationHandler,
@@ -329,6 +331,13 @@ export class AuthController {
   private logFailure(event: string, requestId: string, error: unknown): void {
     const category = error instanceof IdentityApplicationError ? error.code : "internal";
     this.securityLogger.failure(event, requestId, category);
+    // Known IdentityApplicationErrors (bad password, org not found, etc.) are expected traffic and
+    // already fully described by `category` above. Anything else is a genuine unhandled defect — log it
+    // with a stack trace so it's diagnosable, since the generic 500 response never exposes this to the
+    // caller.
+    if (!(error instanceof IdentityApplicationError)) {
+      this.logger.error(`${event} requestId=${requestId}: unexpected non-domain error`, error instanceof Error ? error.stack : String(error));
+    }
   }
 
   private setRefreshCookie(response: IdentityResponse, refreshToken: string): void {

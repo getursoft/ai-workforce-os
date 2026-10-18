@@ -1,0 +1,1 @@
+{"version":10,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.64.0","options":{},"platform":"darwin","wallTime":1792308779969,"monotonicTime":10379.526,"sdkLanguage":"javascript","title":"specs/06-ai-employee-chat.spec.ts:47 › CHAT-001 with no AI provider configured, the chat completes with a clear, honest message instead of a crash"}

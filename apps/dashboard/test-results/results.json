@@ -1,0 +1,211 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/26.5.0/bin/node",
+      "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/uat/specs/08-ai-employee-chat-identity-verification.spec.ts",
+      "--project=recruitment-diagnostic"
+    ],
+    "configFile": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/playwright.config.ts",
+    "rootDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/tests/uat",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "recruitment-visual-uat",
+        "name": "recruitment-visual-uat",
+        "testDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/tests/uat",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "recruitment-diagnostic",
+        "name": "recruitment-diagnostic",
+        "testDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/tests/uat",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "recruitment-diagnostic",
+        "testDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/tests/uat",
+        "snapshotDir": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/snapshots",
+        "testIgnore": [],
+        "testMatch": "**/*.@(spec|test).?(c|m)[jt]s?(x)",
+        "timeout": 30000,
+        "use": {
+          "baseURL": "http://localhost:3000",
+          "trace": "on",
+          "screenshot": "on",
+          "video": "on",
+          "actionTimeout": 15000,
+          "navigationTimeout": 30000,
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.8078.4 Safari/537.36",
+          "viewport": {
+            "width": 1440,
+            "height": 900
+          },
+          "screen": {
+            "width": 1920,
+            "height": 1080
+          },
+          "deviceScaleFactor": 1,
+          "isMobile": false,
+          "hasTouch": false,
+          "defaultBrowserType": "chromium",
+          "headless": true,
+          "slowMo": 0,
+          "retries": 2
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "recruitment-diagnostic"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "playwright-report",
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.0",
+    "workers": 1,
+    "webServer": {
+      "command": "pnpm dev",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000,
+      "cwd": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard"
+    }
+  },
+  "suites": [
+    {
+      "title": "specs/08-ai-employee-chat-identity-verification.spec.ts",
+      "file": "specs/08-ai-employee-chat-identity-verification.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "IDENTITY-001 a brand-new user is welcomed and must verify a phone number via OTP before Recruitment Consultant does anything real",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "recruitment-diagnostic",
+              "projectName": "recruitment-diagnostic",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4337,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T07:32:31.345Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts/specs-08-ai-employee-chat--909d4-nsultant-does-anything-real-recruitment-diagnostic/test-finished-1.png"
+                    },
+                    {
+                      "name": "video",
+                      "contentType": "video/webm",
+                      "path": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts/specs-08-ai-employee-chat--909d4-nsultant-does-anything-real-recruitment-diagnostic/video.webm"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "/Volumes/Personal/Codex/2026-07-10/ai-workforce-os/apps/dashboard/test-results/artifacts/specs-08-ai-employee-chat--909d4-nsultant-does-anything-real-recruitment-diagnostic/trace.zip"
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e64480aefd3bee29fbed-99f656aa91f4527e52ca",
+          "file": "specs/08-ai-employee-chat-identity-verification.spec.ts",
+          "line": 47,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-18T07:32:29.989Z",
+    "duration": 14591.391,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

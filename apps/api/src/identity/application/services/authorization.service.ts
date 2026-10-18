@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { OrganizationStatus } from "@prisma/client";
 import { PrismaService } from "../../../infrastructure/prisma/prisma.service";
 import { PlatformOwnerService } from "../../infrastructure/security/platform-owner.service";
 
@@ -25,6 +26,22 @@ export class AuthorizationService {
     const key = `${organizationId}:${userId}`;
     const cached = this.cache.get(key);
     if (cached && cached.expiresAt > Date.now()) return [...cached.permissions].sort();
+    // Phase 5.2 — organization suspension enforcement. A non-ACTIVE organization has zero effective
+    // permissions for every principal resolved into it, no exceptions (matches the already-established
+    // OrganizationAccessService precedent, which does not exempt the platform owner either). Checked
+    // first, before the jwtPermissions shortcut or the platform-owner/OWNER-ADMIN fallback below, so a
+    // suspension can never be bypassed by any of those paths. invalidateOrganization() is called by
+    // suspendOrganization/reactivateOrganization (platform.service.ts), so a cached grant from before the
+    // suspension is also cleared immediately — this check only has to handle the fresh-computation path,
+    // but it is what makes the fresh computation itself correct.
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { status: true }
+    });
+    if (!organization || organization.status !== OrganizationStatus.ACTIVE) {
+      this.cache.set(key, { permissions: new Set(), expiresAt: Date.now() + this.ttlMs });
+      return [];
+    }
     if (jwtPermissions) {
       const permissions = new Set(jwtPermissions);
       this.cache.set(key, { permissions, expiresAt: Date.now() + this.ttlMs });
@@ -91,6 +108,17 @@ export class AuthorizationService {
     return permissions.every((permission) => effective.has(permission));
   }
   async canAccessOrganization(userId: string, organizationId: string): Promise<boolean> {
+    // Phase 5.2 — checked first, unconditionally, before the platform-owner shortcut below: a suspended
+    // organization blocks everyone resolved into it, no exceptions (same policy as getEffectivePermissions
+    // above and the pre-existing OrganizationAccessService). This is also the method the recruitment
+    // export worker's background job already calls to re-verify authorization before and during
+    // processing (RecruitmentExportWorkerService.isRequesterAuthorized) — fixing it here, in one place,
+    // makes that existing worker architecture suspension-aware with no worker-specific code change.
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { status: true }
+    });
+    if (!organization || organization.status !== OrganizationStatus.ACTIVE) return false;
     const owner = await this.prisma.user.findFirst({
       where: { id: userId },
       select: { email: true }

@@ -60,6 +60,11 @@ export interface EmployeeDomainDescriptor {
   artifactToolName: string;
   escalateToolName: string;
   nameField: ArtifactNameField;
+  /** True only for a domain whose artifact represents genuine commercial/customer lead intent (a sales
+   *  pipeline), never an internal or service/ticket workflow (HR, IT, Finance, Legal, Marketing, Customer
+   *  Support) — gates whether AgentService also mirrors the artifact into the canonical Krevia CRM Lead
+   *  (see `registerEmployeeTools`). Keep this false by default; only flip it for a genuine sales domain. */
+  isLeadGenerating: boolean;
   configModel: (prisma: unknown) => EmployeeConfigDelegate;
   artifactDelegate: (prisma: unknown) => { create(args: unknown): Promise<unknown>; findUnique(args: unknown): Promise<unknown>; findFirst(args: unknown): Promise<unknown> };
   mapFields: EmployeeArtifactFieldMapper;
@@ -82,6 +87,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["topic", "details"],
     escalateToolName: "hr.escalate",
     nameField: "employeeName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { hrEmployeeConfiguration: EmployeeConfigDelegate }).hrEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { hrTicket: unknown }).hrTicket as never,
     mapFields: (input) => ({
@@ -100,6 +106,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["topic", "amount", "details"],
     escalateToolName: "finance.escalate",
     nameField: "customerName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { financeEmployeeConfiguration: EmployeeConfigDelegate }).financeEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { financeRecord: unknown }).financeRecord as never,
     mapFields: (input) => ({
@@ -119,6 +126,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["category", "description"],
     escalateToolName: "it.escalate",
     nameField: "employeeName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { itSupportEmployeeConfiguration: EmployeeConfigDelegate }).itSupportEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { itSupportTicket: unknown }).itSupportTicket as never,
     mapFields: (input) => ({
@@ -137,6 +145,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["interest", "notes"],
     escalateToolName: "sales.escalate",
     nameField: "customerName",
+    isLeadGenerating: true,
     configModel: (prisma) => (prisma as { salesEmployeeConfiguration: EmployeeConfigDelegate }).salesEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { salesLead: unknown }).salesLead as never,
     mapFields: (input) => ({
@@ -155,6 +164,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["campaignName", "channel", "goals"],
     escalateToolName: "marketing.escalate",
     nameField: "customerName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { marketingEmployeeConfiguration: EmployeeConfigDelegate }).marketingEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { marketingCampaign: unknown }).marketingCampaign as never,
     mapFields: (input) => ({
@@ -174,6 +184,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["noticeType", "deadline", "summary"],
     escalateToolName: "legal.escalate",
     nameField: "customerName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { legalEmployeeConfiguration: EmployeeConfigDelegate }).legalEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { legalNotice: unknown }).legalNotice as never,
     mapFields: (input) => ({
@@ -193,6 +204,7 @@ export const EMPLOYEE_DOMAIN_REGISTRY: readonly EmployeeDomainDescriptor[] = [
     artifactFieldKeys: ["topic", "description"],
     escalateToolName: "support.escalate",
     nameField: "customerName",
+    isLeadGenerating: false,
     configModel: (prisma) => (prisma as { customerSupportEmployeeConfiguration: EmployeeConfigDelegate }).customerSupportEmployeeConfiguration,
     artifactDelegate: (prisma) => (prisma as { customerSupportTicket: unknown }).customerSupportTicket as never,
     mapFields: (input) => ({

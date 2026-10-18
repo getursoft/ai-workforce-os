@@ -133,6 +133,24 @@ export async function deleteAllOrganizationScopedRows(prisma: PrismaService): Pr
   await prisma.role.deleteMany();
   await prisma.organizationSetting.deleteMany();
   await prisma.customerProfile.deleteMany();
+  // AI Recruitment Consultant — children before parents; RecruitmentJob/RecruitmentUploadBatch both
+  // reference users via RESTRICT (createdByUserId/uploadedByUserId), so both must be gone before
+  // user.deleteMany() below, same reason aiProviderConnection is cleared before it above.
+  // Sprint 7.16 additions: RecruitmentCallLog.initiatedByUserId and RecruitmentExportJob.requestedByUserId
+  // are also RESTRICT, same reasoning. RecruitmentWhatsAppSession references RecruitmentWhatsAppLink
+  // (Cascade) which references User (Cascade) — still cleared explicitly for the same "children before
+  // parents" ordering rather than relying on cascade behavior across unrelated top-level deleteMany calls.
+  await prisma.recruitmentWhatsAppSession.deleteMany();
+  await prisma.recruitmentWhatsAppLink.deleteMany();
+  await prisma.recruitmentCallLog.deleteMany();
+  await prisma.recruitmentExportJob.deleteMany();
+  await prisma.recruitmentFilterPreset.deleteMany();
+  await prisma.recruitmentEvaluation.deleteMany();
+  await prisma.recruitmentApplication.deleteMany();
+  await prisma.recruitmentResume.deleteMany();
+  await prisma.recruitmentUploadBatch.deleteMany();
+  await prisma.recruitmentCandidate.deleteMany();
+  await prisma.recruitmentJob.deleteMany();
   await prisma.user.deleteMany();
   await prisma.organization.deleteMany();
 }

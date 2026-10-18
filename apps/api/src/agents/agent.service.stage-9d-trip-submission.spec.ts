@@ -14,6 +14,7 @@ import {
 } from "../travel/travel.runtime";
 import { AgentService, type MemoryService } from "./agent.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import type { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import { resolveCustomerIdentity } from "../customer-identity/customer-identity.types";
 import { WorkflowExecutionService } from "../workflows/workflow-execution.service";
@@ -183,7 +184,7 @@ function harness() {
   };
   const connectors = { toolHandlers: () => [], availableToolNames: vi.fn().mockResolvedValue([]) };
   const workflows = new WorkflowExecutionService(built.prisma);
-  const travelLeadService = new TravelLeadService(built.prisma);
+  const travelLeadService = new TravelLeadService(built.prisma, new LeadService(built.prisma));
   const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
   const bookingHandoff = new BookingHandoffWorkflowService(workflows);
   const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);
@@ -294,7 +295,7 @@ describe("AgentService Stage 9D: TRIP_SUBMISSION (CONFIRM_STANDALONE_CONTACT_USE
         })
       };
       const workflows = new WorkflowExecutionService(built.prisma);
-      const travelLeadService = new TravelLeadService(built.prisma);
+      const travelLeadService = new TravelLeadService(built.prisma, new LeadService(built.prisma));
       const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
       const bookingHandoff = new BookingHandoffWorkflowService(workflows);
       const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);

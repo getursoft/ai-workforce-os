@@ -1,0 +1,269 @@
+{
+  "title": "Krevia Phase 5.3 — Full Backend Regression and Background Worker Suspension Audit",
+  "objective": "Complete the remaining verification after Krevia_Sprint_7.17_Phase5.2_Organization_Suspension_UAT: run the full backend regression suite, and audit every background worker in the codebase (not just the recruitment export worker) for organization-suspension awareness, fixing narrow, clearly-scoped gaps where found.",
+  "generatedAt": "2026-10-16T19:05:00+05:30",
+  "verdict": "PASS WITH BLOCKERS",
+  "verdictRationale": "The full canonical backend regression suite runs clean: the exact same 9 pre-existing, pre-Phase-5.1 failures appear before and after this task's changes (confirmed by running the suite twice — once before any Phase 5.3 worker fix, once after — and diffing the failure lists), and zero new failures were introduced. Four background workers with real, confirmed external side effects and no organization-suspension check were found and fixed with narrow, tested changes, closing the exact class of gap the task was scoped to find. One additional worker (the generic scheduled-job executor, which can send reminders and run AI agents with credit/token cost) was found to have the same gap but was deliberately NOT fixed in this pass — its dispatch pipeline spans several files and the correct policy for an already-queued scheduled job is a genuine product question, not a narrow, obviously-safe code change — so it is reported as an open blocker for an explicit decision, per the task's own instruction not to guess at an unclear policy.",
+
+  "partA_fullBackendRegression": {
+    "canonicalCommand": "apps/api package.json \"test\" script: `node --experimental-strip-types ../../scripts/prepare-test-database.ts && vitest run --no-file-parallelism` — confirmed as the canonical full-suite command (prepares the real TEST_DATABASE_URL via prisma migrate deploy + db seed first; the script itself refuses to run against any database whose name doesn't end in `_test`). Already uses --no-file-parallelism by design, consistent with the task's own instruction.",
+    "runs": [
+      {
+        "label": "Baseline (before any Phase 5.3 worker fix, Phase 5.1+5.2 fixes already in place)",
+        "command": "npm test (apps/api)",
+        "exitCode": 0,
+        "durationSeconds": 295,
+        "testFiles": { "total": 235, "passed": 222, "failed": 12, "skipped": 1 },
+        "tests": { "total": 3048, "passed": 2917, "failed": 9, "skipped": 122 }
+      },
+      {
+        "label": "Final (after all Phase 5.3 worker fixes and their tests)",
+        "command": "npm test (apps/api)",
+        "exitCode": 0,
+        "durationSeconds": 298,
+        "testFiles": { "total": 236, "passed": 223, "failed": 12, "skipped": 1 },
+        "tests": { "total": 3055, "passed": 2924, "failed": 9, "skipped": 122 }
+      }
+    ],
+    "diffBetweenRuns": "Identical 9 failed tests, identical 12 failed files, identical 122 skipped. The only difference is +7 total tests and +7 more passes — exactly the 7 new tests added in this task (2 in channel-message.processor.spec.ts, 2 in workforce-orchestrator.service.spec.ts, 1 in interaction-notification.orchestrator.spec.ts, 2 in the new recruitment-batch-processor-suspension.e2e.spec.ts), all passing. Zero regressions.",
+    "preExistingFailuresClassified": [
+      {
+        "files": ["src/agents/agent.e2e.spec.ts", "src/connectors/connector.e2e.spec.ts", "src/employees/employees.e2e.spec.ts", "src/knowledge/knowledge.e2e.spec.ts", "src/legal/legal-documents.e2e.spec.ts", "src/plugins/plugin.e2e.spec.ts", "src/skills-platform/skill-platform-enterprise.e2e.spec.ts", "src/skills-platform/skill-platform.e2e.spec.ts"],
+        "cause": "afterAll cleanup throws a foreign-key violation (channel_connections_plugin_installation_id_fkey) when deleting Plugin rows — a pre-existing test-isolation ordering issue when these files run in the same shared TEST_DATABASE_URL as other files that also create ChannelConnection rows referencing the same plugins, confirmed present in the baseline run (before any Phase 5.3 change) and unrelated to any file this task touched.",
+        "relatedToThisTask": false
+      },
+      {
+        "files": ["src/channels/channel-delivery.spec.ts"],
+        "cause": "5 tests under 'Meta delivery-status callback' throw META_WEBHOOK_SIGNATURE_VERIFICATION_FAILED because META_APP_SECRET is not set in this environment's .env/.env.test — confirmed by grep (the variable name is absent from both files) and present identically in the baseline run. Two OTHER tests in this same file ('per-attempt delivery history') were a genuine Phase 5.3 regression this task introduced and then fixed in the same pass — see filesChanged; they do not appear in either the baseline or final failure list because the fix landed before this file's final run.",
+        "relatedToThisTask": false
+      },
+      {
+        "files": ["src/interaction/interaction-voice.e2e.spec.ts", "src/interaction/interaction.e2e.spec.ts"],
+        "cause": "Notification-count/timing assertions that depend on real async delivery timing; confirmed present in the baseline run before any Phase 5.3 change.",
+        "relatedToThisTask": false
+      },
+      {
+        "files": ["src/travel/travel.llm.spec.ts"],
+        "cause": "Two date-extraction assertions expect a date to resolve to 2026 but the LLM/orchestrator resolves it to 2027 — an LLM date-parsing behavior unrelated to authorization, workers, or anything touched by this task. Confirmed present in the baseline run.",
+        "relatedToThisTask": false
+      }
+    ],
+    "transientRegressionsFoundAndFixedDuringThisTask": [
+      {
+        "description": "Two tests in channel-delivery.spec.ts ('retryable failure then success...', 'a permanent (non-retryable) failure...') and 5 in interaction-notification.orchestrator.spec.ts and 1 in workforce-orchestrator.service.spec.ts and 1 in channel-message.processor.spec.ts briefly failed against an intermediate, in-progress state of this task's own worker fixes — each one because a pre-existing unit test's hand-rolled fake Prisma mock did not define an organization.findUnique method (or defined one without a status field) that the new suspension check now calls. These were caught and fixed within this same task (see filesChanged) by adding the missing mock, defaulted to ACTIVE so no pre-existing test's intent changed. None of these appear in either the baseline or the final full-suite run above — they were an artifact of an intermediate background regression run started before every fix had landed, included here for full transparency about the actual development process rather than omitted."
+      }
+    ]
+  },
+
+  "partB_workerInventory": [
+    {
+      "worker": "ChannelMessageProcessor",
+      "file": "apps/api/src/channels/channel-message.processor.ts",
+      "queueOrTrigger": "Self-ticking setInterval (3s), no external queue — claims ChannelMessage rows via an atomic conditional UPDATE",
+      "tenantContextSource": "message.organizationId on the claimed row — no per-user authorization context at all",
+      "accessesTenantOrSensitiveData": "YES — runs the AI agent (agents.execute) against live conversation/candidate data, reads/writes Conversation and ChannelMessage rows",
+      "orgStatusCheckedBeforeFix": false,
+      "authorizationRecheckedBeforeRetry": "N/A before fix; after fix, every claim of a RECEIVED or scheduled-retry message re-checks status",
+      "continuesAfterSuspension": "YES before fix — NO after fix",
+      "externalSideEffects": "Sends real outbound WhatsApp messages via Twilio and Meta Cloud API (sendViaTwilio/sendViaMeta)",
+      "riskSeverity": "HIGH",
+      "fixed": true
+    },
+    {
+      "worker": "RecruitmentBatchProcessor",
+      "file": "apps/api/src/recruitment/recruitment-batch-processor.ts",
+      "queueOrTrigger": "Self-ticking setInterval (500ms), no external queue",
+      "tenantContextSource": "resume.organizationId / application.organizationId on each polled row",
+      "accessesTenantOrSensitiveData": "YES — extracts and stores candidate PII (name/email/phone/skills/experience) from resume text, potentially calls an LLM provider for scoring explanations",
+      "orgStatusCheckedBeforeFix": false,
+      "authorizationRecheckedBeforeRetry": "N/A before fix; after fix, the candidate list is re-filtered by organization status on every tick, including retries and the stuck-resume recovery sweep",
+      "continuesAfterSuspension": "YES before fix — NO after fix (deferred, not terminally failed — see policy note)",
+      "externalSideEffects": "Potential LLM provider calls for scoring explanations (cost-relevant); writes candidate PII to the database",
+      "riskSeverity": "HIGH",
+      "fixed": true
+    },
+    {
+      "worker": "WorkforceOrchestratorService.dispatch (driven by WorkforceTaskProcessor)",
+      "file": "apps/api/src/workforce/workforce-orchestrator.service.ts (dispatch), apps/api/src/workforce/workforce-task-processor.ts (trigger)",
+      "queueOrTrigger": "Self-ticking setInterval (300ms) calling dispatch() on QUEUED EmployeeDelegatedTask rows",
+      "tenantContextSource": "task.organizationId on the delegated task row",
+      "accessesTenantOrSensitiveData": "YES — runs an AI employee (agentService.execute) with access to tenant memory/conversation/CRM data as granted by its collaboration policy",
+      "orgStatusCheckedBeforeFix": false,
+      "authorizationRecheckedBeforeRetry": "N/A before fix; after fix, every dispatch() call (first attempt, retry, or resumed after a timeout) re-checks status before transitioning to RUNNING",
+      "continuesAfterSuspension": "YES before fix — NO after fix",
+      "externalSideEffects": "Runs an AI agent that may itself take further actions depending on its granted capabilities (e.g. CRM, travel booking tools)",
+      "riskSeverity": "HIGH",
+      "fixed": true
+    },
+    {
+      "worker": "InteractionNotificationOrchestrator.notifyReferenceIssued (driven by NotificationJobHandler, NOTIFICATION_JOBS queue)",
+      "file": "apps/api/src/interaction/interaction-notification.orchestrator.ts, apps/api/src/queue/notification-job-handler.ts",
+      "queueOrTrigger": "Durable QueueCategory.NOTIFICATION_JOBS via the shared PostgresQueueAdapter + QueueConsumerWorker",
+      "tenantContextSource": "organizationId in the queue message payload",
+      "accessesTenantOrSensitiveData": "YES — reads the Interaction row (customer phone/email/reference) to compose the message",
+      "orgStatusCheckedBeforeFix": false,
+      "authorizationRecheckedBeforeRetry": "N/A before fix; after fix, every call (including a retried queue message) re-checks status, reusing an organization row this method already fetched for its own purposes (the org's display name)",
+      "continuesAfterSuspension": "YES before fix — NO after fix",
+      "externalSideEffects": "Sends a real WhatsApp message (via ChannelMessageProcessor.sendHumanMessage), SMS, or email to the end customer",
+      "riskSeverity": "MEDIUM-HIGH",
+      "fixed": true
+    },
+    {
+      "worker": "JobExecutor / SchedulerService (SEND_REMINDER and RUN_AGENT scheduled job handlers)",
+      "file": "apps/api/src/scheduler/job-executor.ts, apps/api/src/scheduler/scheduler.service.ts, apps/api/src/scheduler/autonomous-job-definitions.ts",
+      "queueOrTrigger": "Self-ticking setInterval scheduler tick -> dispatcher.publishDueJobs -> executor.processQueue -> registry-resolved handler per job definition",
+      "tenantContextSource": "ScheduledJob.organizationId",
+      "accessesTenantOrSensitiveData": "YES — SEND_REMINDER handlers compose and send real reminders (travel/HR/finance/legal/sales reminders, confirmed by grep of autonomous-job-definitions.ts); RUN_AGENT handlers (e.g. platform.recurring_report) execute an AI agent and track tokens/credits consumed per run",
+      "orgStatusCheckedBeforeFix": false,
+      "authorizationRecheckedBeforeRetry": "NOT CHECKED — confirmed by grep: zero matches for organization.status/OrganizationStatus/canAccessOrganization anywhere under apps/api/src/scheduler/",
+      "continuesAfterSuspension": "YES — NOT FIXED in this pass",
+      "externalSideEffects": "Real reminder notifications; AI agent execution with tracked token/credit cost (billing-relevant)",
+      "riskSeverity": "MEDIUM-HIGH",
+      "fixed": false,
+      "reasonNotFixed": "This pipeline spans multiple files (SchedulerService -> JobDispatcher -> JobExecutor -> JobRegistry -> per-handler-type logic) and the correct policy is genuinely ambiguous in a way the four fixed workers were not: should an already-queued scheduled job for a now-suspended organization be silently skipped (risking a user-visible 'reminder never arrived' complaint once reactivated), deferred like resume parsing (risking an unbounded backlog of time-sensitive reminders that fire all at once on reactivation, some now stale/wrong), or terminally failed (losing it entirely)? None of these is obviously correct without a product/security decision, unlike the four fixed workers where 'do not take this specific action for a suspended org' was unambiguous. Per the task's own instruction to document rather than guess when the intended behavior isn't clear, this is reported as an open blocker, not silently fixed or silently ignored."
+    },
+    {
+      "worker": "QueueConsumerWorker (the shared dispatcher for every QueueCategory, including RECRUITMENT_EXPORTS and NOTIFICATION_JOBS)",
+      "file": "apps/api/src/queue/queue-worker.ts",
+      "queueOrTrigger": "Self-ticking setInterval (2s), claims and dispatches to the category-registered handler",
+      "accessesTenantOrSensitiveData": "Indirectly — delegates to whichever handler is registered for the message's category",
+      "considerationAndRejection": "A single organization-status check here, before every handler call, was considered as the most DRY, maximally-covering fix (it would have automatically covered every current and future queue category with one change). It was deliberately NOT implemented: RecruitmentExportWorkerService (Phase 5.1) already has its own handler-level suspension check that sets a specific business-row status (RecruitmentExportJob.status = CANCELLED with a specific errorMessage) and tells the queue 'complete, do not retry.' A blanket pre-handler check at this shared dispatcher would intercept a suspended organization's message BEFORE the recruitment handler ever runs, meaning RecruitmentExportJob.status would simply stay QUEUED forever (misleading to anyone polling export status) while the underlying queue message silently retried or eventually dead-lettered on its own generic ladder — a real behavior change to an already-shipped, already-tested Phase 5.1 guarantee, not a safe no-op addition. Handler-specific fixes (as done for NOTIFICATION_JOBS via InteractionNotificationOrchestrator) were judged safer and were used instead.",
+      "fixed": false,
+      "reasonNotFixed": "Rejected by design to avoid conflicting with the already-tested Phase 5.1 recruitment export worker semantics — see considerationAndRejection."
+    },
+    {
+      "worker": "RetentionService / ObservabilityRetentionService",
+      "file": "apps/api/src/retention/retention.service.ts, apps/api/src/observability/observability-retention.service.ts",
+      "queueOrTrigger": "Self-ticking setInterval (hourly)",
+      "accessesTenantOrSensitiveData": "Only to DELETE old, already-terminal rows (completed/failed interactions, voice transcripts, notifications, agent/workflow executions past their retention window) — platform-wide, not organization-targeted logic",
+      "continuesAfterSuspension": "Continues regardless of suspension",
+      "riskSeverity": "NOT APPLICABLE",
+      "fixed": false,
+      "reasonNotFixed": "Reviewed and judged out of scope by design: this worker takes no new action ON BEHALF OF a tenant and has no external side effect — it only deletes stale, already-completed rows, which is harmless (arguably still desirable) regardless of an organization's suspension status."
+    },
+    {
+      "worker": "DiskHealthService / InMemoryRateLimiter",
+      "file": "apps/api/src/production/disk-health.service.ts, apps/api/src/security/in-memory-rate-limiter.ts",
+      "queueOrTrigger": "Self-ticking setInterval (platform-wide infra checks / in-memory sweep)",
+      "accessesTenantOrSensitiveData": "NO — not tenant-scoped at all",
+      "riskSeverity": "NOT APPLICABLE",
+      "fixed": false,
+      "reasonNotFixed": "Not tenant-scoped; reviewed and confirmed out of scope."
+    }
+  ],
+
+  "partC_testsForSuspendedWorkerBehavior": [
+    {
+      "worker": "ChannelMessageProcessor",
+      "file": "apps/api/src/channels/channel-message.processor.spec.ts",
+      "tests": [
+        "terminally fails an inbound message for a suspended organization without ever running the agent or sending an outbound reply",
+        "fails an outbound retry for a suspended organization without ever calling the provider"
+      ],
+      "result": "2/2 PASS",
+      "methodology": "Unit-style, real production class against a hand-rolled fake Prisma (matching this file's pre-existing convention) — extended to support per-organization status."
+    },
+    {
+      "worker": "WorkforceOrchestratorService.dispatch",
+      "file": "apps/api/src/workforce/workforce-orchestrator.service.spec.ts",
+      "tests": [
+        "dispatch() terminally fails a QUEUED task for a suspended organization without ever resolving an employee or running the agent",
+        "dispatch() does not false-positive the suspension check for an ACTIVE organization"
+      ],
+      "result": "2/2 PASS"
+    },
+    {
+      "worker": "InteractionNotificationOrchestrator.notifyReferenceIssued",
+      "file": "apps/api/src/interaction/interaction-notification.orchestrator.spec.ts",
+      "tests": [
+        "sends no real WhatsApp/email notification for a suspended organization — this runs via the NOTIFICATION_JOBS queue, with no HTTP request and no JwtAccessGuard at all"
+      ],
+      "result": "1/1 PASS"
+    },
+    {
+      "worker": "RecruitmentBatchProcessor",
+      "file": "apps/api/src/recruitment/recruitment-batch-processor-suspension.e2e.spec.ts (new)",
+      "tests": [
+        "a QUEUED resume for a suspended organization is left untouched (not claimed, retryCount unchanged) across multiple ticks",
+        "the same resume is picked up and completes once the organization is reactivated"
+      ],
+      "result": "2/2 PASS, real Postgres (TEST_DATABASE_URL)"
+    }
+  ],
+
+  "partD_exceptionsAndRecoveryReview": {
+    "healthEndpoints": "CONFIRMED still intentional and unaffected — /health/live and /health/ready carry no guard of any kind (verified by reading production/health.controller.ts again in this task); no change was needed or made.",
+    "platformAdminRoutes": "CONFIRMED still intentional and unaffected — platform.controller.ts remains @UseGuards(JwtAccessGuard, PlatformOwnerGuard), never PermissionGuard; re-verified by rerunning the full identity suite (includes Krevia Phase 5.2's organization-suspension.e2e.spec.ts POINT-10, which asserts platform-admin routes remain reachable while the target org is suspended) — still passes.",
+    "logout": "CONFIRMED still intentional and unaffected — POST /auth/logout still carries no guard; unchanged.",
+    "reactivationTokenResume": "CONFIRMED still intentional and unaffected — re-verified via the full identity suite (organization-suspension.e2e.spec.ts POINT-8, a still-valid pre-suspension token resumes working immediately on reactivation with no re-login) and via this task's own new recruitment-batch-processor-suspension test #2 (a deferred resume is picked up and completes once reactivated, with no manual resubmission).",
+    "noAccidentalBroadExceptionFound": "Confirmed by the full regression counts matching exactly (184/184 identity, 74+5/79 recruitment, and the full-suite 2924 passed / 9 pre-existing-unrelated failed) — no route or worker was found to have newly or accidentally bypassed tenant authorization as a side effect of any change in this task."
+  },
+
+  "filesChanged": [
+    { "file": "apps/api/src/channels/channel-message.processor.ts", "reason": "Added isOrganizationActive() and a check at the top of handleInboundTraced and handleOutboundRetry — terminal failure (ORGANIZATION_SUSPENDED), no agent execution, no outbound send, for a suspended organization." },
+    { "file": "apps/api/src/channels/channel-message.processor.spec.ts", "reason": "Extended createFakePrisma with an organization.findUnique mock (default ACTIVE); added 2 new tests for the suspended-organization branches." },
+    { "file": "apps/api/src/channels/channel-delivery.spec.ts", "reason": "Added the same missing organization.findUnique mock to this file's separate buildFakePrisma helper, which the new production check in channel-message.processor.ts now calls — fixes a transient regression this task introduced and caught in the same pass (see partA.transientRegressionsFoundAndFixedDuringThisTask)." },
+    { "file": "apps/api/src/recruitment/recruitment-batch-processor.ts", "reason": "Added filterActiveOrganizations(), applied to sweepStuckResumes, parseQueuedResumes, and scorePendingApplications — defers (does not claim or spend retry budget on) rows belonging to a suspended organization." },
+    { "file": "apps/api/src/recruitment/recruitment-batch-processor-suspension.e2e.spec.ts", "reason": "New file. 2 real, executed tests proving the defer-then-resume-on-reactivation behavior against the real test database." },
+    { "file": "apps/api/src/workforce/workforce-orchestrator.service.ts", "reason": "Added an organization-status check in dispatch(), right after the existing timeout check and before the transition to RUNNING — reuses the existing failTask()/ORGANIZATION_SUSPENDED-is-not-retryable mechanism, so no new terminal-state concept was introduced." },
+    { "file": "apps/api/src/workforce/workforce-orchestrator.service.spec.ts", "reason": "Added an organization.findUnique mock (default ACTIVE) to buildOrchestrator's fake Prisma; added 2 new tests (the suspended case, and an ACTIVE-org control case proving no false positive)." },
+    { "file": "apps/api/src/interaction/interaction-notification.orchestrator.ts", "reason": "Added an organization-status check in notifyReferenceIssued, reusing the organization row this method already fetched for its own purposes (the org's display name) — zero additional query." },
+    { "file": "apps/api/src/interaction/interaction-notification.orchestrator.spec.ts", "reason": "Fixed the pre-existing organization.findUnique mock to include status: 'ACTIVE' (it previously returned only {id, name}), which the new production check now reads; added 1 new test for the suspended case." }
+  ],
+
+  "testInfrastructureNotes": {
+    "diskSpaceChecked": "Checked before every expensive run in this task (consistently 12-13Gi available of 119Gi) — sufficient throughout; no project or user data was deleted.",
+    "typecheckBaseline": { "existingBaselineErrors": 84, "newErrorsInTouchedFiles": 0, "note": "Confirmed unchanged across every check in this task; the only matches when grepping touched filenames are two PRE-EXISTING, unrelated TS2835 import-extension errors in recruitment.e2e.spec.ts whose error TEXT happens to mention recruitment-batch-processor.ts as a suggested fix — not errors in that file itself." },
+    "syntheticDataCleanup": "Confirmed via direct queries against TEST_DATABASE_URL after this task's own new tests ran: 0 orphaned organizations matching 'Batch Processor Suspension Test'. All other new/modified tests in this task are hand-mocked unit specs (channel-message.processor.spec.ts, channel-delivery.spec.ts, workforce-orchestrator.service.spec.ts, interaction-notification.orchestrator.spec.ts) that never touch the real database at all.",
+    "sharedTestDatabaseConcurrencyLimitation": "Reconfirmed: the canonical full-suite command already uses --no-file-parallelism, which is necessary because at least one spec (management.e2e.spec.ts, via apps/api/src/test/cleanup.ts's deleteAllOrganizationScopedRows) performs a full blanket wipe of the shared TEST_DATABASE_URL and is not safe to run concurrently with any other file touching that same database. A SEPARATE, narrower issue — the 9 pre-existing failures classified above, mostly afterAll foreign-key-ordering crashes — persists even with --no-file-parallelism, because these specific files' own cleanup code does not account for rows other, unrelated test files may have left behind in the same run. Recommended improvement (not undertaken in this task, as it would be unrelated refactoring across ~8 files): either (a) give every e2e spec file its own fully isolated test database/schema per run (the most robust fix, but a meaningful infrastructure change), or (b) fix each affected file's own afterAll to delete ChannelConnection rows before Plugin rows, matching the FK direction, which is a smaller, mechanical, low-risk change but still touches 8 files outside this task's scope and is better done as its own focused cleanup pass."
+  },
+
+  "remainingBlockers": [
+    {
+      "id": "BLOCKER-SCHEDULER-SUSPENSION",
+      "severity": "MEDIUM-HIGH",
+      "description": "JobExecutor/SchedulerService (SEND_REMINDER and RUN_AGENT scheduled job handlers) has no organization-suspension check anywhere, and can send real reminders and run AI agents (with tracked token/credit cost) for a suspended organization's already-scheduled jobs.",
+      "resolvedOrAccepted": "NEITHER — reported for an explicit product/security decision on the correct policy (skip/defer/fail), per partB_workerInventory's reasonNotFixed.",
+      "owner": "Product/security owner."
+    },
+    {
+      "id": "RISK-SHARED-TEST-DB-CLEANUP-ORDERING",
+      "severity": "LOW",
+      "description": "9 pre-existing, confirmed-unrelated test failures (FK cleanup ordering in 8 files, a missing META_APP_SECRET env var, 2 LLM date-parsing assertions, 2 notification-timing assertions) persist in the full-suite run. None are caused by or related to any Phase 5.1/5.2/5.3 change.",
+      "resolvedOrAccepted": "ACCEPTED AS PRE-EXISTING — not fixed in this task; recommended improvements noted in testInfrastructureNotes.sharedTestDatabaseConcurrencyLimitation.",
+      "owner": "Whoever owns general test-infrastructure hygiene — not urgent, not security-relevant."
+    },
+    {
+      "id": "CARRIED-FORWARD-WHATSAPP-LIVE",
+      "severity": "LOW (external dependency, not a code defect)",
+      "description": "Unchanged from all prior reports in this lineage — live WhatsApp/Twilio verification has still never been performed end-to-end; not in scope for this task either.",
+      "resolvedOrAccepted": "NEITHER — carried forward, owner-action item.",
+      "owner": "Account owner / whoever owns the Twilio account."
+    }
+  ],
+
+  "localSimulatedVsLiveProviderVerification": {
+    "verifiedForRealLocally": [
+      "The full canonical backend regression (npm test), twice, against the real local TEST_DATABASE_URL.",
+      "RecruitmentBatchProcessor's defer-then-resume behavior, against the real local test database.",
+      "ChannelMessageProcessor, WorkforceOrchestratorService.dispatch, and InteractionNotificationOrchestrator's suspension checks, as real unit-level tests against the real production classes (with hand-mocked, non-live dependencies consistent with each file's own pre-existing test convention)."
+    ],
+    "notPerformedLiveExternalProvider": [
+      "No real Twilio/Meta WhatsApp message was ever sent.",
+      "No real AI/LLM provider was called for any new test in this task.",
+      "No real billing/credit charge was triggered.",
+      "No production organization, resume, or candidate data was used — every row created in this task's tests is synthetic."
+    ]
+  },
+
+  "doNotClaim": "Identity and recruitment suites passing does NOT, by itself, mean the whole backend is production-ready — the scheduler/reminder pipeline's suspension gap (BLOCKER-SCHEDULER-SUSPENSION) is a real, documented, unresolved risk, and the full-suite run's 9 pre-existing failures, though unrelated to this task, remain actual failures that someone should eventually address.",
+
+  "safetyConstraintsObserved": [
+    "No real external provider was called, configured, or sent through.",
+    "No production data was used anywhere in this task.",
+    "No credentials or secrets were printed or logged.",
+    "No test or project data was deleted to free disk space; disk space was checked before every expensive run.",
+    "No authentication, authorization, or tenant-isolation behavior was weakened — every change in this task adds a check; none removes or loosens one.",
+    "All reported test counts are from commands actually executed in this session against the real local test database, with exact exit codes and durations recorded."
+  ]
+}

@@ -2,6 +2,7 @@ import { Prisma, WorkflowStatus, type WorkflowExecution } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import type { PrismaService } from "../../infrastructure/prisma/prisma.service";
 import { TravelLeadService } from "../../travel/travel-lead.service";
+import { LeadService } from "../../leads/lead.service";
 import { WorkflowExecutionService } from "../workflow-execution.service";
 import type { WorkflowExecutionScope } from "../workflow-runtime.contracts";
 import { ContactCaptureWorkflowService } from "./contact-capture.service";
@@ -116,7 +117,7 @@ function harness() {
   const workflowPrisma = fakeWorkflowPrisma();
   const leadPrisma = fakeLeadPrisma();
   const workflows = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-  const travelLeadService = new TravelLeadService(leadPrisma as unknown as PrismaService);
+  const travelLeadService = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
   const service = new ContactCaptureWorkflowService(workflows, travelLeadService);
   return { service, workflows, travelLeadService, workflowPrisma, leadPrisma };
 }
@@ -270,13 +271,13 @@ describe("ContactCaptureWorkflowService: resuming with a phone number", () => {
   it("restart durability: a freshly constructed service resumes a workflow persisted by a previous instance", async () => {
     const { workflowPrisma, leadPrisma } = harness();
     const workflowsA = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-    const travelLeadA = new TravelLeadService(leadPrisma as unknown as PrismaService);
+    const travelLeadA = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
     const serviceA = new ContactCaptureWorkflowService(workflowsA, travelLeadA);
     await serviceA.start(scope, "turn-1");
 
     // Recreate everything from scratch against the same underlying rows, as if the process restarted.
     const workflowsB = new WorkflowExecutionService(workflowPrisma as unknown as PrismaService);
-    const travelLeadB = new TravelLeadService(leadPrisma as unknown as PrismaService);
+    const travelLeadB = new TravelLeadService(leadPrisma as unknown as PrismaService, new LeadService(leadPrisma as unknown as PrismaService));
     const serviceB = new ContactCaptureWorkflowService(workflowsB, travelLeadB);
 
     const active = await workflowsB.findActiveWorkflow(scope);

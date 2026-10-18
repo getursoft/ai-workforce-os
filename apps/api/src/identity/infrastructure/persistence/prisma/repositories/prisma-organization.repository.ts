@@ -19,17 +19,22 @@ export class PrismaOrganizationRepository implements OrganizationRepository {
     return record ? OrganizationPrismaMapper.toDomain(record) : null;
   }
 
+  /** Slug is unique, so an exact slug match is tried first and is inherently deterministic. Only when
+   *  that misses does this fall back to a name match — which, unlike slug, has no uniqueness constraint,
+   *  so two organizations can legitimately share a display name (e.g. after a rename collision). An
+   *  unordered `findFirst` there previously let login resolve to either one nondeterministically; `asc`
+   *  by `createdAt` pins it to the org that has held that name the longest. */
   async findByName(name: string): Promise<Organization | null> {
     const trimmed = name.trim();
-    const record = await this.client.organization.findFirst({
-      where: {
-        OR: [
-          { name: { equals: trimmed, mode: "insensitive" } },
-          { slug: { equals: trimmed.toLowerCase(), mode: "insensitive" } }
-        ]
-      }
+    const bySlug = await this.client.organization.findUnique({
+      where: { slug: trimmed.toLowerCase() }
     });
-    return record ? OrganizationPrismaMapper.toDomain(record) : null;
+    if (bySlug) return OrganizationPrismaMapper.toDomain(bySlug);
+    const byName = await this.client.organization.findFirst({
+      where: { name: { equals: trimmed, mode: "insensitive" } },
+      orderBy: { createdAt: "asc" }
+    });
+    return byName ? OrganizationPrismaMapper.toDomain(byName) : null;
   }
 
   async existsBySlug(slug: OrganizationSlug): Promise<boolean> {

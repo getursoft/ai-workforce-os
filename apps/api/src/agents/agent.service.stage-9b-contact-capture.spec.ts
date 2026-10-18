@@ -9,6 +9,7 @@ import type { SecurityConfig } from "../identity/infrastructure/security/securit
 import { TRAVEL_EMPLOYEE_PLUGIN_SLUG, entitiesToStoredState, EMPTY_TRAVEL_ENTITIES } from "../travel/travel.runtime";
 import { AgentService, type MemoryService } from "./agent.service";
 import { TravelLeadService } from "../travel/travel-lead.service";
+import { LeadService } from "../leads/lead.service";
 import type { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import { resolveCustomerIdentity } from "../customer-identity/customer-identity.types";
 import { WorkflowExecutionService } from "../workflows/workflow-execution.service";
@@ -196,7 +197,7 @@ function harness(options: { crmConfigured?: boolean } = {}) {
     availableToolNames: vi.fn().mockResolvedValue(options.crmConfigured ? ["sales.crm.create_lead"] : [])
   };
   const workflows = new WorkflowExecutionService(prisma);
-  const travelLeadService = new TravelLeadService(prisma);
+  const travelLeadService = new TravelLeadService(prisma, new LeadService(prisma));
   const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
   const bookingHandoff = new BookingHandoffWorkflowService(workflows);
   const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);
@@ -330,7 +331,7 @@ describe("AgentService Stage 9B: Pending Workflow Runtime + Contact Capture (com
         })
       };
       const workflows = new WorkflowExecutionService(built.prisma);
-      const travelLeadService = new TravelLeadService(built.prisma);
+      const travelLeadService = new TravelLeadService(built.prisma, new LeadService(built.prisma));
       const contactCapture = new ContactCaptureWorkflowService(workflows, travelLeadService);
       const bookingHandoff = new BookingHandoffWorkflowService(workflows);
       const tripSubmission = new TripSubmissionWorkflowService(workflows, travelLeadService);

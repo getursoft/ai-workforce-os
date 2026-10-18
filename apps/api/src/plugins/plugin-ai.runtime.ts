@@ -40,6 +40,8 @@ export class AiProviderError extends Error {
   }
 }
 
+const providerCallLogger = new Logger("AiProviderCall");
+
 export class OpenAiCompatibleProvider implements AiProvider {
   constructor(
     protected readonly settings: ProviderSettings,
@@ -90,7 +92,19 @@ export class OpenAiCompatibleProvider implements AiProvider {
       throw new AiProviderError("AI_PROVIDER_QUOTA_EXCEEDED", response.status);
     if (response.status >= 500)
       throw new AiProviderError("AI_PROVIDER_UNAVAILABLE", response.status);
-    if (!response.ok) throw new AiProviderError("AI_PROVIDER_TEST_FAILED", response.status);
+    if (!response.ok) {
+      // Operator-only diagnostic: the provider's own error text explains exactly what's malformed
+      // (e.g. an invalid function/tool parameter schema) — never surfaced to the end user (the chat
+      // still only ever sees the generic, mapped AiProviderError message), but otherwise this detail
+      // was silently discarded, leaving a bare "AI_PROVIDER_TEST_FAILED" with no way to diagnose it.
+      const detail = await response.clone().text().catch(() => "");
+      providerCallLogger.warn({
+        event: "AI_PROVIDER_CALL_REJECTED",
+        status: response.status,
+        detail: detail.slice(0, 2000)
+      });
+      throw new AiProviderError("AI_PROVIDER_TEST_FAILED", response.status);
+    }
     const t2 = Date.now();
     const body = await safeJson(response);
     const parseMs = Date.now() - t2;
@@ -212,6 +226,123 @@ export class DeterministicTravelProvider implements AiProvider {
         model: "travel-test-v1",
         usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
       };
+    if (
+      last?.role !== "tool" &&
+      /\b(list|show|what).*jobs?\b|job\s+openings?/i.test(user) &&
+      request.tools?.some((x) => x.name === "recruitment.list_jobs")
+    )
+      return {
+        content: "",
+        toolCalls: [{ id: "recruitment-list-jobs-1", name: "recruitment.list_jobs", arguments: {} }],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 15, outputTokens: 5, totalTokens: 20 }
+      };
+    if (last?.role === "tool" && /"jobs"\s*:/i.test(last.content))
+      return {
+        content: `Here are the current job openings: ${last.content}`,
+        toolCalls: [],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 15, outputTokens: 15, totalTokens: 30 }
+      };
+    if (
+      last?.role !== "tool" &&
+      /create\s+(a\s+)?(new\s+)?job/i.test(user) &&
+      request.tools?.some((x) => x.name === "recruitment.create_job")
+    ) {
+      const titleMatch = /titled?\s*[:'"]?\s*([^'".\n]+?)(?:['".]|\s+with\b|\s+description|$)/i.exec(user);
+      const descMatch = /description:?\s*(.+)$/is.exec(user);
+      return {
+        content: "",
+        toolCalls: [
+          {
+            id: "recruitment-create-job-1",
+            name: "recruitment.create_job",
+            arguments: {
+              title: titleMatch?.[1]?.trim() || "New Position",
+              description: descMatch?.[1]?.trim() || user
+            }
+          }
+        ],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
+      };
+    }
+    if (
+      last?.role === "tool" &&
+      /"jobCode"\s*:/i.test(last.content) &&
+      !/"results"\s*:/i.test(last.content)
+    )
+      return {
+        content: `Job posted successfully: ${last.content}`,
+        toolCalls: [],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 15, outputTokens: 15, totalTokens: 30 }
+      };
+    if (
+      last?.role !== "tool" &&
+      /upload.*resume|resume.*upload/i.test(user) &&
+      request.tools?.some((x) => x.name === "recruitment.upload_resume")
+    ) {
+      const jobCodeMatch = /JOB-\d{4}-\d+/i.exec(user);
+      return {
+        content: "",
+        toolCalls: [
+          {
+            id: "recruitment-upload-resume-1",
+            name: "recruitment.upload_resume",
+            // Live UAT finding (2026-10-18): the real model put the human job code into `jobId` (the only
+            // identifier it had), not `jobCode` — reproduced deliberately here rather than taking the
+            // "easy" shape, so this test actually exercises resolveRecruitmentJob()'s fallback.
+            arguments: jobCodeMatch ? { jobId: jobCodeMatch[0] } : {}
+          }
+        ],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
+      };
+    }
+    if (
+      last?.role !== "tool" &&
+      /shortlist/i.test(user) &&
+      request.tools?.some((x) => x.name === "recruitment.shortlist_candidate")
+    ) {
+      // Deliberately a syntactically valid but nonexistent id — this is the exact live UAT scenario
+      // (2026-10-18): the model referencing an applicationId it misremembered/hallucinated from earlier
+      // in the conversation rather than re-fetching a current one.
+      return {
+        content: "",
+        toolCalls: [
+          {
+            id: "recruitment-shortlist-1",
+            name: "recruitment.shortlist_candidate",
+            arguments: { applicationId: "00000000-0000-0000-0000-000000000000" }
+          }
+        ],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 }
+      };
+    }
+    if (last?.role === "tool" && /_NOT_FOUND/i.test(last.content))
+      return {
+        content: `I couldn't find that candidate — the id was not valid: ${last.content}`,
+        toolCalls: [],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 15, outputTokens: 15, totalTokens: 30 }
+      };
+    if (last?.role === "tool" && /"results"\s*:/i.test(last.content))
+      return {
+        content: `Resume uploaded: ${last.content}`,
+        toolCalls: [],
+        provider: "deterministic",
+        model: "travel-test-v1",
+        usage: { inputTokens: 15, outputTokens: 15, totalTokens: 30 }
+      };
     return {
       content: /dubai/i.test(user)
         ? last?.role === "tool" && /LEAD-/i.test(last.content)
@@ -247,7 +378,21 @@ function mapRequest(request: AiCompletionRequest, model: string) {
       role: message.role,
       content: message.content,
       ...(message.name ? { name: names.get(message.name) ?? safeToolName(message.name) } : {}),
-      ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {})
+      ...(message.toolCallId ? { tool_call_id: message.toolCallId } : {}),
+      // Required so a later `tool` role message is valid — OpenAI rejects a `tool` message whose
+      // preceding `assistant` message doesn't carry the matching `tool_calls` entry.
+      ...(message.toolCalls?.length
+        ? {
+            tool_calls: message.toolCalls.map((call) => ({
+              id: call.id,
+              type: "function",
+              function: {
+                name: names.get(call.name) ?? safeToolName(call.name),
+                arguments: JSON.stringify(call.arguments)
+              }
+            }))
+          }
+        : {})
     })),
     ...(request.tools?.length
       ? {
