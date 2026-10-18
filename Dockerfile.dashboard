@@ -6,6 +6,11 @@ COPY apps/dashboard/package.json apps/dashboard/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY packages ./packages
 COPY plugins ./plugins
+# database/ must be present before `pnpm install`: the root package.json's postinstall hook runs
+# `prisma generate --schema=database/prisma/schema.prisma` automatically on every install (needed for
+# Vercel/CI, where the whole repo is already checked out) — the dashboard doesn't use Prisma itself,
+# but the root-level postinstall still fires here too.
+COPY database ./database
 RUN pnpm install --frozen-lockfile
 COPY apps/dashboard ./apps/dashboard
 ARG NEXT_PUBLIC_API_BASE_URL

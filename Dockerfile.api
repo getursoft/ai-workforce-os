@@ -6,14 +6,18 @@ COPY apps/api/package.json apps/api/package.json
 COPY apps/dashboard/package.json apps/dashboard/package.json
 COPY packages ./packages
 COPY plugins ./plugins
-RUN pnpm install --frozen-lockfile
+# database/ must be present before `pnpm install`: the root package.json's postinstall hook runs
+# `prisma generate --schema=database/prisma/schema.prisma` automatically on every install (needed for
+# Vercel/CI, where the whole repo is already checked out), so the schema has to exist by then here too.
 COPY database ./database
+RUN pnpm install --frozen-lockfile
 COPY apps/api ./apps/api
+# Build via Turbo's own dependency graph (`dependsOn: ["^build"]` in turbo.json), not a hand-maintained
+# chain of `pnpm --filter` commands: a hand-maintained list silently goes stale whenever apps/api gains a
+# new workspace dependency (this is exactly how `@ai-workforce-os/skill-sdk` ended up missing here,
+# producing "Cannot find module" at compile time even though it's a declared dependency).
 RUN pnpm exec prisma generate --schema=database/prisma/schema.prisma \
-  && pnpm --filter @ai-workforce-os/connector-sdk build \
-  && pnpm --filter @ai-workforce-os/plugin-sdk build \
-  && pnpm --filter @ai-workforce-os/plugin-dummy build \
-  && pnpm --filter @ai-workforce-os/api build
+  && pnpm exec turbo run build --filter=@ai-workforce-os/api
 # Not `pnpm prune --prod`: it has no --filter support in pnpm workspaces and evaluates the whole
 # workspace's dependency graph at once, which is unreliable here. Do not reintroduce it without
 # switching to the workspace-aware `pnpm deploy` command and verifying the runtime container actually
