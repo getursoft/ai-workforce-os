@@ -96,7 +96,7 @@ export class ApiBackedEmployeeProvider implements AiProvider {
       });
       return {
         content:
-          "The real API integration could not be reached right now. Please check the API endpoint and key, or switch this employee back to the built-in flow.",
+          "The real API integration could not be reached right now. Please check the API endpoint and key, or switch this agent back to the built-in flow.",
         toolCalls: [],
         provider: `${this.spec.slug}-api`,
         model: `${this.spec.slug}-api-v1`,

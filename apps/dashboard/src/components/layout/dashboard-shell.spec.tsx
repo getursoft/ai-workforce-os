@@ -67,7 +67,7 @@ describe("DashboardShell", () => {
     expect(html).toContain("Getursoft");
     expect(html).toContain("Krishna Pandey");
     expect(html).toContain("Dashboard");
-    expect(html).toContain("AI Employees");
+    expect(html).toContain("My Agents");
     expect(html).toContain("Knowledge Base");
     expect(html).toContain("Settings");
   });

@@ -17,15 +17,15 @@ const sections = [
   },
   {
     title: "2. Information We Collect",
-    body: "We collect information you provide directly, such as contact details submitted through forms, account and organisation information, and usage data generated as AI employees are configured and used.",
+    body: "We collect information you provide directly, such as contact details submitted through forms, account and organisation information, and usage data generated as AI agents are configured and used.",
   },
   {
     title: "3. How We Use Information",
-    body: "Information is used to provide and improve the platform, respond to enquiries, operate AI employees on behalf of your organisation, and communicate updates relevant to your account.",
+    body: "Information is used to provide and improve the platform, respond to enquiries, operate AI agents on behalf of your organisation, and communicate updates relevant to your account.",
   },
   {
-    title: "4. Organisational Data and AI Employees",
-    body: "Documents, policies and conversation data connected to power your organisation's AI employees are used only for that organisation and are not used to train shared models across customers.",
+    title: "4. Organisational Data and AI Agents",
+    body: "Documents, policies and conversation data connected to power your organisation's AI agents are used only for that organisation and are not used to train shared models across customers.",
   },
   {
     title: "5. Data Sharing",

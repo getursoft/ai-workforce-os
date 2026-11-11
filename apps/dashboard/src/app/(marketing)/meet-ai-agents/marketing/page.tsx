@@ -3,10 +3,10 @@ import { defaultMetadata } from "@/lib/seo";
 import { EmployeeDetailTemplate } from "@/components/ai-employees/employee-detail-template";
 
 export const metadata: Metadata = defaultMetadata({
-  title: "Marketing AI Employee",
+  title: "Marketing AI Agent",
   description:
-    "The Marketing AI Employee supports campaign planning, drafts content, researches audiences and summarises performance.",
-  path: "/meet-ai-employees/marketing",
+    "The Marketing AI Agent supports campaign planning, drafts content, researches audiences and summarises performance.",
+  path: "/meet-ai-agents/marketing",
 });
 
 export default function MarketingAiEmployeePage() {

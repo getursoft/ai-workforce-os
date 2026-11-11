@@ -163,18 +163,18 @@ export class WorkforceOrchestratorService implements OnModuleInit {
       throw new IdentityApplicationError("DELEGATION_NOT_ALLOWED", "This task type is not allowed by organization policy.");
     }
     if (policy.allowedSourceEmployeeIds.length > 0 && !policy.allowedSourceEmployeeIds.includes(input.sourceEmployeeInstallationId)) {
-      throw new IdentityApplicationError("DELEGATION_NOT_ALLOWED", "This employee is not allowed to delegate work.");
+      throw new IdentityApplicationError("DELEGATION_NOT_ALLOWED", "This agent is not allowed to delegate work.");
     }
 
     const source = await this.registry.getInstalled(input.organizationId, input.sourceEmployeeInstallationId);
     if (!source) {
       throw new IdentityApplicationError(
         "WORKFORCE_EMPLOYEE_NOT_INSTALLED",
-        "The delegating employee is not installed in this organization."
+        "The delegating agent is not installed in this organization."
       );
     }
     if (source.status !== "ACTIVE") {
-      throw new IdentityApplicationError("WORKFORCE_TARGET_DISABLED", "The delegating employee is not active.");
+      throw new IdentityApplicationError("WORKFORCE_TARGET_DISABLED", "The delegating agent is not active.");
     }
 
     // --- Cycle / depth resolution from the parent task, if this is a nested delegation ---
@@ -212,12 +212,12 @@ export class WorkforceOrchestratorService implements OnModuleInit {
     if (!routing.shouldDelegate && !input.targetEmployeeInstallationId) {
       throw new IdentityApplicationError(
         "NO_ELIGIBLE_EMPLOYEE",
-        "No installed, capable employee is available to handle this task.",
+        "No installed, capable agent is available to handle this task.",
         [`reasonCode=${routing.reasonCode}`]
       );
     }
     if (!targetId) {
-      throw new IdentityApplicationError("NO_ELIGIBLE_EMPLOYEE", "No installed, capable employee is available to handle this task.");
+      throw new IdentityApplicationError("NO_ELIGIBLE_EMPLOYEE", "No installed, capable agent is available to handle this task.");
     }
 
     // --- Cycle detection: the resolved target must not already be in the delegation chain ---
@@ -234,14 +234,14 @@ export class WorkforceOrchestratorService implements OnModuleInit {
     if (!target) {
       throw new IdentityApplicationError(
         "WORKFORCE_EMPLOYEE_NOT_INSTALLED",
-        "The target employee is not installed in this organization."
+        "The target agent is not installed in this organization."
       );
     }
     if (target.status !== "ACTIVE") {
-      throw new IdentityApplicationError("WORKFORCE_TARGET_DISABLED", "The target employee is disabled.");
+      throw new IdentityApplicationError("WORKFORCE_TARGET_DISABLED", "The target agent is disabled.");
     }
     if (!target.collaboration.enabled) {
-      throw new IdentityApplicationError("DELEGATION_NOT_ALLOWED", "The target employee has collaboration disabled.");
+      throw new IdentityApplicationError("DELEGATION_NOT_ALLOWED", "The target agent has collaboration disabled.");
     }
 
     // --- Confused-deputy guard: the target must hold its OWN required capabilities. The source's
@@ -252,7 +252,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
     if (missingBase.length > 0) {
       throw new IdentityApplicationError(
         "WORKFORCE_CAPABILITY_NOT_GRANTED",
-        "The target employee is missing a capability required to accept delegated work.",
+        "The target agent is missing a capability required to accept delegated work.",
         missingBase.map((cap) => `missing: ${cap}`)
       );
     }
@@ -264,7 +264,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
       if (!has) {
         throw new IdentityApplicationError(
           "WORKFORCE_CAPABILITY_NOT_GRANTED",
-          `The target employee does not have the requested capability: ${contract.targetCapability}.`
+          `The target agent does not have the requested capability: ${contract.targetCapability}.`
         );
       }
     }
@@ -586,7 +586,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
     };
   }
 
-  /** Executes a QUEUED task against its target employee via the existing agent execution pipeline —
+  /** Executes a QUEUED task against its target agent via the existing agent execution pipeline —
    *  reusing AgentService.execute() means the target runs under its OWN capability grants, tool
    *  permissions, and AI provider configuration, exactly as if a user had messaged it directly. Called
    *  inline for SYNCHRONOUS tasks, and later (outside the original HTTP request) by WorkforceTaskProcessor
@@ -666,7 +666,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
         return this.failTask(taskId, error.code, safeMessage(error.message));
       }
       this.logger.error({ event: "WorkforceTaskExecutionThrew", taskId, error: String(error) });
-      return this.failTask(taskId, "TARGET_EXECUTION_FAILED", "The target employee could not complete this task.");
+      return this.failTask(taskId, "TARGET_EXECUTION_FAILED", "The target agent could not complete this task.");
     }
   }
 
@@ -929,7 +929,7 @@ export class WorkforceOrchestratorService implements OnModuleInit {
   /** Writes what was shared as a short-lived EMPLOYEE-scope memory record on the TARGET, so the fact this
    *  collaboration happened is itself auditable/recallable — but only for a bounded window (Phase 9:
    *  "temporary collaboration context must expire"). Permanent extraction, if any, is a separate, normal
-   *  memory-write decision the target employee makes on its own, not something delegation does for it. */
+   *  memory-write decision the target agent makes on its own, not something delegation does for it. */
   private async persistTemporaryCollaborationContext(
     organizationId: string,
     targetEmployeeInstallationId: string,

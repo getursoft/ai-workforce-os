@@ -1,8 +1,8 @@
 import Foundation
 
-/// Maps 1:1 to apps/api/src/plugins/plugin.controller.ts (`/plugins`). The AI Employee catalog and
+/// Maps 1:1 to apps/api/src/plugins/plugin.controller.ts (`/plugins`). The AI Agent catalog and
 /// install flow — `available()` lists every discoverable plugin with an `installed` flag; `install()`
-/// is the one path every AI Employee installation goes through, regardless of which employee.
+/// is the one path every AI Agent installation goes through, regardless of which employee.
 public struct PluginService: Sendable {
     private let client: APIClient
 

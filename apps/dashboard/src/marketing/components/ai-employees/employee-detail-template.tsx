@@ -37,10 +37,10 @@ export function EmployeeDetailTemplate({ slug }: { slug: string }) {
 
       <section className="bg-white py-7">
         <div className="mx-auto max-w-6xl px-4 text-center sm:px-6 lg:px-8">
-          <SectionHeading eyebrow="Explore more" title="Other AI Employees" size="secondary" />
+          <SectionHeading eyebrow="Explore more" title="Other AI Agents" size="secondary" />
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             {others.map((other) => (
-              <ButtonLink key={other.slug} href={`/meet-ai-employees/${other.slug}`} variant="secondary">
+              <ButtonLink key={other.slug} href={`/meet-ai-agents/${other.slug}`} variant="secondary">
                 {other.role}
               </ButtonLink>
             ))}

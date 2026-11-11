@@ -1,9 +1,9 @@
 {
   "id": "hr-employee",
-  "name": "HR Employee",
+  "name": "HR Agent",
   "version": "1.0.0",
-  "displayName": "HR Employee",
-  "description": "AI HR employee. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
+  "displayName": "HR Agent",
+  "description": "AI HR agent. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "hr-employee",
     "employeeType": "HR",
-    "displayName": "HR Employee",
+    "displayName": "HR Agent",
     "summary": "Handles leave, payroll, benefits, onboarding, hiring, and other employee-relations questions.",
     "domains": [
       "hr",

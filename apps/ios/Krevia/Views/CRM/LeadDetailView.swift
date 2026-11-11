@@ -66,7 +66,7 @@ struct LeadDetailView: View {
             detailRow("Email", lead.email)
             detailRow("Requirement", lead.requirement)
             detailRow("Source", lead.source.displayName)
-            detailRow("AI Employee", lead.agentId)
+            detailRow("AI Agent", lead.agentId)
             detailRow("Priority", lead.priority.rawValue)
             detailRow("Assigned To", lead.assignedToUserId)
             detailRow("Interaction", lead.interactionId)

@@ -44,9 +44,9 @@ const HR_LEAVE_POLICY_DOCUMENT = [
 
 /**
  * End-to-end proof for the Sprint 4.1 UAT defects (see the Sprint 4.3 refactor notes in
- * docs/enterprise-knowledge.md): retrieved knowledge must actually be used in the AI Employee's
+ * docs/enterprise-knowledge.md): retrieved knowledge must actually be used in the AI Agent's
  * response (not just surfaced as "sources" metadata while the reply ignores it), and knowledge must
- * never cross an AI Employee boundary. Requires a Postgres instance with the pgvector extension
+ * never cross an AI Agent boundary. Requires a Postgres instance with the pgvector extension
  * (pgvector/pgvector:pg16, see docker-compose.yml) reachable via TEST_DATABASE_URL.
  */
 suite("Knowledge grounding UAT", () => {
@@ -86,7 +86,7 @@ suite("Knowledge grounding UAT", () => {
       .expect(201);
     const platformOwnerAuth = `Bearer ${switched.body.data.tokens.accessToken}`;
 
-    // Travel Employee — real plugin type, deterministic engine (no AI provider configured).
+    // Travel Agent — real plugin type, deterministic engine (no AI provider configured).
     const travel = await request(app.getHttpServer())
       .post("/api/v1/plugins/install")
       .set("Authorization", `Bearer ${token}`)
@@ -109,9 +109,9 @@ suite("Knowledge grounding UAT", () => {
       })
       .expect(201);
 
-    // HR Employee — a second, distinct AI Employee (generic knowledge-grounded, no bespoke runtime)
+    // HR Agent — a second, distinct AI Agent (generic knowledge-grounded, no bespoke runtime)
     // owning a completely separate collection. Deliberately a different Plugin (dummy-echo) than the
-    // Travel Employee: proves isolation holds across employee *types*, not just across two
+    // Travel Agent: proves isolation holds across employee *types*, not just across two
     // installations of the same plugin.
     const hr = await request(app.getHttpServer())
       .post("/api/v1/plugins/install")
@@ -179,13 +179,13 @@ suite("Knowledge grounding UAT", () => {
     expect(run.body.response).toMatch(/price-match|24\/7 support|free date changes/i);
   });
 
-  it("UAT-05 / KNOWLEDGE FILTERING: the Travel Employee never answers from HR knowledge", async () => {
+  it("UAT-05 / KNOWLEDGE FILTERING: the Travel Agent never answers from HR knowledge", async () => {
     const run = await ask(travelEmployeeId, "What is the leave policy?");
     expect(run.body.response).toBe(NO_KNOWLEDGE_MESSAGE);
     expect(run.body.sources).toEqual([]);
   });
 
-  it("KNOWLEDGE FILTERING: the HR Employee answers the leave policy from its own collection", async () => {
+  it("KNOWLEDGE FILTERING: the HR Agent answers the leave policy from its own collection", async () => {
     const run = await ask(hrEmployeeId, "What is the leave policy?");
     expect(run.body.response).toMatch(/18 days/);
     expect(run.body.sources.length).toBeGreaterThan(0);

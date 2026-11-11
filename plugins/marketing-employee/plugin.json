@@ -1,9 +1,9 @@
 {
   "id": "marketing-employee",
-  "name": "Marketing Employee",
+  "name": "Marketing Agent",
   "version": "1.0.0",
-  "displayName": "Marketing Employee",
-  "description": "AI marketing employee. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
+  "displayName": "Marketing Agent",
+  "description": "AI marketing agent. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "marketing-employee",
     "employeeType": "MARKETING",
-    "displayName": "Marketing Employee",
+    "displayName": "Marketing Agent",
     "summary": "Handles campaign planning, content drafting, and performance summaries.",
     "domains": [
       "marketing",

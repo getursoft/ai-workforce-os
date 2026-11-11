@@ -44,7 +44,7 @@ export const SKILL_PACK_SEEDS: readonly SkillPackSeed[] = [
   {
     key: "text-insights-pack",
     name: "Text Insights Pack",
-    description: "Lightweight text-only chain for employees that only need to summarize, extract entities from, and translate free text (no file upload required).",
+    description: "Lightweight text-only chain for agents that only need to summarize, extract entities from, and translate free text (no file upload required).",
     category: "Text Processing",
     industry: "general",
     author: "Krevia.ai",

@@ -47,10 +47,10 @@ describe("DashboardHome", () => {
     // Replaced by insight cards — no more static checklist or a plain recent-activity list.
     expect(html).not.toContain("Getting started");
     expect(html).not.toContain("Recent Activity");
-    expect(html).toContain("AI Employees in Use");
-    expect(html).toContain("Time Saved by AI Employee");
-    expect(html).toContain("Credits by AI Employee");
-    expect(html).toContain("Tokens by AI Employee");
+    expect(html).toContain("AI Agents in Use");
+    expect(html).toContain("Time Saved by AI Agent");
+    expect(html).toContain("Credits by AI Agent");
+    expect(html).toContain("Tokens by AI Agent");
   });
 
   it("prefers the real first name and falls back to the email prefix", () => {

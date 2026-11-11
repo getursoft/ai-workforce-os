@@ -8,7 +8,7 @@ export function CollaborationSection() {
         <Handshake className="mx-auto h-9 w-9 text-saffron" aria-hidden="true" />
         <h2 className="mt-5 text-2xl font-bold text-ink sm:text-[32px] lg:text-[38px]">Built to Collaborate With Your Team</h2>
         <p className="mx-auto mt-4 max-w-[600px] text-base leading-relaxed text-muted">
-          We work closely with every customer during onboarding to scope AI employees around real workflows,
+          We work closely with every customer during onboarding to scope AI agents around real workflows,
           connect the right knowledge and systems, and configure approval boundaries that match how your
           organisation operates. Krevia.ai is built to extend your teams, not replace them.
         </p>

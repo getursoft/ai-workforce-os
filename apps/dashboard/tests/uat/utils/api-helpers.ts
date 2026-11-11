@@ -357,7 +357,7 @@ export async function authenticatePage(page: Page, refreshToken: string, targetP
   });
   await page.goto(targetPath);
   // Wait for the actual target, not a hardcoded "/dashboard" substring — targetPath may be a sibling
-  // authenticated route like /ai-employees/:id that never contains the literal word "dashboard" (it's a
+  // authenticated route like /agents/:id that never contains the literal word "dashboard" (it's a
   // Next.js route GROUP, (dashboard), which doesn't appear in the URL at all).
   await page.waitForURL(`**${targetPath.split("?")[0]}**`, { timeout: TEST_CONFIG.timeouts.navigation });
   await refreshResponse;

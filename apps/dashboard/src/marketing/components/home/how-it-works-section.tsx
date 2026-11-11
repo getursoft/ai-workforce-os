@@ -3,13 +3,13 @@ import { SectionHeading } from "@/components/shared/section-heading";
 const steps = [
   {
     step: "01",
-    title: "Choose Your AI Employees",
-    description: "Select from Travel, HR, Finance, IT Support, Sales, Marketing or a Custom AI Employee built around your workflow.",
+    title: "Choose Your AI Agents",
+    description: "Select from Travel, HR, Finance, IT Support, Sales, Marketing or a Custom AI Agent built around your workflow.",
   },
   {
     step: "02",
     title: "Connect Knowledge and Tools",
-    description: "Ground each AI employee in your documents, policies and systems, and grant access to the tools it needs.",
+    description: "Ground each AI agent in your documents, policies and systems, and grant access to the tools it needs.",
   },
   {
     step: "03",
@@ -19,7 +19,7 @@ const steps = [
   {
     step: "04",
     title: "Deploy and Collaborate",
-    description: "AI employees go live across your chosen channels, working alongside your teams from day one.",
+    description: "AI agents go live across your chosen channels, working alongside your teams from day one.",
   },
   {
     step: "05",

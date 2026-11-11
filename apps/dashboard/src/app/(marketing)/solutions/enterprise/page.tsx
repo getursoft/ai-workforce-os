@@ -20,21 +20,21 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Enterprise Solutions",
   description:
-    "Deploy governed AI employees across business units with multi-tenant architecture, role-based access, auditability and configurable governance controls.",
+    "Deploy governed AI agents across business units with multi-tenant architecture, role-based access, auditability and configurable governance controls.",
   path: "/solutions/enterprise",
 });
 
 const pillars = [
   { icon: Building2, title: "Multi-Tenant Architecture", description: "Deploy across business units or subsidiaries with clear boundaries between them." },
   { icon: KeyRound, title: "Role-Based Access", description: "Configurable permissions define exactly who and what can act." },
-  { icon: ClipboardCheck, title: "Governance Controls", description: "Configurable rules govern how AI employees behave across your organisation." },
-  { icon: ScrollText, title: "Auditability", description: "A clear, reviewable record of AI employee actions and approvals." },
+  { icon: ClipboardCheck, title: "Governance Controls", description: "Configurable rules govern how AI agents behave across your organisation." },
+  { icon: ScrollText, title: "Auditability", description: "A clear, reviewable record of AI agent actions and approvals." },
   { icon: ShieldCheck, title: "Security", description: "Designed to support enterprise security requirements at scale." },
   { icon: Lock, title: "Approval Controls", description: "Sensitive or high-impact actions are routed to designated reviewers." },
   { icon: Boxes, title: "Private Integrations", description: "Connect internal systems through a governed, permissioned API layer." },
-  { icon: BookOpen, title: "Organisational Knowledge", description: "Ground AI employees in the specific documents and systems you choose." },
+  { icon: BookOpen, title: "Organisational Knowledge", description: "Ground AI agents in the specific documents and systems you choose." },
   { icon: BarChart3, title: "Usage Analytics", description: "Organisation-wide visibility into activity, adoption and outcomes." },
-  { icon: Users2, title: "Support and Onboarding", description: "Dedicated onboarding support as you scope and deploy AI employees." },
+  { icon: Users2, title: "Support and Onboarding", description: "Dedicated onboarding support as you scope and deploy AI agents." },
 ];
 
 export default function EnterpriseSolutionPage() {
@@ -42,7 +42,7 @@ export default function EnterpriseSolutionPage() {
     <>
       <PageHero
         eyebrow="For enterprises"
-        title="Governed AI Employees at Enterprise Scale"
+        title="Governed AI Agents at Enterprise Scale"
         description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls and an integration-ready architecture — built for organisations deploying across multiple departments and business units."
       >
         <ButtonLink href="/contact" variant="primary" className="bg-saffron hover:bg-[#d97b00]">

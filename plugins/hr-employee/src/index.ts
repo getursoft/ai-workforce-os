@@ -12,11 +12,11 @@ export const HR_EMPLOYEE_PLUGIN_ID = "hr-employee";
 
 export const hrEmployeeManifest: PluginManifest = {
   id: HR_EMPLOYEE_PLUGIN_ID,
-  name: "HR Employee",
+  name: "HR Agent",
   version: "1.0.0",
-  displayName: "HR Employee",
+  displayName: "HR Agent",
   description:
-    "AI HR employee. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
+    "AI HR agent. Answers employee questions, guides onboarding and leave processes, and routes sensitive matters to your human HR team.",
   author: "AI Workforce OS",
   entryPoint: "hr-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class HrEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "HR Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "HR Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

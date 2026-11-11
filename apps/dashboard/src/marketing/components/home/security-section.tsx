@@ -3,9 +3,9 @@ import { SectionHeading } from "@/components/shared/section-heading";
 import { ButtonLink } from "@/components/shared/button-link";
 
 const points = [
-  { icon: KeyRound, title: "Role-Based Access", description: "Configurable permissions for every AI employee and user." },
+  { icon: KeyRound, title: "Role-Based Access", description: "Configurable permissions for every AI agent and user." },
   { icon: Lock, title: "Tenant Isolation", description: "Your organisation's data stays scoped to your organisation." },
-  { icon: ScrollText, title: "Audit Logging", description: "A clear record of AI employee actions and approvals." },
+  { icon: ScrollText, title: "Audit Logging", description: "A clear record of AI agent actions and approvals." },
   { icon: Eye, title: "Administrative Visibility", description: "Central oversight into activity across departments." },
 ];
 

@@ -18,7 +18,7 @@ import { capabilities } from "@/content/capabilities";
 export const metadata: Metadata = defaultMetadata({
   title: "Capabilities",
   description:
-    "Explore the platform capabilities behind every AI employee: conversational intelligence, knowledge grounding, tool execution, memory, human approval, collaboration and more.",
+    "Explore the platform capabilities behind every AI agent: conversational intelligence, knowledge grounding, tool execution, memory, human approval, collaboration and more.",
   path: "/platform/capabilities",
 });
 
@@ -41,7 +41,7 @@ export default function CapabilitiesPage() {
       <PageHero
         eyebrow="Platform capabilities"
         title="What Krevia.ai Can Do"
-        description="Every AI employee is built from the same set of dependable capabilities — grounded, governed and ready to act."
+        description="Every AI agent is built from the same set of dependable capabilities — grounded, governed and ready to act."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2">

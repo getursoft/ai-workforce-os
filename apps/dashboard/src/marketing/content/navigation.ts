@@ -15,27 +15,27 @@ export const primaryNav: NavColumn[] = [
     label: "Platform",
     href: "/platform",
     links: [
-      { label: "Platform Overview", href: "/platform", description: "The operating layer for AI employees" },
+      { label: "Platform Overview", href: "/platform", description: "The operating layer for AI agents" },
       { label: "Capabilities", href: "/platform/capabilities", description: "What the platform can do" },
       { label: "Knowledge and Memory", href: "/platform/knowledge", description: "Grounded in your organisation" },
       { label: "Integrations", href: "/platform/integrations", description: "Connect your existing systems" },
       { label: "Security", href: "/platform/security", description: "Governance and access control" },
-      { label: "Analytics", href: "/platform/analytics", description: "Visibility into AI employee work" },
+      { label: "Analytics", href: "/platform/analytics", description: "Visibility into AI agent work" },
     ],
   },
   {
-    label: "AI Employees",
-    href: "/meet-ai-employees",
+    label: "AI Agents",
+    href: "/meet-ai-agents",
     links: [
-      { label: "Travel AI Employee", href: "/meet-ai-employees/travel", description: "Trip planning and itineraries" },
-      { label: "HR AI Employee", href: "/meet-ai-employees/hr", description: "Policies, onboarding and queries" },
-      { label: "Finance AI Employee", href: "/meet-ai-employees/finance", description: "Reports, invoices and budgets" },
-      { label: "IT Support AI Employee", href: "/meet-ai-employees/it-support", description: "Tickets and troubleshooting" },
-      { label: "Sales AI Employee", href: "/meet-ai-employees/sales", description: "Lead qualification and CRM" },
-      { label: "Marketing AI Employee", href: "/meet-ai-employees/marketing", description: "Campaigns and content" },
-      { label: "Legal Document AI Employee", href: "/meet-ai-employees/legal", description: "Notice review and reply drafting" },
-      { label: "Customer Support AI Employee", href: "/meet-ai-employees/customer-support", description: "Tickets and troubleshooting" },
-      { label: "Custom AI Employees", href: "/meet-ai-employees/custom", description: "Purpose-built for your workflows" },
+      { label: "Travel AI Agent", href: "/meet-ai-agents/travel", description: "Trip planning and itineraries" },
+      { label: "HR AI Agent", href: "/meet-ai-agents/hr", description: "Policies, onboarding and queries" },
+      { label: "Finance AI Agent", href: "/meet-ai-agents/finance", description: "Reports, invoices and budgets" },
+      { label: "IT Support AI Agent", href: "/meet-ai-agents/it-support", description: "Tickets and troubleshooting" },
+      { label: "Sales AI Agent", href: "/meet-ai-agents/sales", description: "Lead qualification and CRM" },
+      { label: "Marketing AI Agent", href: "/meet-ai-agents/marketing", description: "Campaigns and content" },
+      { label: "Legal Document AI Agent", href: "/meet-ai-agents/legal", description: "Notice review and reply drafting" },
+      { label: "Customer Support AI Agent", href: "/meet-ai-agents/customer-support", description: "Tickets and troubleshooting" },
+      { label: "Custom AI Agents", href: "/meet-ai-agents/custom", description: "Purpose-built for your workflows" },
     ],
   },
   {
@@ -56,7 +56,7 @@ export const primaryNav: NavColumn[] = [
     links: [
       { label: "Documentation", href: "/resources/documentation", description: "Guides and references" },
       { label: "Help Centre", href: "/resources/help-centre", description: "Answers to common questions" },
-      { label: "Blog", href: "/resources/blog", description: "Ideas on AI employees at work" },
+      { label: "Blog", href: "/resources/blog", description: "Ideas on AI agents at work" },
       { label: "Case Studies", href: "/resources/case-studies", description: "Representative use cases" },
       { label: "FAQs", href: "/resources/faq", description: "Frequently asked questions" },
       { label: "Contact", href: "/contact", description: "Talk to our team" },
@@ -71,7 +71,7 @@ export const topLevelNav: NavLink[] = [
 
 export const footerColumns = {
   product: [
-    { label: "AI Employees", href: "/meet-ai-employees" },
+    { label: "AI Agents", href: "/meet-ai-agents" },
     { label: "Platform Features", href: "/platform/capabilities" },
     { label: "Use Cases", href: "/customers" },
     { label: "Pricing", href: "/pricing" },

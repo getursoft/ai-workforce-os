@@ -13,7 +13,7 @@ const staticRoutes = [
   "/platform/integrations",
   "/platform/security",
   "/platform/analytics",
-  "/meet-ai-employees",
+  "/meet-ai-agents",
   "/solutions",
   "/solutions/customer-service",
   "/solutions/operations",
@@ -55,7 +55,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   for (const employee of aiEmployees) {
     entries.push({
-      url: `${baseUrl}/meet-ai-employees/${employee.slug}`,
+      url: `${baseUrl}/meet-ai-agents/${employee.slug}`,
       lastModified: now,
       changeFrequency: "monthly",
       priority: 0.8,

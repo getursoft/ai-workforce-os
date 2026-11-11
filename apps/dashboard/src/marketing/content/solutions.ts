@@ -29,7 +29,7 @@ export const departmentSolutions: DepartmentSolution[] = [
     slug: "operations",
     name: "Operations",
     summary:
-      "Keep processes moving with AI employees that track tasks, surface bottlenecks and coordinate handoffs across teams.",
+      "Keep processes moving with AI agents that track tasks, surface bottlenecks and coordinate handoffs across teams.",
     challenges: [
       "Manual coordination across multiple teams and tools",
       "Delayed visibility into process status",
@@ -63,7 +63,7 @@ export const departmentSolutions: DepartmentSolution[] = [
     slug: "marketing",
     name: "Marketing",
     summary:
-      "Move faster from brief to campaign with an AI employee that drafts content, researches audiences and reports on results.",
+      "Move faster from brief to campaign with an AI agent that drafts content, researches audiences and reports on results.",
     challenges: [
       "Content demand outpacing team capacity",
       "Slow turnaround on campaign performance summaries",
@@ -156,7 +156,7 @@ export const departmentSolutions: DepartmentSolution[] = [
     ],
     howAiEmployeesHelp: [
       "Summarise cross-department status on demand",
-      "Surface trends from connected AI employee activity",
+      "Surface trends from connected AI agent activity",
       "Prepare briefing material ahead of leadership reviews",
     ],
     relatedEmployees: ["finance", "hr"],
@@ -177,7 +177,7 @@ export const orgTypeSolutions: OrgTypeSolution[] = [
     summary:
       "Get enterprise-grade support functions running from day one, without hiring a full team for every role.",
     points: [
-      "Deploy an AI employee for support, sales or operations in days",
+      "Deploy an AI agent for support, sales or operations in days",
       "Scale coverage as customer and employee volume grows",
       "Keep costs predictable while extending team capacity",
     ],
@@ -197,7 +197,7 @@ export const orgTypeSolutions: OrgTypeSolution[] = [
     slug: "enterprises",
     name: "Enterprises",
     summary:
-      "Deploy governed AI employees across business units with the access control and auditability large organisations require.",
+      "Deploy governed AI agents across business units with the access control and auditability large organisations require.",
     points: [
       "Role-based access and configurable governance controls",
       "Multi-department deployment from a single operating layer",
@@ -208,7 +208,7 @@ export const orgTypeSolutions: OrgTypeSolution[] = [
     slug: "travel-companies",
     name: "Travel Companies",
     summary:
-      "Handle trip planning volume at scale with a Travel AI Employee grounded in your policies and preferred partners.",
+      "Handle trip planning volume at scale with a Travel AI Agent grounded in your policies and preferred partners.",
     points: [
       "Consistent itinerary quality at higher volume",
       "Policy-aligned recommendations across every enquiry",
@@ -230,7 +230,7 @@ export const orgTypeSolutions: OrgTypeSolution[] = [
     slug: "internal-corporate-teams",
     name: "Internal Corporate Teams",
     summary:
-      "Support internal functions like HR, IT and finance with AI employees that reduce repetitive workload.",
+      "Support internal functions like HR, IT and finance with AI agents that reduce repetitive workload.",
     points: [
       "Faster resolution of routine internal requests",
       "Consistent policy application across the organisation",

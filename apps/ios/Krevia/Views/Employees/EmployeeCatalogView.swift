@@ -1,8 +1,8 @@
 import SwiftUI
 import KreviaCore
 
-/// Browse every discoverable AI Employee plugin and install one — maps 1:1 to the dashboard's
-/// AI Employees catalog (`GET /plugins/available`, `POST /plugins/install`). Card grid, not a list,
+/// Browse every discoverable AI Agent plugin and install one — maps 1:1 to the dashboard's
+/// AI Agents catalog (`GET /plugins/available`, `POST /plugins/install`). Card grid, not a list,
 /// matching the rest of the app.
 struct EmployeeCatalogView: View {
     @StateObject private var viewModel: EmployeeCatalogViewModel
@@ -18,7 +18,7 @@ struct EmployeeCatalogView: View {
     var body: some View {
         content
             .kreviaScreen()
-            .navigationTitle("Browse AI Employees")
+            .navigationTitle("Browse AI Agents")
             .navigationBarTitleDisplayMode(.inline)
             .task { if viewModel.items.isEmpty { await viewModel.load() } }
             .refreshable { await viewModel.load() }
@@ -42,7 +42,7 @@ struct EmployeeCatalogView: View {
         case (_, _, true):
             VStack(spacing: 10) {
                 Image(systemName: "shippingbox").font(.largeTitle).foregroundStyle(KreviaTheme.muted)
-                Text("No AI Employees available").font(.headline)
+                Text("No AI Agents available").font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         default:

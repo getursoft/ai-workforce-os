@@ -4,7 +4,7 @@ import { DepartmentSolutionTemplate } from "@/components/solutions/department-so
 
 export const metadata: Metadata = defaultMetadata({
   title: "Operations Solutions",
-  description: "Keep processes moving with AI employees that track tasks, surface bottlenecks and coordinate handoffs.",
+  description: "Keep processes moving with AI agents that track tasks, surface bottlenecks and coordinate handoffs.",
   path: "/solutions/operations",
 });
 

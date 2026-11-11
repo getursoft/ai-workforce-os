@@ -34,7 +34,7 @@ export const capabilities: Capability[] = [
     slug: "tool-execution",
     title: "Tool Execution",
     description:
-      "AI employees can call approved business tools and systems to complete real tasks, not just describe them.",
+      "AI agents can call approved business tools and systems to complete real tasks, not just describe them.",
     details: [
       "Executes approved actions in connected systems",
       "Reads and writes structured data through controlled interfaces",
@@ -58,7 +58,7 @@ export const capabilities: Capability[] = [
     slug: "memory",
     title: "Memory",
     description:
-      "AI employees remember relevant preferences and context so interactions improve over time rather than starting from zero.",
+      "AI agents remember relevant preferences and context so interactions improve over time rather than starting from zero.",
     details: [
       "Retains relevant preferences across conversations",
       "Recalls prior context for returning employees or customers",
@@ -82,9 +82,9 @@ export const capabilities: Capability[] = [
     slug: "collaboration",
     title: "Collaboration",
     description:
-      "AI employees work alongside human teams and other AI employees, handing off work cleanly at the right moments.",
+      "AI agents work alongside human teams and other AI agents, handing off work cleanly at the right moments.",
     details: [
-      "Coordinates with other AI employees on cross-department tasks",
+      "Coordinates with other AI agents on cross-department tasks",
       "Hands off to human colleagues with full context attached",
       "Supports shared visibility into in-progress work",
       "Designed to extend teams, not replace them",
@@ -94,9 +94,9 @@ export const capabilities: Capability[] = [
     slug: "reporting",
     title: "Reporting",
     description:
-      "Clear, ongoing visibility into what AI employees are doing, how often, and the outcomes they support.",
+      "Clear, ongoing visibility into what AI agents are doing, how often, and the outcomes they support.",
     details: [
-      "Usage and outcome dashboards by AI employee and department",
+      "Usage and outcome dashboards by AI agent and department",
       "Trend reporting over time",
       "Exportable summaries for stakeholders",
       "Configurable reporting cadence",
@@ -106,7 +106,7 @@ export const capabilities: Capability[] = [
     slug: "integration-connectivity",
     title: "Integration Connectivity",
     description:
-      "Connects to the systems your teams already use, so AI employees work with your real data and tools.",
+      "Connects to the systems your teams already use, so AI agents work with your real data and tools.",
     details: [
       "Pre-built connectors for common business systems",
       "Custom API connectivity for internal tools",
@@ -118,10 +118,10 @@ export const capabilities: Capability[] = [
     slug: "channel-support",
     title: "Channel Support",
     description:
-      "AI employees can be reached through the channels your teams and customers already use.",
+      "AI agents can be reached through the channels your teams and customers already use.",
     details: [
       "Web chat for customers and public visitors",
-      "Internal channels for employee-facing AI employees",
+      "Internal channels for employee-facing AI agents",
       "Email-based interaction for asynchronous requests",
       "Consistent behaviour across every supported channel",
     ],

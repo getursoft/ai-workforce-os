@@ -35,7 +35,7 @@ export default function SolutionsPage() {
       <PageHero
         eyebrow="Solutions"
         title="Solutions for Every Department and Organisation"
-        description="Whichever team feels the most repetitive workload today, there's an AI employee configuration built for it."
+        description="Whichever team feels the most repetitive workload today, there's an AI agent configuration built for it."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

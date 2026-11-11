@@ -77,16 +77,16 @@ export function WorkforcePage() {
         <PageHeader
           eyebrow="Collaboration"
           title="AI Workforce"
-          description="Installed AI Employees and the tasks they delegate to each other."
+          description="Installed AI Agents and the tasks they delegate to each other."
         />
 
         <section className="dashboard-grid dashboard-grid--summary" aria-label="Summary">
           <Card className="dashboard-stat-card">
-            <p className="dashboard-stat-card__label">Installed employees</p>
+            <p className="dashboard-stat-card__label">Installed agents</p>
             <p className="dashboard-stat-card__value">{employees.length}</p>
           </Card>
           <Card className="dashboard-stat-card">
-            <p className="dashboard-stat-card__label">Active employees</p>
+            <p className="dashboard-stat-card__label">Active agents</p>
             <p className="dashboard-stat-card__value">{activeEmployees.length}</p>
           </Card>
           <Card className="dashboard-stat-card">
@@ -107,11 +107,11 @@ export function WorkforcePage() {
           </Card>
         </section>
 
-        <h2>Employees</h2>
+        <h2>Agents</h2>
         {employeesQuery.isLoading ? (
           <Skeleton />
         ) : employees.length === 0 ? (
-          <p className="dashboard-home__muted">No AI Employees are installed in this organization.</p>
+          <p className="dashboard-home__muted">No AI Agents are installed in this organization.</p>
         ) : (
           <div className="admin-grid">
             {employees.map((employee) => {
@@ -155,7 +155,7 @@ export function WorkforcePage() {
         {tasksQuery.isLoading ? (
           <Skeleton />
         ) : tasks.length === 0 ? (
-          <p className="dashboard-home__muted">No AI Employee has delegated a task yet.</p>
+          <p className="dashboard-home__muted">No AI Agent has delegated a task yet.</p>
         ) : (
           <div className="admin-table-wrap">
             <table className="admin-table">

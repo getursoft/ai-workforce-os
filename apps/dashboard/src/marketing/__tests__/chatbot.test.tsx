@@ -44,13 +44,13 @@ describe("Chatbot", () => {
     renderWidget();
     fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
     expect(screen.getByText(/here to help you explore Krevia.ai/i)).toBeInTheDocument();
-    expect(screen.getByText("What is an AI employee?")).toBeInTheDocument();
+    expect(screen.getByText("What is an AI agent?")).toBeInTheDocument();
   });
 
   it("sends a suggested prompt and displays the assistant's reply", async () => {
     renderWidget();
     fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
-    fireEvent.click(screen.getByText("What is an AI employee?"));
+    fireEvent.click(screen.getByText("What is an AI agent?"));
 
     await waitFor(() => {
       expect(screen.getByText("Here is an answer.")).toBeInTheDocument();
@@ -62,7 +62,7 @@ describe("Chatbot", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
     renderWidget();
     fireEvent.click(screen.getByLabelText("Open Krevia.ai assistant"));
-    fireEvent.click(screen.getByText("What is an AI employee?"));
+    fireEvent.click(screen.getByText("What is an AI agent?"));
 
     await waitFor(() => {
       expect(

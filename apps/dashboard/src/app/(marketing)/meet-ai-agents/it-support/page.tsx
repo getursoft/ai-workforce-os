@@ -3,10 +3,10 @@ import { defaultMetadata } from "@/lib/seo";
 import { EmployeeDetailTemplate } from "@/components/ai-employees/employee-detail-template";
 
 export const metadata: Metadata = defaultMetadata({
-  title: "IT Support AI Employee",
+  title: "IT Support AI Agent",
   description:
-    "The IT Support AI Employee handles first-line troubleshooting, ticketing and incident triage, escalating to human engineers when needed.",
-  path: "/meet-ai-employees/it-support",
+    "The IT Support AI Agent handles first-line troubleshooting, ticketing and incident triage, escalating to human engineers when needed.",
+  path: "/meet-ai-agents/it-support",
 });
 
 export default function ItSupportAiEmployeePage() {

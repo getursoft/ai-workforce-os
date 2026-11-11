@@ -120,7 +120,7 @@ suite("Sprint 6.6: multilingual routing, deterministic conversation hardening & 
       expect(krishna.response).not.toMatch(NAME_ASK_PATTERN);
 
       const wantsTravel = await say("I want to plan a trip");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       // Full-detail statement (proven working phrasing, mirrors travel.uat-booking-flow.e2e.spec.ts) puts
       // BOOK_FLIGHT/BOOK_TRIP intent in play from the start, leading to real numbered options — not the
@@ -187,7 +187,7 @@ suite("Sprint 6.6: multilingual routing, deterministic conversation hardening & 
       // No English anchor word needed this time — "jana hai" is now Travel's own routing vocabulary
       // (Sprint 6.6 Part 5), unlike Sprint 6.5's UAT which had to anchor on the English word "trip".
       const wantsTravel = await say("Dubai jana hai next month");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       await say("Delhi se");
       await say("5 din");
@@ -252,7 +252,7 @@ suite("Sprint 6.6: multilingual routing, deterministic conversation hardening & 
       expect(krishna.response).not.toMatch(NAME_ASK_PATTERN);
 
       const wantsTravel = await say("Dubai jana hai");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
       await say("Delhi se");
       await say("next month");
       await say("2 adults");
@@ -261,23 +261,23 @@ suite("Sprint 6.6: multilingual routing, deterministic conversation hardening & 
 
       // An in-context budget follow-up must stay in Travel, not bounce to Finance.
       const budgetFollowUp = await say("budget thoda badha do");
-      expect(budgetFollowUp.receptionist?.handoff?.targetDisplayName ?? "Travel Employee").toBe("Travel Employee");
+      expect(budgetFollowUp.receptionist?.handoff?.targetDisplayName ?? "Travel Agent").toBe("Travel Agent");
 
       // Explicit pivot to HR.
       const hrPivot = await say("trip rehne do, salary ka issue hai");
-      expect(hrPivot.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(hrPivot.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
       expect(hrPivot.response).not.toMatch(NAME_ASK_PATTERN);
 
       const salarySlip = await say("meri salary slip check karni hai");
-      expect(salarySlip.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(salarySlip.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
 
       // Explicit pivot to IT.
       const itPivot = await say("ab IT help chahiye");
-      expect(itPivot.receptionist?.handoff?.targetDisplayName).toBe("IT Support Employee");
+      expect(itPivot.receptionist?.handoff?.targetDisplayName).toBe("IT Support Agent");
       expect(itPivot.response).not.toMatch(NAME_ASK_PATTERN);
 
       const loginIssue = await say("login nahi ho raha");
-      expect(loginIssue.receptionist?.handoff?.targetDisplayName).toBe("IT Support Employee");
+      expect(loginIssue.receptionist?.handoff?.targetDisplayName).toBe("IT Support Agent");
 
       // Identity remained Krishna throughout — verified directly against Postgres, not just response text.
       const handoffs = await prisma.receptionistHandoff.findMany({

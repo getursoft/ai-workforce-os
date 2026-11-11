@@ -26,11 +26,11 @@ const points = [
   { icon: KeyRound, title: "Access Control", description: "Role-based permissions determine exactly who can configure, approve or view what across your organisation." },
   { icon: Lock, title: "Tenant Isolation", description: "Each organisation's data and configuration is scoped separately from every other organisation on the platform." },
   { icon: ShieldCheck, title: "Encryption Approach", description: "Data is encrypted in transit using industry-standard protocols, with encryption at rest for stored organisational content." },
-  { icon: ScrollText, title: "Audit Logging", description: "AI employee actions, approvals and administrative changes are recorded for later review." },
+  { icon: ScrollText, title: "Audit Logging", description: "AI agent actions, approvals and administrative changes are recorded for later review." },
   { icon: ShieldAlert, title: "Human Approval Controls", description: "Configurable thresholds route sensitive or high-impact actions to a designated human reviewer before they execute." },
   { icon: Boxes, title: "Secure Integrations", description: "Each integration is scoped to the minimum data access it needs, with credentials managed centrally." },
   { icon: Trash2, title: "Data Retention Controls", description: "Configurable retention settings let administrators control how long conversation and task data is kept." },
-  { icon: Eye, title: "Administrative Visibility", description: "Administrators have central oversight into AI employee activity, integrations and access across the organisation." },
+  { icon: Eye, title: "Administrative Visibility", description: "Administrators have central oversight into AI agent activity, integrations and access across the organisation." },
 ];
 
 export default function SecurityPage() {
@@ -39,7 +39,7 @@ export default function SecurityPage() {
       <PageHero
         eyebrow="Security"
         title="Security and Governance, Built Into How the Platform Runs"
-        description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls, so oversight travels with every AI employee rather than sitting alongside it."
+        description="Krevia.ai is designed to support enterprise security requirements with configurable governance controls, so oversight travels with every AI agent rather than sitting alongside it."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
@@ -57,7 +57,7 @@ export default function SecurityPage() {
           <div className="mt-8 space-y-4 text-sm leading-relaxed text-muted">
             <p>
               Organisational data connected to Krevia.ai — including documents, policies and conversation
-              history — is used only to power your organisation&apos;s own AI employees. It is not used to train
+              history — is used only to power your organisation&apos;s own AI agents. It is not used to train
               shared models across customers.
             </p>
             <p>
@@ -72,8 +72,8 @@ export default function SecurityPage() {
         <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
           <SectionHeading
             eyebrow="Responsible AI"
-            title="Safeguards We Build Around Every AI Employee"
-            description="AI employees are grounded in confirmed organisational knowledge, defer to human approval on sensitive actions, and are designed to say when they don't have a confirmed answer rather than guess."
+            title="Safeguards We Build Around Every AI Agent"
+            description="AI agents are grounded in confirmed organisational knowledge, defer to human approval on sensitive actions, and are designed to say when they don't have a confirmed answer rather than guess."
           />
         </div>
       </section>

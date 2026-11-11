@@ -134,7 +134,7 @@ suite("Sprint 6.4: unified routing, channel-aware runtime & production hardening
       const askName = await say(token, receptionistId, "I need to raise a grievance");
       expect(askName.response).toMatch(NAME_ASK_PATTERN);
       const routed = await say(token, receptionistId, "Krishna", { conversationId: askName.conversationId });
-      expect(routed.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(routed.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
     });
   });
 
@@ -146,7 +146,7 @@ suite("Sprint 6.4: unified routing, channel-aware runtime & production hardening
       expect(first.response).toMatch(NAME_ASK_PATTERN);
       const handoff = await say(token, receptionistId, "Krishna", { conversationId: first.conversationId });
       conversationId = handoff.conversationId;
-      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
     });
 
     it("E/F/G/H: booking proceeds on WEB, then WHATSAPP/VOICE follow-ups on the SAME conversation preserve facts and attachments and never re-ask for trip details", async () => {
@@ -203,24 +203,24 @@ suite("Sprint 6.4: unified routing, channel-aware runtime & production hardening
     it("K: 'My hotel invoice is too high' during an active Travel handoff stays in Travel (in-context follow-up, not a Finance pivot)", async () => {
       const first = await say(token, receptionistId, "I want to plan a trip to Goa");
       const handoff = await say(token, receptionistId, "Krishna", { conversationId: first.conversationId });
-      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       const followUp = await say(token, receptionistId, "My hotel invoice is too high.", {
         conversationId: handoff.conversationId
       });
-      expect(followUp.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(followUp.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
       expect(followUp.receptionist?.routeType).toBe("CONTINUE_HANDOFF");
     });
 
     it("L: 'Forget this booking, I have an IT issue' explicitly pivots away from an active Travel handoff", async () => {
       const first = await say(token, receptionistId, "I want to plan a trip to Goa");
       const handoff = await say(token, receptionistId, "Krishna", { conversationId: first.conversationId });
-      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       const pivoted = await say(token, receptionistId, "Forget this booking, I have an IT issue.", {
         conversationId: handoff.conversationId
       });
-      expect(pivoted.receptionist?.handoff?.targetDisplayName).toBe("IT Support Employee");
+      expect(pivoted.receptionist?.handoff?.targetDisplayName).toBe("IT Support Agent");
     });
   });
 

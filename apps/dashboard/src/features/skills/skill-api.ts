@@ -59,7 +59,7 @@ export interface SkillInstallation {
 }
 
 /** A skill installation as returned by GET /skills/installations/:id — includes the raw grant rows
- *  (one per granted employee) but not the aggregate `_count`. */
+ *  (one per granted agent) but not the aggregate `_count`. */
 export interface SkillInstallationDetail {
   id: string;
   status: SkillInstallationStatus;

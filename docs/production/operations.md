@@ -9,7 +9,7 @@ Sprint 5.0 Phase 28. Day-to-day operational reference — for incidents, see `do
 | `GET /health/live` | none, rate-limit-exempt | Container liveness — process is up |
 | `GET /health/ready` | none, rate-limit-exempt | Load-balancer/orchestrator readiness — DB + queue table reachable |
 | `GET /observability/health` | `observability.read` permission, org-scoped | 12-component operator view (API, Database, Provider, Workflow Engine, Background Worker, Memory, Knowledge, WhatsApp, Email, Scheduler, Connector Runtime, Background Queue) |
-| `GET /platform/organizations/:id/summary` | platform owner only | Tenant-safe operational summary (counts only — active employees, users, channels, failed executions, open alerts, subscription status) |
+| `GET /platform/organizations/:id/summary` | platform owner only | Tenant-safe operational summary (counts only — active agents, users, channels, failed executions, open alerts, subscription status) |
 
 ## Common operational tasks
 

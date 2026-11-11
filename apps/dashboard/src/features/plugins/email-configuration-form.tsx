@@ -183,7 +183,7 @@ export function EmailConfigurationForm({
             placeholder="tickets@example.com"
             aria-invalid={Boolean(errors.fromEmail)}
           />
-          <small>The "from" address on every ticket email sent by this employee.</small>
+          <small>The "from" address on every ticket email sent by this agent.</small>
           {errors.fromEmail ? (
             <small role="alert" className="field-error">
               {errors.fromEmail}

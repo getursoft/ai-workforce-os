@@ -8,15 +8,15 @@ installation, runtime) fit together.
 
 A **Skill** is a reusable, versioned, installable platform capability — a piece of deterministic or
 AI-backed processing logic (read a document, summarize text, extract entities, translate, validate
-a file) that any AI Employee, workflow step, or scheduled job can invoke through one stable runtime
+a file) that any AI Agent, workflow step, or scheduled job can invoke through one stable runtime
 entry point: `SkillsRuntimeService.execute()`
 (`apps/api/src/skills-platform/skill-runtime.service.ts:68`).
 
 Skills are:
 - **Versioned** — semver, with compatible-upgrade and rollback support (`docs/skills/versioning.md`).
 - **Installable per organization** — an org must install a skill (`SkillInstallation`) before any
-  employee in that org can use it.
-- **Granted per employee** — an installed skill still does nothing for a specific AI Employee until
+  agent in that org can use it.
+- **Granted per agent** — an installed skill still does nothing for a specific AI Agent until
   someone grants it (`EmployeeSkillGrant`).
 - **Billed and audited** — every execution produces a `SkillRun` row with token usage, credits
   consumed, and an audit event.
@@ -35,7 +35,7 @@ concepts and the Sprint 6.1 spec is explicit that none of them were replaced or 
 | **Tool** | A low-level executable capability an agent's LLM can call mid-turn (e.g. a connector action, a knowledge search, or — as of this sprint — a skill). Tools are registered in the agent's `ToolRegistry`/`ToolExecutor`; a skill is exposed to that same mechanism as one `skill.<key>` tool per built-in adapter (see "Reused, not replaced" below). | `apps/api/src/agents/` |
 | **Connector** | An integration with an external system (a third-party API/service), with its own install/authenticate/configure/health lifecycle. Structurally similar to a skill installation (both use install/enable/disable/configure), but a connector's job is talking to something outside the platform; a skill's job is processing data inside a turn. | `apps/api/src/connectors/` |
 | **Workflow** | A durable, multi-step business process with its own state machine (`CONTACT_CAPTURE`, `BOOKING_HANDOFF`, `TRIP_SUBMISSION`, `EMPLOYEE_DELEGATION`), each hand-written, reading/writing a free-form `state` JSON blob. There is no generic declarative step-type system — see `docs/skills/runtime.md` and `WorkflowSkillStepService` below. | `apps/api/src/workflows/` |
-| **Plugin** (= "AI Employee" installation) | A customer-facing domain worker (Travel, HR, Finance, ...) installed into an organization. An `EmployeeSkillGrant` links a `SkillInstallation` to a `Plugin` row — a plugin is *granted* skills, it does not *contain* them. | `apps/api/src/plugins/` |
+| **Plugin** (= "AI Agent" installation) | A customer-facing domain worker (Travel, HR, Finance, ...) installed into an organization. An `EmployeeSkillGrant` links a `SkillInstallation` to a `Plugin` row — a plugin is *granted* skills, it does not *contain* them. | `apps/api/src/plugins/` |
 
 **A pre-existing, unrelated "Skill" concept**: `apps/api/src/skills/` (singular "Skill",
 `SkillRegistry`/`SkillRuntimeService`) is a Travel-only conversational state machine that drives the
@@ -116,7 +116,7 @@ In words: a skill exists in the process registry the moment the app boots (built
 constructed by NestJS DI). `SkillPublisherService` then makes that adapter *installable* by upserting
 its manifest into `Skill`/`SkillVersion`. An organization administrator installs it
 (`SkillInstallationService.install`), which is a per-org decision — installing does not expose the
-skill to any employee yet. A second, separate step grants the installation to a specific AI Employee
+skill to any agent yet. A second, separate step grants the installation to a specific AI Agent
 (`grantToEmployee`) — this is what makes `skillsForEmployee()` return it for tool discovery. Only
 once both an enabled installation and an enabled grant exist can `SkillsRuntimeService.execute()`
 actually run the adapter; see `docs/skills/runtime.md` and `docs/skills/security.md` for the full
@@ -130,7 +130,7 @@ built where a shared one already existed:
 | Existing service | Reused for |
 |---|---|
 | `ObjectStorageService` (`apps/api/src/storage/`) | The `object.read` capability handle (`skill-capabilities.ts:24-32`) and best-effort attachment byte storage in `attachment.service.ts` |
-| `PluginAiService` (`apps/api/src/plugins/plugin-ai.service.ts`) | The `ai.provider.execute` capability handle — resolves the employee's configured AI provider, same as agent conversation turns do |
+| `PluginAiService` (`apps/api/src/plugins/plugin-ai.service.ts`) | The `ai.provider.execute` capability handle — resolves the agent's configured AI provider, same as agent conversation turns do |
 | `ObservabilityService` / `TraceContext` | `SKILL_EXECUTION` trace spans wrapping every `execute()` call (`skill-runtime.service.ts:94-120`) |
 | `AuditEventLogger` | `SKILL_INSTALLED`/`SKILL_EXECUTION_COMPLETED`/etc. audit events |
 | `EntitlementService` | Plan-tier gating (`SKILLS_MARKETPLACE`, `SKILLS_INSTALL`, `SKILLS_MAX_INSTALLED`, `SKILLS_MAX_PER_EMPLOYEE`, `SKILLS_AI_BACKED`, `SKILLS_EXTERNAL_NETWORK`, `SKILLS_EXECUTION_MONTHLY_LIMIT`) — see `docs/skills/security.md` |
@@ -151,7 +151,7 @@ Each of the four integration points is a genuinely additive choke point into an 
 
 - **Agent tool-calling** (`apps/api/src/agents/agent.service.ts`, `registerSkillTools()`, search
   "Sprint 6.1 — Phase 12"): registers `skill.<key>` tools into the existing `ToolRegistry`. Per-turn
-  availability is filtered to only what `SkillsRuntimeService.skillsForEmployee()` says this employee
+  availability is filtered to only what `SkillsRuntimeService.skillsForEmployee()` says this agent
   is actually granted — and `execute()` independently re-checks installation/grant regardless, so an
   LLM cannot invoke an uninstalled skill merely by naming the tool (defense in depth; see
   `docs/skills/security.md`).
@@ -166,7 +166,7 @@ Each of the four integration points is a genuinely additive choke point into an 
   `context.executionId` as the idempotency key so retries replay instead of double-charging.
 - **Attachments** (`apps/api/src/attachments/attachment.service.ts`'s `tryRouteThroughSkill()`):
   behind `SKILLS_FILE_ROUTING_ENABLED` (org-scoped feature flag), routes an upload through Document
-  Reader instead of the legacy `AttachmentExtractorRegistry` when the uploading employee has a
+  Reader instead of the legacy `AttachmentExtractorRegistry` when the uploading agent has a
   granted, MIME-compatible installation. Any failure — flag off, no grant, runtime error — falls back
   to the pre-existing extractor path transparently; see `docs/skills/built-in-skills.md`.
 

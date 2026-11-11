@@ -1,9 +1,9 @@
 {
   "id": "travel-employee",
-  "name": "Travel Employee",
+  "name": "Travel Agent",
   "version": "1.0.0",
-  "displayName": "Travel Employee",
-  "description": "AI travel planning employee. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
+  "displayName": "Travel Agent",
+  "description": "AI travel planning agent. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -41,7 +41,7 @@
   "routing": {
     "employeeKey": "travel-employee",
     "employeeType": "TRAVEL",
-    "displayName": "Travel Employee",
+    "displayName": "Travel Agent",
     "summary": "Plans trips, searches flight and hotel options, and manages bookings and itineraries.",
     "domains": [
       "travel",

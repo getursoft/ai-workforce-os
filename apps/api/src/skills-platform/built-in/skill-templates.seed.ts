@@ -30,7 +30,7 @@ export const SKILL_TEMPLATE_SEEDS: readonly SkillTemplateSeed[] = [
     key: "invoice-intelligence-template",
     name: "Invoice Processing",
     description:
-      "Reads an uploaded invoice, extracts its structured entities (amounts, dates, parties), and produces a short summary — configured out of the box for a Finance employee.",
+      "Reads an uploaded invoice, extracts its structured entities (amounts, dates, parties), and produces a short summary — configured out of the box for a Finance agent.",
     category: "Finance",
     industry: "finance",
     author: "Krevia.ai",
@@ -46,7 +46,7 @@ export const SKILL_TEMPLATE_SEEDS: readonly SkillTemplateSeed[] = [
   {
     key: "hr-document-intake-template",
     name: "HR Document Intake",
-    description: "Validates and reads uploaded HR documents (offer letters, ID proofs, policy acknowledgements) and summarizes them for the HR employee's review queue.",
+    description: "Validates and reads uploaded HR documents (offer letters, ID proofs, policy acknowledgements) and summarizes them for the HR agent's review queue.",
     category: "HR",
     industry: "hr",
     author: "Krevia.ai",

@@ -11,8 +11,8 @@ export function AiEmployeeGrid() {
       <div className="mx-auto max-w-7xl">
         <SectionHeading
           eyebrow="Meet the team"
-          title="AI Employees for Every Department"
-          description="Specialised AI employees that handle real work across your organisation."
+          title="AI Agents for Every Department"
+          description="Specialised AI agents that handle real work across your organisation."
         />
         <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4">
           {featured.map((employee) => (
@@ -20,8 +20,8 @@ export function AiEmployeeGrid() {
           ))}
         </div>
         <div className="mt-8 text-center">
-          <ButtonLink href="/meet-ai-employees" variant="secondary">
-            View All AI Employees
+          <ButtonLink href="/meet-ai-agents" variant="secondary">
+            View All AI Agents
           </ButtonLink>
         </div>
       </div>

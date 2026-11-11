@@ -115,11 +115,11 @@ suite("Krevia CRM — end-to-end UAT", () => {
   }
 
   // ---------------------------------------------------------------------------------------------------
-  // A + B: Web chat -> Receptionist -> Travel Employee -> lead created, then updated (not duplicated) on
+  // A + B: Web chat -> Receptionist -> Travel Agent -> lead created, then updated (not duplicated) on
   // a continued conversation. No AI provider is configured — this is the deterministic (no-LLM) runtime,
   // proving Krevia CRM works with zero external AI/CRM credentials.
   // ---------------------------------------------------------------------------------------------------
-  describe("A+B: Web chat via Receptionist -> Travel Employee", () => {
+  describe("A+B: Web chat via Receptionist -> Travel Agent", () => {
     it("captures a Krevia CRM lead on handoff, then updates the SAME lead on a continued conversation without duplicating it", async () => {
       const { token, organizationId } = await register("web");
       const receptionistId = await install(token, "receptionist-employee");
@@ -129,7 +129,7 @@ suite("Krevia CRM — end-to-end UAT", () => {
       await say("Hi");
       await say("I'm Krishna");
       const wantsTravel = await say("I want a Delhi to Dubai trip for 3 adults next month");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       // Provide remaining details naturally until the deterministic engine offers to submit/confirm —
       // mirrors the exact proven turn shape from travel.e2e.spec.ts's own deterministic flow.

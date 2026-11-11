@@ -82,6 +82,14 @@ suite("Workforce delegation engine (e2e)", () => {
     expect(ids).toContain(employeeBId);
   });
 
+  it("serves the same registry under the canonical /workforce/agents alias and the legacy /workforce/employees path", async () => {
+    const canonical = await request(app.getHttpServer()).get("/api/v1/workforce/agents").set(auth).expect(200);
+    const legacy = await request(app.getHttpServer()).get("/api/v1/workforce/employees").set(auth).expect(200);
+    expect(canonical.body).toEqual(legacy.body);
+    expect(canonical.body.map((e: { installationId: string }) => e.installationId)).toContain(employeeAId);
+    await request(app.getHttpServer()).get("/api/v1/workforce/agents").expect(401);
+  });
+
   it("requires authentication", async () => {
     await request(app.getHttpServer()).get("/api/v1/workforce/employees").expect(401);
     await request(app.getHttpServer()).get("/api/v1/workforce/tasks").expect(401);

@@ -119,14 +119,14 @@ suite("Sprint 6.3: conversational intelligence, identity continuity & customer e
 
   describe("Part 12: cross-employee identity continuity (no specialist re-asks for a name the Receptionist already captured)", () => {
     const cases: Array<{ label: string; trigger: string; targetDisplayName: string }> = [
-      { label: "Travel", trigger: "I want to plan a trip to Dubai", targetDisplayName: "Travel Employee" },
-      { label: "HR", trigger: "I need leave next week", targetDisplayName: "HR Employee" },
-      { label: "Finance", trigger: "check this invoice", targetDisplayName: "Finance Employee" },
-      { label: "IT Support", trigger: "my VPN is not working", targetDisplayName: "IT Support Employee" },
-      { label: "Sales", trigger: "I need a quote for your product", targetDisplayName: "Sales Employee" },
-      { label: "Marketing", trigger: "plan an email campaign", targetDisplayName: "Marketing Employee" },
-      { label: "Legal", trigger: "review this contract", targetDisplayName: "Legal Employee" },
-      { label: "Customer Support", trigger: "where is my order", targetDisplayName: "Customer Support Employee" }
+      { label: "Travel", trigger: "I want to plan a trip to Dubai", targetDisplayName: "Travel Agent" },
+      { label: "HR", trigger: "I need leave next week", targetDisplayName: "HR Agent" },
+      { label: "Finance", trigger: "check this invoice", targetDisplayName: "Finance Agent" },
+      { label: "IT Support", trigger: "my VPN is not working", targetDisplayName: "IT Support Agent" },
+      { label: "Sales", trigger: "I need a quote for your product", targetDisplayName: "Sales Agent" },
+      { label: "Marketing", trigger: "plan an email campaign", targetDisplayName: "Marketing Agent" },
+      { label: "Legal", trigger: "review this contract", targetDisplayName: "Legal Agent" },
+      { label: "Customer Support", trigger: "where is my order", targetDisplayName: "Customer Support Agent" }
     ];
 
     for (const { label, trigger, targetDisplayName } of cases) {
@@ -156,7 +156,7 @@ suite("Sprint 6.3: conversational intelligence, identity continuity & customer e
       expect(askName.response).toMatch(NAME_ASK_PATTERN);
       const handoff = await say(token, receptionistId, "Krishna", askName.conversationId);
       conversationId = handoff.conversationId;
-      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
       expect(handoff.response).not.toMatch(NAME_ASK_PATTERN);
 
       const tripDetails = await say(
@@ -174,7 +174,7 @@ suite("Sprint 6.3: conversational intelligence, identity continuity & customer e
         "Can you show me options above my budget?",
         conversationId
       );
-      expect(budgetFollowUp.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(budgetFollowUp.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
       expect(budgetFollowUp.receptionist?.routeType).toBe("CONTINUE_HANDOFF");
 
       await say(token, receptionistId, "book hotel and flight both", conversationId);
@@ -227,10 +227,10 @@ suite("Sprint 6.3: conversational intelligence, identity continuity & customer e
       const askName = await say(token, receptionistId, "I want to plan a trip to Singapore");
       const handoff = await say(token, receptionistId, "Krishna", askName.conversationId);
       conv = handoff.conversationId;
-      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(handoff.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       const switched = await say(token, receptionistId, "Forget the trip. I want to check my salary.", conv);
-      expect(switched.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(switched.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
     });
 
     it("J: reloading the conversation (fresh message fetch) still reflects the booking-context answers", async () => {

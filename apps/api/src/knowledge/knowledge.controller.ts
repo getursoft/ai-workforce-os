@@ -54,7 +54,7 @@ export class KnowledgeController {
     private readonly audit: AuditEventLogger
   ) {}
 
-  @Post("employees/:employeeId/collections")
+  @Post(["agents/:employeeId/collections", "employees/:employeeId/collections"])
   @RequirePermission("knowledge.collection.manage")
   createCollection(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
@@ -70,7 +70,7 @@ export class KnowledgeController {
       dto
     );
   }
-  @Get("employees/:employeeId/collections")
+  @Get(["agents/:employeeId/collections", "employees/:employeeId/collections"])
   @RequirePermission("knowledge.read")
   listCollections(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
@@ -98,7 +98,7 @@ export class KnowledgeController {
     return this.collections.remove(org(principal), request.requestId, user(principal), id);
   }
 
-  @Post("employees/:employeeId/collections/:collectionId/documents")
+  @Post(["agents/:employeeId/collections/:collectionId/documents", "employees/:employeeId/collections/:collectionId/documents"])
   @RequirePermission("knowledge.upload")
   @RateLimit("FILE_UPLOAD")
   @UseInterceptors(FileInterceptor("file"))
@@ -126,7 +126,7 @@ export class KnowledgeController {
       file
     );
   }
-  @Get("employees/:employeeId/documents")
+  @Get(["agents/:employeeId/documents", "employees/:employeeId/documents"])
   @RequirePermission("knowledge.read")
   list(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,
@@ -176,7 +176,7 @@ export class KnowledgeController {
   ) {
     return this.knowledge.remove(org(principal), user(principal), request.requestId, id);
   }
-  @Post("employees/:employeeId/search")
+  @Post(["agents/:employeeId/search", "employees/:employeeId/search"])
   @RequirePermission("knowledge.search")
   async search(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,

@@ -46,7 +46,7 @@ function formatValue(record: MemoryRecord): string {
 function scopeLabel(scope: MemoryScope): string {
   if (scope === "USER") return "User Memory";
   if (scope === "ORGANIZATION") return "Organization Memory";
-  if (scope === "EMPLOYEE") return "Employee Memory";
+  if (scope === "EMPLOYEE") return "Agent Memory";
   if (scope === "CONVERSATION") return "Conversation Memory";
   return scope;
 }
@@ -172,7 +172,7 @@ export function MemoryPage() {
           <div>
             <h1>Memory</h1>
             <p>
-              Persistent memory is a platform capability every AI Employee shares. Facts users state —
+              Persistent memory is a platform capability every AI Agent shares. Facts users state —
               "I prefer vegetarian food", "my preferred airline is Emirates" — are remembered
               automatically and injected into every conversation.
             </p>
@@ -254,7 +254,7 @@ export function MemoryPage() {
           </form>
           {create.isError ? (
             <Alert tone="danger" title="Could not save memory">
-              Check that the employee/conversation references are valid for this organization.
+              Check that the agent/conversation references are valid for this organization.
             </Alert>
           ) : null}
         </Can>

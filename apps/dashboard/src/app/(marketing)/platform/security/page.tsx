@@ -16,7 +16,7 @@ export const metadata: Metadata = defaultMetadata({
 const points = [
   { icon: KeyRound, title: "Role-Based Access", description: "Configurable permissions control who and what can act." },
   { icon: Lock, title: "Tenant Isolation", description: "Organisational data stays scoped to your organisation." },
-  { icon: ScrollText, title: "Audit Logging", description: "A durable record of AI employee actions and approvals." },
+  { icon: ScrollText, title: "Audit Logging", description: "A durable record of AI agent actions and approvals." },
   { icon: ShieldCheck, title: "Approval Controls", description: "Sensitive actions route to a human before execution." },
 ];
 
@@ -26,7 +26,7 @@ export default function PlatformSecurityPage() {
       <PageHero
         eyebrow="Security"
         title="Governance Built into the Operating Layer"
-        description="Security isn't an add-on — access control, isolation, logging and approvals are part of how the platform runs every AI employee."
+        description="Security isn't an add-on — access control, isolation, logging and approvals are part of how the platform runs every AI agent."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Foundations" title="What's Built In" />

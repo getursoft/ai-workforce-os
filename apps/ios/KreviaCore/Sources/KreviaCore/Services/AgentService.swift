@@ -1,6 +1,6 @@
 import Foundation
 
-/// Maps 1:1 to apps/api/src/agents/agent.controller.ts — the production "talk to an AI Employee"
+/// Maps 1:1 to apps/api/src/agents/agent.controller.ts — the production "talk to an AI Agent"
 /// path (same one the dashboard's chat page calls), not `/plugins/:id/chat`.
 public struct AgentService: Sendable {
     private let client: APIClient

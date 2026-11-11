@@ -141,7 +141,7 @@ itself.
 
 ### Manual review and rollout gate
 
-Review a tenant- and employee-scoped summary, select repeated disagreements and long-waiting
+Review a tenant- and agent-scoped summary, select repeated disagreements and long-waiting
 executions, inspect their redacted timelines, and correlate any necessary customer-facing evidence
 through the separately permissioned execution/conversation interfaces. Never copy raw SkillExecution
 state into diagnostic reports.

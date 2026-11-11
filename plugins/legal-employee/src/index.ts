@@ -12,11 +12,11 @@ export const LEGAL_EMPLOYEE_PLUGIN_ID = "legal-employee";
 
 export const legalEmployeeManifest: PluginManifest = {
   id: LEGAL_EMPLOYEE_PLUGIN_ID,
-  name: "Legal Document Employee",
+  name: "Legal Document Agent",
   version: "1.0.0",
-  displayName: "Legal Employee",
+  displayName: "Legal Agent",
   description:
-    "AI legal document employee. Reads incoming legal and regulatory notifications and drafts structured replies ready for professional review and filing.",
+    "AI legal document agent. Reads incoming legal and regulatory notifications and drafts structured replies ready for professional review and filing.",
   author: "AI Workforce OS",
   entryPoint: "legal-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class LegalEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Legal Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Legal Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

@@ -22,7 +22,7 @@ const PROMPT_INJECTION_PATTERNS = [
   /\bignore\s+(all\s+)?(previous\s+)?instructions\b/i,
   /\breveal\s+(your\s+)?(system\s+)?prompt\b/i,
   /\bswitch\s+me\s+to\s+(employee|agent)\s+id\b/i,
-  /\buse\s+employee\s+id\b/i,
+  /\buse\s+(employee|agent)\s+id\b/i,
   /\bact\s+as\s+(admin|administrator)\b/i,
   /\bdisclose\s+(access\s+)?token\b/i,
   /\bretrieve\s+(all\s+)?documents\b/i,

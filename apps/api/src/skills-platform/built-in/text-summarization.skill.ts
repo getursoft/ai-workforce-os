@@ -29,7 +29,7 @@ const MANIFEST: SkillManifest = {
   key: "text-summarization",
   name: "Text Summarization",
   description:
-    "Produces a concise, structured summary of a document or text block. Uses the employee's configured AI provider when available and falls back to deterministic extractive summarization otherwise.",
+    "Produces a concise, structured summary of a document or text block. Uses the agent's configured AI provider when available and falls back to deterministic extractive summarization otherwise.",
   category: "Text Processing",
   version: "1.0.0",
   author: "Krevia.ai",

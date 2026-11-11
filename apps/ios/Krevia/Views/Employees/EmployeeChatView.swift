@@ -1,7 +1,7 @@
 import SwiftUI
 import KreviaCore
 
-/// Conversation with a single AI Employee — maps 1:1 to the dashboard's `EmployeeChatPage`
+/// Conversation with a single AI Agent — maps 1:1 to the dashboard's `EmployeeChatPage`
 /// (`POST /agents/run`), the same path the web chat UI uses, not the `/plugins/:id/chat` dev stub.
 struct EmployeeChatView: View {
     @StateObject private var viewModel: EmployeeChatViewModel

@@ -6,7 +6,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Documentation",
-  description: "Guides for configuring AI employees, knowledge, integrations, governance and analytics on Krevia.ai.",
+  description: "Guides for configuring AI agents, knowledge, integrations, governance and analytics on Krevia.ai.",
   path: "/resources/documentation",
 });
 

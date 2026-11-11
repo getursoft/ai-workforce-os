@@ -55,7 +55,7 @@ import { LogoMark } from "@/components/shared/logo-mark";
 type NavIcon = ComponentType<LucideProps>;
 
 // Quick links back to the public marketing site — deliberately just these three (not the full
-// Platform/AI Employees/Solutions/Resources mega-menus from PublicHeader), since an already-authenticated
+// Platform/AI Agents/Solutions/Resources mega-menus from PublicHeader), since an already-authenticated
 // user browsing their dashboard needs a way back to the website, not the full pre-signup navigation.
 const RIBBON_LINKS: readonly { href: string; label: string }[] = [
   { href: "/customers", label: "Customers" },
@@ -66,10 +66,10 @@ const RIBBON_LINKS: readonly { href: string; label: string }[] = [
 const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permission?: string }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/ask-krevia", label: "Ask Krevia", icon: Sparkles, permission: "agents.run" },
-  { href: "/ai-employees", label: "AI Employees", icon: Bot, permission: "agents.run" },
+  { href: "/agents", label: "My Agents", icon: Bot, permission: "agents.run" },
   { href: "/tools", label: "Tools", icon: Wrench, permission: "agents.run" },
   { href: "/crm", label: "Krevia CRM", icon: Contact2, permission: "leads.read" },
-  // Internal only — never shown in the public marketplace/customer-facing catalog, and the AI employee
+  // Internal only — never shown in the public marketplace/customer-facing catalog, and the AI agent
   // itself is never reachable through AI Receptionist routing (plugins/recruitment-consultant/
   // plugin.json's routing.delegationEnabled: false). Gated the same way every other nav item is: by
   // permission only, since there's no separate "internal" visibility mechanism in this nav.
@@ -82,7 +82,7 @@ const NAV_ITEMS: readonly { href: string; label: string; icon: NavIcon; permissi
   },
   {
     href: "/execution-history",
-    label: "Execution History",
+    label: "Agent Execution History",
     icon: History,
     permission: "agents.executions.read"
   },
@@ -101,45 +101,45 @@ export const ADMIN_ITEMS: readonly {
   permission: string;
 }[] = [
   {
-    href: "/travel-employee",
-    label: "Travel Employee",
+    href: "/travel-agent",
+    label: "Travel Agent",
     icon: Plane,
     permission: "travel.config.read"
   },
-  { href: "/hr-employee", label: "HR Employee", icon: UserCog, permission: "hr.config.read" },
+  { href: "/hr-agent", label: "HR Agent", icon: UserCog, permission: "hr.config.read" },
   {
-    href: "/finance-employee",
-    label: "Finance Employee",
+    href: "/finance-agent",
+    label: "Finance Agent",
     icon: Wallet,
     permission: "finance.config.read"
   },
   {
-    href: "/it-support-employee",
-    label: "IT Support Employee",
+    href: "/it-support-agent",
+    label: "IT Support Agent",
     icon: Headset,
     permission: "it.config.read"
   },
   {
-    href: "/sales-employee",
-    label: "Sales Employee",
+    href: "/sales-agent",
+    label: "Sales Agent",
     icon: TrendingUp,
     permission: "sales.config.read"
   },
   {
-    href: "/marketing-employee",
-    label: "Marketing Employee",
+    href: "/marketing-agent",
+    label: "Marketing Agent",
     icon: Megaphone,
     permission: "marketing.config.read"
   },
   {
-    href: "/legal-employee",
-    label: "Legal Employee",
+    href: "/legal-agent",
+    label: "Legal Agent",
     icon: Scale,
     permission: "legal.config.read"
   },
   {
-    href: "/customer-support-employee",
-    label: "Customer Support Employee",
+    href: "/customer-support-agent",
+    label: "Customer Support Agent",
     icon: Headphones,
     permission: "support.config.read"
   },

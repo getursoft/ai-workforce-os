@@ -185,7 +185,7 @@ type MainTabId = "models" | "capabilities" | "employees";
 const MAIN_TABS: readonly { id: MainTabId; label: string }[] = [
   { id: "models", label: "Models" },
   { id: "capabilities", label: "Spend categories" },
-  { id: "employees", label: "AI Employees" }
+  { id: "employees", label: "AI Agents" }
 ];
 
 function ModelsPanel({ data }: Readonly<{ data: readonly ModelUsage[] }>) {
@@ -240,10 +240,10 @@ function CapabilitiesPanel({ data }: Readonly<{ data: readonly CapabilityUsage[]
 }
 
 function EmployeesPanel({ data }: Readonly<{ data: readonly EmployeeUsage[] }>) {
-  if (!data.length) return <p className="usage-v2__muted">No AI employee usage recorded for this period.</p>;
+  if (!data.length) return <p className="usage-v2__muted">No AI agent usage recorded for this period.</p>;
   return (
     <table className="usage-v2__table">
-      <thead><tr><th>Employee</th><th>Executions</th><th>Tokens</th><th>Credits</th></tr></thead>
+      <thead><tr><th>Agent</th><th>Executions</th><th>Tokens</th><th>Credits</th></tr></thead>
       <tbody>
         {data.map((e) => (
           <tr key={e.pluginInstallationId}>
@@ -370,7 +370,7 @@ function RequestsMiniBarCard({ total, trend }: Readonly<{ total: number; trend: 
 type ListTabId = "users" | "employees" | "models";
 const LIST_TABS: readonly { id: ListTabId; label: string }[] = [
   { id: "users", label: "Users" },
-  { id: "employees", label: "Employees" },
+  { id: "employees", label: "Agents" },
   { id: "models", label: "Models" }
 ];
 

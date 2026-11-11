@@ -4,9 +4,14 @@ import { FALLBACK_ANSWER } from "@/content/chatbot-knowledge";
 
 describe("getLocalResponse", () => {
   it("matches a known question to its knowledge base entry", () => {
+    const result = getLocalResponse("What is an AI agent?");
+    expect(result.message).toMatch(/role-based AI worker/i);
+    expect(result.actions?.[0]?.href).toBe("/meet-ai-agents");
+  });
+
+  it("still answers the legacy 'AI employee' wording (visitors and old links may use it)", () => {
     const result = getLocalResponse("What is an AI employee?");
     expect(result.message).toMatch(/role-based AI worker/i);
-    expect(result.actions?.[0]?.href).toBe("/meet-ai-employees");
   });
 
   it("returns the exact fallback answer for unrelated questions", () => {

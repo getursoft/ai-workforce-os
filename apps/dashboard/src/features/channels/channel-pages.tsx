@@ -29,8 +29,8 @@ export function statusMessage(error: unknown): string {
   const known: Record<string, string> = {
     CHANNEL_CONFIGURATION_INCOMPLETE: "Account SID, Auth Token, and sender number are all required.",
     META_CONFIGURATION_INCOMPLETE: "Access Token and Phone Number ID are required.",
-    AGENT_NOT_FOUND: "Select an active AI employee to bind this channel to.",
-    AGENT_NOT_ACTIVE: "The selected AI employee is not active.",
+    AGENT_NOT_FOUND: "Select an active AI agent to bind this channel to.",
+    AGENT_NOT_ACTIVE: "The selected AI agent is not active.",
     CHANNEL_CREDENTIALS_REQUIRED: "Configure the Twilio credentials before testing or enabling.",
     CHANNEL_PROVIDER_AUTHENTICATION_FAILED: "Provider rejected the configured Account SID or Auth Token.",
     CHANNEL_PROVIDER_RATE_LIMITED: "The provider is rate-limited right now. Try again shortly.",
@@ -64,7 +64,7 @@ export function ChannelsPage() {
     <AccessGate permission="channel.read">
       <section className="admin-page">
         <header className="admin-page__header">
-          <div><h1>Channels</h1><p>Connect WhatsApp to your AI employees.</p></div>
+          <div><h1>Channels</h1><p>Connect WhatsApp to your AI agents.</p></div>
           <Can permission="channel.create">
             <Link href="/channels/new"><Button>New channel</Button></Link>
           </Can>
@@ -90,7 +90,7 @@ export function ChannelsPage() {
             ))}</tbody>
           </table></div>
         ) : (
-          <EmptyState title="No channels configured" description="Create a WhatsApp channel to let customers message an AI employee." />
+          <EmptyState title="No channels configured" description="Create a WhatsApp channel to let customers message an AI agent." />
         )}
       </section>
     </AccessGate>
@@ -160,9 +160,9 @@ export function NewChannelPage() {
           <form className="admin-form" onSubmit={submit}>
             <Label htmlFor="channel-name">Connection name</Label>
             <Input id="channel-name" name="name" required maxLength={160} placeholder="Sales WhatsApp" />
-            <Label htmlFor="channel-agent">Bound AI employee</Label>
+            <Label htmlFor="channel-agent">Bound AI agent</Label>
             <select id="channel-agent" name="agentId" required disabled={agents.isLoading}>
-              <option value="">Select an AI employee…</option>
+              <option value="">Select an AI agent…</option>
               {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.displayName}</option>)}
             </select>
             {provider === "META_CLOUD_API" ? (
@@ -321,13 +321,13 @@ export function ChannelDetailPage() {
         </Card>
 
         <Card>
-          <h2>Employee Routing</h2>
+          <h2>Agent Routing</h2>
           <div className="admin-grid">
-            <div><Label>Routing mode</Label><p>{item.routingMode === "INTENT_ROUTER" ? "Intent Router (recommended)" : "Fixed employee"}</p></div>
-            <div><Label>Employees available</Label><p>{(item.allowedEmployeeIds ?? []).length} employee(s) configured</p></div>
+            <div><Label>Routing mode</Label><p>{item.routingMode === "INTENT_ROUTER" ? "Intent Router (recommended)" : "Fixed agent"}</p></div>
+            <div><Label>Agents available</Label><p>{(item.allowedEmployeeIds ?? []).length} agent(s) configured</p></div>
           </div>
           {(!item.allowedEmployeeIds || item.allowedEmployeeIds.length <= 1) ? (
-            <p>Only one AI Employee is currently available. Requests outside its configured scope will not be answered.</p>
+            <p>Only one AI Agent is currently available. Requests outside its configured scope will not be answered.</p>
           ) : null}
         </Card>
 
@@ -350,7 +350,7 @@ export function ChannelDetailPage() {
             <form className="admin-form" onSubmit={isMeta ? submitMeta : submitTwilio}>
               <Label htmlFor="edit-name">Name</Label>
               <Input id="edit-name" name="name" defaultValue={item.name} maxLength={160} />
-              <Label htmlFor="edit-agent">Bound AI employee</Label>
+              <Label htmlFor="edit-agent">Bound AI agent</Label>
               <select id="edit-agent" name="agentId" defaultValue={item.agentId} disabled={agents.isLoading}>
                 <option value="">Select…</option>
                 {agents.data?.map((a) => <option key={a.id} value={a.id}>{a.displayName}</option>)}

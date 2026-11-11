@@ -60,7 +60,7 @@ export function VoiceCallsPage() {
         <header className="admin-page__header">
           <div>
             <h1>Voice Calls</h1>
-            <p>Call history for AI Employee voice conversations.</p>
+            <p>Call history for AI Agent voice conversations.</p>
           </div>
         </header>
         <Card className="admin-toolbar">

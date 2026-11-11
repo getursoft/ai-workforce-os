@@ -4,9 +4,9 @@ const LEGAL_SPEC: EmployeePageSpec = {
   pluginId: "legal-employee",
   permissionPrefix: "legal",
   artifactNoun: "legal notice record",
-  title: "Legal Employee",
-  description: "Configure the AI legal document employee shared by Dashboard chat and WhatsApp.",
-  basePath: "/legal-employee",
+  title: "Legal Agent",
+  description: "Configure the AI legal document agent shared by Dashboard chat and WhatsApp.",
+  basePath: "/legal-agent",
   artifactEndpoint: "notices",
   showCountryField: true,
   fallbackDescription:

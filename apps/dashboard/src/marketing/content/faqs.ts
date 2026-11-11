@@ -9,37 +9,37 @@ export const faqs: Faq[] = [
     category: "General",
     question: "What is Krevia.ai?",
     answer:
-      "Krevia.ai is a platform that lets organisations hire, manage and scale specialised AI employees. These AI employees perform business tasks, answer questions, use company knowledge, interact with tools, and collaborate with human teams across departments such as travel, HR, finance, IT, sales and marketing.",
+      "Krevia.ai is a platform that lets organisations hire, manage and scale specialised AI agents. These AI agents perform business tasks, answer questions, use company knowledge, interact with tools, and collaborate with human teams across departments such as travel, HR, finance, IT, sales and marketing.",
   },
   {
     category: "General",
-    question: "What is an AI employee?",
+    question: "What is an AI agent?",
     answer:
-      "An AI employee is a role-based AI worker configured for a specific department or function. Unlike a generic chatbot, an AI employee is grounded in your organisational knowledge, connected to relevant tools, aware of context and memory, and designed to hand off sensitive decisions to human colleagues.",
+      "An AI agent is a role-based AI worker configured for a specific department or function. Unlike a generic chatbot, an AI agent is grounded in your organisational knowledge, connected to relevant tools, aware of context and memory, and designed to hand off sensitive decisions to human colleagues.",
   },
   {
     category: "General",
     question: "How is this different from a basic chatbot?",
     answer:
-      "A basic chatbot typically answers isolated questions with no memory, no tool access and no organisational grounding. AI employees on Krevia.ai retain relevant context, execute multi-step tasks, use approved tools, apply human approval where needed, and collaborate with both human teams and other AI employees.",
+      "A basic chatbot typically answers isolated questions with no memory, no tool access and no organisational grounding. AI agents on Krevia.ai retain relevant context, execute multi-step tasks, use approved tools, apply human approval where needed, and collaborate with both human teams and other AI agents.",
   },
   {
     category: "Platform",
-    question: "Can AI employees complete tasks, not just answer questions?",
+    question: "Can AI agents complete tasks, not just answer questions?",
     answer:
-      "Yes. AI employees can execute approved actions through connected tools and systems, handle multi-step tasks, and track progress until completion, all within the access and approval boundaries your organisation configures.",
+      "Yes. AI agents can execute approved actions through connected tools and systems, handle multi-step tasks, and track progress until completion, all within the access and approval boundaries your organisation configures.",
   },
   {
     category: "Platform",
-    question: "Do AI employees replace human staff?",
+    question: "Do AI agents replace human staff?",
     answer:
-      "No. AI employees are designed to support and extend human teams by handling repetitive and high-volume work, so your people can focus on decisions, relationships and judgement calls that need a human touch.",
+      "No. AI agents are designed to support and extend human teams by handling repetitive and high-volume work, so your people can focus on decisions, relationships and judgement calls that need a human touch.",
   },
   {
     category: "Platform",
     question: "How does organisational knowledge work?",
     answer:
-      "You connect your documents, policies and systems as knowledge sources. AI employees ground their responses in this content rather than relying on unverified general knowledge, and clearly indicate when a confirmed answer is not available.",
+      "You connect your documents, policies and systems as knowledge sources. AI agents ground their responses in this content rather than relying on unverified general knowledge, and clearly indicate when a confirmed answer is not available.",
   },
   {
     category: "Integrations",
@@ -63,18 +63,18 @@ export const faqs: Faq[] = [
     category: "Pricing",
     question: "How is Krevia.ai priced?",
     answer:
-      "Pricing is structured around Starter, Growth and Enterprise plans based on the number of AI employees, integrations and governance features you need. Contact our sales team for a plan tailored to your organisation.",
+      "Pricing is structured around Starter, Growth and Enterprise plans based on the number of AI agents, integrations and governance features you need. Contact our sales team for a plan tailored to your organisation.",
   },
   {
     category: "Pricing",
     question: "Can I try Krevia.ai before committing?",
     answer:
-      "The best starting point is a guided demo, where our team configures a representative AI employee around a real use case from your organisation so you can evaluate fit before making a decision.",
+      "The best starting point is a guided demo, where our team configures a representative AI agent around a real use case from your organisation so you can evaluate fit before making a decision.",
   },
   {
     category: "General",
     question: "How can my organisation collaborate with Krevia.ai?",
     answer:
-      "We work closely with customers during onboarding to scope AI employees around real workflows, connect relevant knowledge and systems, and configure the right approval boundaries. Reach out through our Contact page or book a demo to start the conversation.",
+      "We work closely with customers during onboarding to scope AI agents around real workflows, connect relevant knowledge and systems, and configure the right approval boundaries. Reach out through our Contact page or book a demo to start the conversation.",
   },
 ];

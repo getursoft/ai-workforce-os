@@ -1,9 +1,9 @@
 {
   "id": "finance-employee",
-  "name": "Finance Employee",
+  "name": "Finance Agent",
   "version": "1.0.0",
-  "displayName": "Finance Employee",
-  "description": "AI finance employee. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
+  "displayName": "Finance Agent",
+  "description": "AI finance agent. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "finance-employee",
     "employeeType": "FINANCE",
-    "displayName": "Finance Employee",
+    "displayName": "Finance Agent",
     "summary": "Handles invoices, expenses, budgets, reimbursements, and other finance/accounting questions.",
     "domains": [
       "finance",

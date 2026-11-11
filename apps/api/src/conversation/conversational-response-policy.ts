@@ -58,8 +58,10 @@ const DEBUG_WORDING_WHOLE_LINE_PATTERNS: RegExp[] = [
   /^workflow execution(?:\s+id)?[:\s].*$/i,
   /^installation id[:\s].*$/i
 ];
-// A leading "<Name> Employee: " prefix (e.g. "Travel Employee: ...", "HR Employee: ...").
-const DEBUG_WORDING_PREFIX_PATTERN = /^\s*(?:[\w.-]+\s+)?employee:\s*/i;
+// A leading "<Name> Agent: " prefix (e.g. "Travel Agent: ...", "HR Agent: ..."), and the legacy
+// "<Name> Employee: " form (display names written before the Agent terminology migration, still present in
+// stored conversations and in tenant-customised routing profiles).
+const DEBUG_WORDING_PREFIX_PATTERN = /^\s*(?:[\w.-]+\s+)?(?:agent|employee):\s*/i;
 
 /** Strips any line (or line prefix) that looks like internal/debug wording (Part 11) from a customer-
  *  facing message. Safe to call on any already-composed text — a no-op when nothing matches. Never touches

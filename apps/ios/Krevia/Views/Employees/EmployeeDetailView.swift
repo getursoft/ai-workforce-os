@@ -35,7 +35,7 @@ struct EmployeeDetailView: View {
                 }
             }
             .confirmationDialog(
-                "Uninstall \(viewModel.detail?.name ?? "this AI Employee")?",
+                "Uninstall \(viewModel.detail?.name ?? "this AI Agent")?",
                 isPresented: $showingUninstallConfirmation,
                 titleVisibility: .visible
             ) {

@@ -7,9 +7,9 @@ const SPEC: EmployeePageSpec = {
   pluginId: "hr-employee",
   permissionPrefix: "hr",
   artifactNoun: "HR request",
-  title: "HR Employee",
+  title: "HR Agent",
   description: "desc",
-  basePath: "/hr-employee",
+  basePath: "/hr-agent",
   artifactEndpoint: "tickets",
   fallbackDescription: "fallback"
 };
@@ -19,7 +19,7 @@ function error(code: string) {
 }
 
 describe("employeeErrorMessage", () => {
-  it("maps known error codes to safe, user-facing messages naming the employee", () => {
+  it("maps known error codes to safe, user-facing messages naming the agent", () => {
     expect(employeeErrorMessage(error("EMPLOYEE_NOT_FOUND"), SPEC)).toMatch(/not installed/i);
     expect(employeeErrorMessage(error("EMPLOYEE_MANIFEST_UNAVAILABLE"), SPEC)).toMatch(
       /not available to install/i

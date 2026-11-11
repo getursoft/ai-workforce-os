@@ -53,7 +53,7 @@ A skill execution must clear all five of these independently. None of them subst
 |---|---|---|---|
 | 1 | Org entitlement | `EntitlementService.assertFeature`/`getLimit`/`consumeCapacity` | `SkillInstallationService.install()` (`SKILLS_MARKETPLACE`, `SKILLS_INSTALL`, `SKILLS_MAX_INSTALLED`, `SKILLS_AI_BACKED`, `SKILLS_EXTERNAL_NETWORK`); `grantToEmployee()` (`SKILLS_MAX_PER_EMPLOYEE`); `SkillsRuntimeService.assertMonthlyExecutionLimit()` (`SKILLS_EXECUTION_MONTHLY_LIMIT`) |
 | 2 | Skill installation grant | `SkillInstallation.enabled` + `deletedAt: null`, org-scoped | `SkillsRuntimeService.assertInstallation()` |
-| 3 | Employee grant | `EmployeeSkillGrant.enabled`, org + employee + installation-scoped | `SkillsRuntimeService.assertEmployeeGrant()` (only when a `pluginInstallationId` is present on the request) |
+| 3 | Agent grant | `EmployeeSkillGrant.enabled`, org + agent + installation-scoped | `SkillsRuntimeService.assertEmployeeGrant()` (only when a `pluginInstallationId` is present on the request) |
 | 4 | User RBAC permission | `PermissionGuard` + `@RequirePermission(...)` | `SkillPlatformController` — every route (e.g. `skill.execute` on `POST /skills/execute`, `skill.install` on `POST /skills/install`) |
 | 5 | Runtime policy | Schema validation, timeout, capability construction | `SkillsRuntimeService.executeResolved()` — input/output schema, `buildSkillCapabilities()` only attaching handles for capabilities the manifest declared *and* the runtime chose to grant |
 
@@ -92,7 +92,7 @@ private async assertInstallation(
 `request.organizationId` on the internal contracts) — never from a client-supplied body/query field —
 matching the tenant-isolation convention documented in `docs/production/security.md`. Cross-tenant
 access is covered by `skill-platform.e2e.spec.ts`'s "denies cross-tenant access to another
-organization's skill installation" and "denies a cross-tenant grant onto an employee that belongs to
+organization's skill installation" and "denies a cross-tenant grant onto an agent that belongs to
 a different organization" tests. Inside a capability handle itself, `buildSkillCapabilities()`'s
 `object.read` implementation adds a second check — if a skill's own code somehow constructs an
 `ObjectReadInput` with a different `organizationId` than its execution context, the handle throws
@@ -104,18 +104,18 @@ a different organization" tests. Inside a capability handle itself, `buildSkillC
 `AgentService.registerSkillTools()` (`apps/api/src/agents/agent.service.ts:2352-2392`) registers one
 `skill.<key>` tool per built-in adapter into the shared `ToolRegistry`. This registry is
 process-global — every organization's agent process sees the same tool definitions. What actually
-restricts which employee can call which skill is the per-turn `available` set, built from
+restricts which agent can call which skill is the per-turn `available` set, built from
 `SkillsRuntimeService.skillsForEmployee()` (only returns granted + enabled skills) at
 `agent.service.ts:766-773`. The code comment at `agent.service.ts:2358-2362` states the deeper
 guarantee explicitly:
 
 > Even if a tool name were somehow reachable without being in `available`,
-> `SkillsRuntimeService.execute()` independently re-verifies installation, employee grant and tenant
+> `SkillsRuntimeService.execute()` independently re-verifies installation, agent grant and tenant
 > scope — an LLM can never invoke an uninstalled skill merely by naming it.
 
 In other words: tool *availability* (what the LLM is told it can call) and tool *authorization* (what
 actually happens when it tries) are two separate checks. If a prompt-injection or model bug caused
-the LLM to attempt calling `skill.translation` for an employee that was never granted it, the tool
+the LLM to attempt calling `skill.translation` for an agent that was never granted it, the tool
 executor's call into `SkillsRuntimeService.execute()` would hit `assertInstallation()`/
 `assertEmployeeGrant()` and throw `SKILL_NOT_INSTALLED`/`SKILL_EMPLOYEE_GRANT_DENIED` regardless of
 what the LLM believed was available. This is the same defense-in-depth pattern the rest of the tool

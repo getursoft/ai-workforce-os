@@ -68,7 +68,7 @@ export function receptionistFrontDoorError(error: unknown): {
     return {
       ...common,
       title: "AI Receptionist access is restricted",
-      message: "Ask an organization administrator for AI Employee access."
+      message: "Ask an organization administrator for AI Agent access."
     };
   if (error.kind === "network" || error.kind === "timeout")
     return {
@@ -91,18 +91,18 @@ export function receptionistFrontDoorError(error: unknown): {
   };
 }
 
-/** Maps an installed AI employee's plugin slug to its dedicated dashboard configuration route — every
+/** Maps an installed AI agent's plugin slug to its dedicated dashboard configuration route — every
  *  domain employee (Travel plus the shared-engine HR / Finance / IT / Sales / Marketing / Legal / Customer
- *  Support) gets a Configure link on its employee card. */
+ *  Support) gets a Configure link on its agent card. */
 export const EMPLOYEE_CONFIGURE_ROUTES: Record<string, string> = {
-  "travel-employee": "/travel-employee",
-  "hr-employee": "/hr-employee",
-  "finance-employee": "/finance-employee",
-  "it-support-employee": "/it-support-employee",
-  "sales-employee": "/sales-employee",
-  "marketing-employee": "/marketing-employee",
-  "legal-employee": "/legal-employee",
-  "customer-support-employee": "/customer-support-employee"
+  "travel-employee": "/travel-agent",
+  "hr-employee": "/hr-agent",
+  "finance-employee": "/finance-agent",
+  "it-support-employee": "/it-support-agent",
+  "sales-employee": "/sales-agent",
+  "marketing-employee": "/marketing-agent",
+  "legal-employee": "/legal-agent",
+  "customer-support-employee": "/customer-support-agent"
 };
 
 /** Employees whose chat pages render the proactive greeting (an empty message on a brand-new conversation
@@ -119,7 +119,7 @@ export const GREETING_EMPLOYEE_SLUGS: ReadonlySet<string> = new Set([
   "receptionist-employee"
 ]);
 
-/** sessionStorage key that remembers the *last* conversation id for one AI employee, purely so the UI
+/** sessionStorage key that remembers the *last* conversation id for one AI agent, purely so the UI
  * can offer to resume it. Its presence must never, by itself, cause a conversation to be resumed — that
  * silently reused customer context (name, trip state) across what a user believed was a brand-new
  * conversation. Resuming only ever happens via the user's explicit choice; see `decideConversationEntry`. */
@@ -127,7 +127,7 @@ export function conversationStorageKey(pluginInstallationId: string): string {
   return `agent-conversation:${pluginInstallationId}`;
 }
 
-/** What the chat UI should do when an employee is opened: greet fresh immediately (nothing was stored,
+/** What the chat UI should do when an agent is opened: greet fresh immediately (nothing was stored,
  * so there is nothing to offer resuming), or ask the user to explicitly choose between resuming the
  * last conversation and starting a new one. Pure and unit-testable independent of sessionStorage/React. */
 export type ConversationEntryDecision =
@@ -157,7 +157,7 @@ export function toLocalMessages(rows: ConversationMessage[]): ChatMessage[] {
     }));
 }
 
-/** Context-aware input placeholder for the Travel Employee, driven by its onboarding/collection stage and
+/** Context-aware input placeholder for the Travel Agent, driven by its onboarding/collection stage and
  * by whether the most recent reply was a knowledge-grounded answer (see `hasKnowledgeSources` below) —
  * a traveler mid-policy-question sees a question-oriented placeholder regardless of their trip-planning
  * stage underneath, since a knowledge question can come up at any point in the conversation. */
@@ -174,8 +174,8 @@ export function derivePlaceholder(
 
 const DEFAULT_PLACEHOLDER = "Plan a 5-day Dubai trip and remember that I prefer vegetarian food.";
 
-/** Domain-specific chat placeholders — one per installed AI employee, so the composer hint always matches
- *  the employee being talked to instead of showing the same travel text for everyone. */
+/** Domain-specific chat placeholders — one per installed AI agent, so the composer hint always matches
+ *  the agent being talked to instead of showing the same travel text for everyone. */
 export const EMPLOYEE_PLACEHOLDERS: Record<string, string> = {
   "travel-employee": DEFAULT_PLACEHOLDER,
   "hr-employee": "Ask about leave policy, onboarding, benefits, or raise an HR request…",
@@ -204,7 +204,7 @@ export const RECEPTIONIST_QUICK_ACTIONS: ReadonlyArray<{ label: string; message:
 ];
 
 /** Resolves the composer placeholder for the currently open employee. Travel stays stage-aware (via its
- *  conversation state); every other employee uses its own domain hint. */
+ *  conversation state); every other agent uses its own domain hint. */
 export function employeePlaceholder(
   slug: string,
   travelStage: TravelStage | null | undefined,
@@ -257,14 +257,14 @@ export function EmployeesPage() {
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
-            <h1>AI Employees</h1>
+            <h1>My Agents</h1>
             <p>Run enabled plugin installations through the controlled agent runtime.</p>
           </div>
         </header>
         {q.isLoading ? (
           <Skeleton />
         ) : q.isError ? (
-          <Alert tone="danger" title="Unable to load AI employees" />
+          <Alert tone="danger" title="Unable to load AI agents" />
         ) : q.data?.length ? (
           <div className="employee-grid">
             {q.data.map((item) => (
@@ -289,7 +289,7 @@ export function EmployeesPage() {
                 <div className="employee-card__actions">
                   <Can permission="agents.run">
                     <Button
-                      onClick={() => router.push(`/ai-employees/${item.id}`)}
+                      onClick={() => router.push(`/agents/${item.id}`)}
                       aria-label={`Run ${item.displayName}`}
                     >
                       Run
@@ -303,7 +303,7 @@ export function EmployeesPage() {
                         aria-label={`Configure ${item.displayName}`}
                         className="employee-card__link"
                       >
-                        Configure
+                        Configure Agent
                       </Link>
                     ) : null;
                   })()}
@@ -313,14 +313,14 @@ export function EmployeesPage() {
           </div>
         ) : !uninstalled.length ? (
           <EmptyState
-            title="No enabled AI employees"
-            description="Create your first AI Employee by installing one below, then enable it."
+            title="No enabled AI agents"
+            description="Deploy your first AI Agent from the Agent Marketplace below, then enable it."
           />
         ) : null}
         {uninstalled.length ? (
           <section className="employee-available-section">
-            <h2>Available AI Employees</h2>
-            <p>Install a built-in AI employee to get started.</p>
+            <h2>Agent Marketplace</h2>
+            <p>Discover Agents and deploy one to get started.</p>
             <div className="employee-grid">
               {uninstalled.map((manifest) => (
                 <div key={manifest.id} className="employee-card">
@@ -342,9 +342,9 @@ export function EmployeesPage() {
                         loading={install.isPending && install.variables === manifest.id}
                         disabled={install.isPending}
                         onClick={() => install.mutate(manifest.id)}
-                        aria-label={`Install ${manifest.displayName}`}
+                        aria-label={`Deploy ${manifest.displayName}`}
                       >
-                        Install
+                        Deploy Agent
                       </Button>
                     </Can>
                   </div>
@@ -386,7 +386,7 @@ export function ReceptionistEntryPage() {
     const unavailable = {
       RECEPTIONIST_NOT_INSTALLED: {
         title: "AI Receptionist is not installed",
-        description: "An organization administrator can install it from AI Employees."
+        description: "An organization administrator can deploy it from the Agent Marketplace in My Agents."
       },
       RECEPTIONIST_DISABLED: {
         title: "AI Receptionist is disabled",
@@ -407,10 +407,10 @@ export function ReceptionistEntryPage() {
   );
 }
 
-/** Dedicated chat page for a single AI employee (`/ai-employees/[id]`), reached from the "Run" button on
- * the employee grid. Previously the chat rendered inline below the full grid + install sections on the
+/** Dedicated chat page for a single AI agent (`/agents/[id]`), reached from the "Run" button on
+ * the agent grid. Previously the chat rendered inline below the full grid + install sections on the
  * same page, which meant clicking "Run" scrolled a long way down to a chat panel still surrounded by every
- * other employee card — this page shows just that one employee's chat with a Back link, like every other
+ * other agent card — this page shows just that one agent's chat with a Back link, like every other
  * detail route in the dashboard (execution-history/[id], team/[id], etc.). */
 export function EmployeeChatPage({
   employeeId,
@@ -453,7 +453,7 @@ export function EmployeeChatPage({
     // never auto-resumed. Cleared as soon as either choice is made.
     [resumeChoice, setResumeChoice] = useState<string | null>(null);
   // Uploads a selected file (PDF/DOCX/TXT/JPG/PNG) to the current conversation so its text can be read by
-  // the AI Employee. Uploaded attachments are sent together with the next message via `attachmentIds`.
+  // the AI Agent. Uploaded attachments are sent together with the next message via `attachmentIds`.
   const uploadAttachment = useMutation({
     mutationFn: async (file: File) => {
       if (!conversationId) throw new Error("CONVERSATION_REQUIRED");
@@ -496,7 +496,7 @@ export function EmployeeChatPage({
       void qc.invalidateQueries({ queryKey: ["travel-state"] });
     }
   });
-  // Starts a brand-new conversation: clears any stored conversation id for this employee first, so a
+  // Starts a brand-new conversation: clears any stored conversation id for this agent first, so a
   // customer identity resolved for the old conversation can never leak into this one via sessionStorage,
   // then resets local chat state and fires the proactive greeting. Independent of `resumeConversation` —
   // callable on its own from the mount effect or from the resume/new-conversation choice below.
@@ -522,8 +522,8 @@ export function EmployeeChatPage({
         startNewConversation(pluginInstallationId);
       });
   };
-  // Idempotency guard for entering an employee's chat: a ref (not state) so it survives React StrictMode's
-  // deliberate double-invoke of effects in dev without re-evaluating twice, keyed per employee id so
+  // Idempotency guard for entering an agent's chat: a ref (not state) so it survives React StrictMode's
+  // deliberate double-invoke of effects in dev without re-evaluating twice, keyed per agent id so
   // switching employees (or coming back to one already handled) re-evaluates correctly.
   const handledEmployeeRef = useRef<string | null>(null);
   useEffect(() => {
@@ -541,8 +541,8 @@ export function EmployeeChatPage({
       resumeConversation(employee.id, deepLinkedConversationId);
       return;
     }
-    // The Travel Employee and every shared-engine domain employee (HR, Finance, IT, Sales, Marketing,
-    // Legal, Customer Support) proactively greet — every other AI employee keeps starting blank until
+    // The Travel Agent and every shared-engine domain employee (HR, Finance, IT, Sales, Marketing,
+    // Legal, Customer Support) proactively greet — every other AI agent keeps starting blank until
     // the user sends the first message, unchanged from before.
     if (!GREETING_EMPLOYEE_SLUGS.has(employee.slug)) return;
     const decision = decideConversationEntry(
@@ -556,7 +556,7 @@ export function EmployeeChatPage({
       return;
     }
     startNewConversation(employee.id);
-    // `run`/`api`/`resumeConversation`/`deepLinkedConversationId` intentionally excluded: only the employee
+    // `run`/`api`/`resumeConversation`/`deepLinkedConversationId` intentionally excluded: only the agent
     // identity should re-trigger this effect (a conversationId query param never changes without a fresh
     // navigation, which remounts the page anyway).
   }, [employee?.id]);
@@ -671,18 +671,18 @@ export function EmployeeChatPage({
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
-            <BackLink href="/ai-employees" label="Back to AI Employees" />
-            <h1>{employee ? employee.displayName : "AI Employee"}</h1>
+            <BackLink href="/agents" label="Back to My Agents" />
+            <h1>{employee ? employee.displayName : "AI Agent"}</h1>
             {employee ? <p>{employee.description}</p> : null}
           </div>
         </header>
         {q.isLoading ? (
           <Skeleton />
         ) : q.isError ? (
-          <Alert tone="danger" title="Unable to load AI employees" />
+          <Alert tone="danger" title="Unable to load AI agents" />
         ) : !employee ? (
           <EmptyState
-            title="AI employee not found"
+            title="AI agent not found"
             description="It may have been removed, or you may not have access to it."
           />
         ) : resumeChoice ? (
@@ -735,7 +735,7 @@ export function EmployeeChatPage({
                 <p className="chat-welcome__subtitle">Your AI Workforce Receptionist</p>
                 <p className="chat-welcome__hint">
                   Tell me what you need help with and I&rsquo;ll connect you with the right AI
-                  employee.
+                  agent.
                 </p>
                 <div className="chat-welcome__actions" role="group" aria-label="Quick actions">
                   {RECEPTIONIST_QUICK_ACTIONS.map((action) => (
@@ -814,7 +814,7 @@ export function EmployeeChatPage({
                               attachment.type === "CONVERSATION_LINK" ? (
                                 <Link
                                   key={attachment.conversationId}
-                                  href={`/ai-employees/${attachment.employeeInstallationId}?conversationId=${attachment.conversationId}`}
+                                  href={`/agents/${attachment.employeeInstallationId}?conversationId=${attachment.conversationId}`}
                                   className="ui-button ui-button--ghost"
                                 >
                                   {attachment.label}
@@ -989,7 +989,7 @@ export function ConversationsPage() {
     <AccessGate permission="agents.conversations.read">
       <section className="admin-page">
         <h1>Conversations</h1>
-        <p>Review organization-scoped AI employee conversations.</p>
+        <p>Review organization-scoped AI agent conversations.</p>
         {q.isLoading ? (
           <Skeleton />
         ) : q.isError ? (
@@ -1000,7 +1000,7 @@ export function ConversationsPage() {
               <thead>
                 <tr>
                   <th>Title</th>
-                  <th>AI employee</th>
+                  <th>AI agent</th>
                   <th>Creator</th>
                   <th>Messages</th>
                   <th>Status</th>
@@ -1032,7 +1032,7 @@ export function ConversationsPage() {
         ) : (
           <EmptyState
             title="No conversations"
-            description="Run an AI employee to begin a conversation."
+            description="Run an AI agent to begin a conversation."
           />
         )}
       </section>
@@ -1077,7 +1077,7 @@ export function ExecutionsPage() {
   return (
     <AccessGate permission="agents.executions.read">
       <section className="admin-page">
-        <h1>Execution History</h1>
+        <h1>Agent Execution History</h1>
         <p>Model usage, tool activity, latency, and safe errors.</p>
         {q.isLoading ? (
           <Skeleton />
@@ -1089,7 +1089,7 @@ export function ExecutionsPage() {
               <thead>
                 <tr>
                   <th>Execution</th>
-                  <th>AI employee</th>
+                  <th>AI agent</th>
                   <th>Status</th>
                   <th>Model</th>
                   <th>Tokens</th>
@@ -1137,7 +1137,7 @@ export function ExecutionDetail({ id }: { id: string }) {
           <Alert tone="danger" title="Unable to load execution" />
         ) : q.data ? (
           <>
-            <BackLink href="/execution-history" label="Back to Execution History" />
+            <BackLink href="/execution-history" label="Back to Agent Execution History" />
             <h1>Execution {q.data.id.slice(0, 8)}</h1>
             <Card>
               <Badge>{q.data.status}</Badge>

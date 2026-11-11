@@ -15,10 +15,10 @@ class CreateLegalDocumentDto {
   @IsString() @MaxLength(64) conversationId!: string;
 }
 
-@ApiTags("Legal Employee Documents")
+@ApiTags("Legal Agent Documents")
 @ApiBearerAuth()
 @UseGuards(JwtAccessGuard, PermissionGuard)
-@Controller("legal-employee/documents")
+@Controller(["legal-agent/documents", "legal-employee/documents"])
 export class LegalDocumentController {
   constructor(
     private readonly prisma: PrismaService,

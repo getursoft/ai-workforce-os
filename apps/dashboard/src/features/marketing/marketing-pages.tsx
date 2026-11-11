@@ -4,9 +4,9 @@ const MARKETING_SPEC: EmployeePageSpec = {
   pluginId: "marketing-employee",
   permissionPrefix: "marketing",
   artifactNoun: "campaign brief",
-  title: "Marketing Employee",
-  description: "Configure the AI marketing employee shared by Dashboard chat and WhatsApp.",
-  basePath: "/marketing-employee",
+  title: "Marketing Agent",
+  description: "Configure the AI marketing agent shared by Dashboard chat and WhatsApp.",
+  basePath: "/marketing-agent",
   artifactEndpoint: "campaigns",
   showApiToggle: true,
   fallbackDescription:

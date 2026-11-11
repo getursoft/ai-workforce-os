@@ -282,14 +282,14 @@ function escapeRegex(value: string): string {
  *  the employee/team/work ("sales team", "hr employee", "finance wale"), never when it's an incidental
  *  word in another context ("sales trip", "it is", "travel it"). */
 const EXPLICIT_EMPLOYEE_MENTIONS: ReadonlyArray<{ pattern: RegExp; slug: string }> = [
-  { pattern: /\b(hr|human\s?resources?)\s+(employee|team|department|wale|wala|ka\s+kaam|ko\s+route|se\s+bat|se\s+help)\b|\bhr\s+ka\s+kaam\b|\bhr\s+wale\b/i, slug: "hr-employee" },
-  { pattern: /\b(finance|accounts?|accounting)\s+(employee|team|department|wale|wala|ka\s+kaam|ko\s+route|se\s+bat|se\s+help)\b|\bfinance\s+ka\s+kaam\b|\bfinance\s+wale\b/i, slug: "finance-employee" },
-  { pattern: /\b(it|tech|helpdesk)\s+(support|team|employee|department|wale|wala)\b|\bit\s+support\b|\bhelpdesk\b/i, slug: "it-support-employee" },
-  { pattern: /\bsales\s+(team|employee|department|wale|wala|person|rep)\b|\bsales\s+ka\s+kaam\b|\bcrm\s+team\b/i, slug: "sales-employee" },
-  { pattern: /\bmarketing\s+(team|employee|department|wale|wala)\b/i, slug: "marketing-employee" },
-  { pattern: /\blegal\s+(team|employee|department|wale|wala)\b|\badvocate\b|\blawyer\b/i, slug: "legal-employee" },
-  { pattern: /\bcustomer\s?support\s+(team|employee|department)\b|\bsupport\s+team\b|\bsupport\s+employee\b/i, slug: "customer-support-employee" },
-  { pattern: /\btravel\s+(team|employee|department|wale|wala)\b|\btrip\s+planning\s+team\b/i, slug: "travel-employee" }
+  { pattern: /\b(hr|human\s?resources?)\s+(employee|agent|team|department|wale|wala|ka\s+kaam|ko\s+route|se\s+bat|se\s+help)\b|\bhr\s+ka\s+kaam\b|\bhr\s+wale\b/i, slug: "hr-employee" },
+  { pattern: /\b(finance|accounts?|accounting)\s+(employee|agent|team|department|wale|wala|ka\s+kaam|ko\s+route|se\s+bat|se\s+help)\b|\bfinance\s+ka\s+kaam\b|\bfinance\s+wale\b/i, slug: "finance-employee" },
+  { pattern: /\b(it|tech|helpdesk)\s+(support|team|employee|agent|department|wale|wala)\b|\bit\s+support\b|\bhelpdesk\b/i, slug: "it-support-employee" },
+  { pattern: /\bsales\s+(team|employee|agent|department|wale|wala|person|rep)\b|\bsales\s+ka\s+kaam\b|\bcrm\s+team\b/i, slug: "sales-employee" },
+  { pattern: /\bmarketing\s+(team|employee|agent|department|wale|wala)\b/i, slug: "marketing-employee" },
+  { pattern: /\blegal\s+(team|employee|agent|department|wale|wala)\b|\badvocate\b|\blawyer\b/i, slug: "legal-employee" },
+  { pattern: /\bcustomer\s?support\s+(team|employee|agent|department)\b|\bsupport\s+team\b|\bsupport\s+(?:employee|agent)\b/i, slug: "customer-support-employee" },
+  { pattern: /\btravel\s+(team|employee|agent|department|wale|wala)\b|\btrip\s+planning\s+team\b/i, slug: "travel-employee" }
 ];
 
 function explicitEmployeeMention(
@@ -314,7 +314,7 @@ export function buildOutOfScopeRoutingMessage(
   return [
     `That's outside my scope as the ${spec.artifactNoun} assistant.`,
     `It looks like this belongs to the ${target.displayName}.`,
-    "I'll route your request to the correct employee so you get the right help."
+    "I'll route your request to the correct agent so you get the right help."
   ].join("\n");
 }
 
@@ -348,7 +348,12 @@ export function detectRoutingConfirmation(
 
   const priorAssistant = messages.at(-2);
   if (!priorAssistant || priorAssistant.role !== "assistant") return null;
-  if (!priorAssistant.content.includes("I'll route your request to the correct employee")) return null;
+  if (
+    !priorAssistant.content.includes("I'll route your request to the correct agent") &&
+    // Conversations created before the Agent terminology migration carry the legacy wording.
+    !priorAssistant.content.includes("I'll route your request to the correct employee")
+  )
+    return null;
   const displayName = priorAssistant.content.match(ROUTING_OFFER_TARGET_PATTERN)?.[1]?.trim();
   if (!displayName) return null;
   const target = EMPLOYEE_SCOPE_PROFILES.find(
@@ -403,7 +408,7 @@ export function buildAttachmentReadMessage(
       `${intent}`,
       "",
       `This document looks like it's about ${outOfScopeTarget.displayName} matters, which isn't my area (${ownDomain}).`,
-      "If you'd like, I can route it to the relevant employee so they can help you with it."
+      "If you'd like, I can route it to the relevant agent so they can help you with it."
     ].join("\n");
   }
   return [
@@ -412,7 +417,7 @@ export function buildAttachmentReadMessage(
     `${intent}`,
     "",
     `This document is related to ${ownDomain}. If you need any ${ownDomain.toLowerCase()} information or help, I'm happy to assist — just tell me what you'd like to do.`,
-    "If it's not relevant to me, let me know and I'll route it to the correct employee."
+    "If it's not relevant to me, let me know and I'll route it to the correct agent."
   ].join("\n");
 }
 
@@ -996,7 +1001,7 @@ export function buildEmployeeExtractionSystemPrompt(spec: EmployeeDomainSpec): s
   const fieldKeys = spec.fields.map((field) => field.key);
   const keys = ["customerName", ...fieldKeys];
   return [
-    `You are a semantic interpretation engine for the ${spec.slug} AI Employee.`,
+    `You are a semantic interpretation engine for the ${spec.slug} AI Agent.`,
     "Extract structured fields from the user's message.",
     `Return ONLY a strict JSON object with these keys (use null when unknown): ${keys.join(", ")}.`,
     "Also include an \"intent\" field: a short phrase describing what the user wants help with, or null.",
@@ -1122,7 +1127,7 @@ export class EmployeeDomainLlmOrchestrator implements AiProvider {
         messages: [
           {
             role: "system",
-            content: `You are the ${this.spec.slug} AI Employee. ${this.config.persona}\n
+            content: `You are the ${this.spec.slug} AI Agent. ${this.config.persona}\n
 ${this.countryBiasInstruction()}
 Format the reply clearly and professionally: use short sections with bold headings, bullet points for lists, and blank lines between sections. Never dump raw text — keep it readable and well-aligned.
 Rewrite the following reply so it sounds natural and helpful, staying truthful and concise. Do not invent facts, bookings, or outcomes. Return only the rewritten reply.`

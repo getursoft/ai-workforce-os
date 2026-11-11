@@ -113,7 +113,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     return say("+919876500002");
   }
 
-  describe("Sales Employee — Web via Receptionist handoff (real continueHandoff, no direct-specialist workaround)", () => {
+  describe("Sales Agent — Web via Receptionist handoff (real continueHandoff, no direct-specialist workaround)", () => {
     it("resumes the SAME specialist state across 3+ turns routed through Receptionist.continueHandoff — no repeated questions, no lost fields — and attributes the Lead to Sales, never the Receptionist", async () => {
       const { token, organizationId } = await register("sales-web");
       const receptionistId = await install(token, "receptionist-employee");
@@ -124,7 +124,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
       await say("I'm Kabir");
       // Turn 1 through Receptionist: triggers the handoff (startHandoff) AND is itself processed by Sales.
       const wantsSales = await say("i would like a quote");
-      expect(wantsSales.receptionist?.handoff?.targetDisplayName).toBe("Sales Employee");
+      expect(wantsSales.receptionist?.handoff?.targetDisplayName).toBe("Sales Agent");
       // Regression guard for the fixed bug: must NOT re-show the generic intent-discovery menu (the
       // symptom was every post-handoff turn falling back to "What can I help you with?" instead of
       // progressing) and must acknowledge the actual interest expressed in THIS message.
@@ -158,7 +158,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
 
       const lead = await waitUntilTruthy(() => prisma.lead.findFirst({ where: { organizationId } }));
       expect(lead.source).toBe("WEB_CHAT");
-      // Specialist attribution: the Sales Employee's own plugin installation id, never the Receptionist's.
+      // Specialist attribution: the Sales Agent's own plugin installation id, never the Receptionist's.
       expect(lead.agentId).toBe(salesId);
       expect(lead.agentId).not.toBe(receptionistId);
       expect(lead.status).toBe("NEW");
@@ -175,7 +175,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     }, 30_000);
   });
 
-  describe("HR Employee — Web via Receptionist handoff (non-lead-generating domain, multi-turn continuation)", () => {
+  describe("HR Agent — Web via Receptionist handoff (non-lead-generating domain, multi-turn continuation)", () => {
     it("resumes the SAME specialist state across 3+ turns through Receptionist.continueHandoff, creates an HrTicket, and creates NO canonical Lead", async () => {
       const { token, organizationId } = await register("hr-web");
       const receptionistId = await install(token, "receptionist-employee");
@@ -185,7 +185,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
       await say("Hi");
       await say("I'm Priya");
       const wantsHr = await say("it's about the leave policy");
-      expect(wantsHr.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(wantsHr.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
       expect(wantsHr.response).not.toMatch(/what can i help you with/i);
 
       const t2 = await say("please help with this request for my team");
@@ -205,7 +205,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     }, 30_000);
   });
 
-  describe("Sales Employee — WhatsApp channel actor", () => {
+  describe("Sales Agent — WhatsApp channel actor", () => {
     it("captures a canonical Lead with source WHATSAPP, attributed to Sales", async () => {
       const { token, organizationId } = await register("sales-whatsapp");
       const salesId = await install(token, "sales-employee");
@@ -285,7 +285,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     }, 30_000);
   });
 
-  describe("Sales Employee — VOICE source actor", () => {
+  describe("Sales Agent — VOICE source actor", () => {
     it("captures a canonical Lead with source VOICE", async () => {
       const { token, organizationId } = await register("sales-voice");
       const salesId = await install(token, "sales-employee");
@@ -338,7 +338,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     }, 30_000);
   });
 
-  describe("Sales Employee — CRM-disabled behavior", () => {
+  describe("Sales Agent — CRM-disabled behavior", () => {
     it("creates the canonical Lead with zero connector installations for the organization", async () => {
       const { token, organizationId } = await register("sales-no-crm");
       const salesId = await install(token, "sales-employee");
@@ -380,7 +380,7 @@ suite("Krevia CRM — workforce lead integration UAT", () => {
     }, 30_000);
   });
 
-  describe("HR Employee — non-lead-generating domain", () => {
+  describe("HR Agent — non-lead-generating domain", () => {
     it("creates an HrTicket but NEVER a canonical Krevia CRM Lead", async () => {
       const { token, organizationId } = await register("hr-non-lead");
       const hrId = await install(token, "hr-employee");

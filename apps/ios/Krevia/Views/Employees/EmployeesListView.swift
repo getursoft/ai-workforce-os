@@ -2,7 +2,7 @@ import SwiftUI
 import KreviaCore
 
 /// Employees content — no internal `NavigationStack` (pushed from Home), same convention as
-/// `LeadListView`. Rendered as a card grid (not a list) to match the dashboard's AI Employees page
+/// `LeadListView`. Rendered as a card grid (not a list) to match the dashboard's AI Agents page
 /// and the rest of the app's card-based navigation.
 struct EmployeesListView: View {
     @StateObject private var viewModel: EmployeesListViewModel
@@ -28,7 +28,7 @@ struct EmployeesListView: View {
                     } label: {
                         Image(systemName: "plus.circle.fill")
                     }
-                    .accessibilityLabel("Browse AI Employees")
+                    .accessibilityLabel("Browse AI Agents")
                 }
             }
             .task { if viewModel.employees.isEmpty { await viewModel.load() } }
@@ -132,15 +132,15 @@ private struct EmptyEmployeesView: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "person.2.slash").font(.largeTitle).foregroundStyle(KreviaTheme.muted)
-            Text("No AI Employees yet").font(.headline)
-            Text("Browse the catalog and install your first AI Employee.")
+            Text("No AI Agents yet").font(.headline)
+            Text("Browse the catalog and install your first AI Agent.")
                 .font(.subheadline)
                 .foregroundStyle(KreviaTheme.muted)
                 .multilineTextAlignment(.center)
             NavigationLink {
                 EmployeeCatalogView(dependencies: dependencies, onInstalled: onInstalled)
             } label: {
-                Text("Browse AI Employees").fontWeight(.semibold)
+                Text("Browse AI Agents").fontWeight(.semibold)
             }
             .buttonStyle(.borderedProminent)
             .tint(KreviaTheme.primary)

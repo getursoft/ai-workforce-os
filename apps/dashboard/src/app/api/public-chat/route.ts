@@ -33,8 +33,8 @@ ${knowledgeSummary}
 Rules:
 - Keep answers concise: 2 to 4 sentences, plain business language, no markdown formatting.
 - Never claim the platform is SOC 2, ISO 27001 or GDPR certified — only that it is "designed to support enterprise security requirements".
-- Never claim AI employees replace humans, operate fully autonomously without oversight, or guarantee savings.
-- Position AI employees as collaborators that support and extend human teams.
+- Never claim AI agents replace humans, operate fully autonomously without oversight, or guarantee savings.
+- Position AI agents as collaborators that support and extend human teams.
 - If the question is unrelated to Krevia.ai or not covered by the information above, reply with exactly: "${FALLBACK_ANSWER}"`;
 }
 

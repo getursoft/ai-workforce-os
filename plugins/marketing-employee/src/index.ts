@@ -12,11 +12,11 @@ export const MARKETING_EMPLOYEE_PLUGIN_ID = "marketing-employee";
 
 export const marketingEmployeeManifest: PluginManifest = {
   id: MARKETING_EMPLOYEE_PLUGIN_ID,
-  name: "Marketing Employee",
+  name: "Marketing Agent",
   version: "1.0.0",
-  displayName: "Marketing Employee",
+  displayName: "Marketing Agent",
   description:
-    "AI marketing employee. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
+    "AI marketing agent. Supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
   author: "AI Workforce OS",
   entryPoint: "marketing-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class MarketingEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Marketing Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Marketing Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

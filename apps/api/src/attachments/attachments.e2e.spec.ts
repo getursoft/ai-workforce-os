@@ -179,7 +179,7 @@ suite("Conversation attachments end-to-end", () => {
     expect(run.body.response).toMatch(/leave/i);
   });
 
-  it("routes an out-of-scope attached document to the correct employee", async () => {
+  it("routes an out-of-scope attached document to the correct agent", async () => {
     const upload = await request(app.getHttpServer())
       .post(`/api/v1/conversations/${conversationId}/attachments`)
       .set("Authorization", `Bearer ${token}`)
@@ -200,8 +200,8 @@ suite("Conversation attachments end-to-end", () => {
         attachmentIds: [upload.body.id]
       })
       .expect(201);
-    expect(run.body.response).toMatch(/Finance Employee/i);
-    expect(run.body.response).toMatch(/route it to the relevant employee/i);
+    expect(run.body.response).toMatch(/Finance Agent/i);
+    expect(run.body.response).toMatch(/route it to the relevant agent/i);
   });
 });
 

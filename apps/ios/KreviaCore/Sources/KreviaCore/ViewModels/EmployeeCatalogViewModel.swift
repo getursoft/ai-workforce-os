@@ -17,7 +17,7 @@ public final class EmployeeCatalogViewModel: ObservableObject {
     public var isEmpty: Bool { items.isEmpty && !isLoading && errorMessage == nil }
 
     /// Dev/test-only manifests the backend's catalog can surface in non-production environments —
-    /// filtered here so the catalog only ever shows real, installable AI Employees.
+    /// filtered here so the catalog only ever shows real, installable AI Agents.
     private static let excludedIds: Set<String> = ["dummy-echo"]
 
     public func load() async {
@@ -47,7 +47,7 @@ public final class EmployeeCatalogViewModel: ObservableObject {
         } catch let error as APIError {
             installError = error.userMessage
         } catch {
-            installError = "Couldn't install this AI Employee. Please try again."
+            installError = "Couldn't install this AI Agent. Please try again."
         }
         installingId = nil
     }

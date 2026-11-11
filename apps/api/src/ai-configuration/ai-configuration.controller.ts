@@ -128,14 +128,14 @@ export class AiConfigurationController {
     return this.profiles.delete(p.organizationId.toString(), id);
   }
 
-  @Get("employees/:pluginId/assignments") @RequirePermission("ai.assignment.read") listAssignments(
+  @Get(["agents/:pluginId/assignments", "employees/:pluginId/assignments"]) @RequirePermission("ai.assignment.read") listAssignments(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("pluginId", new ParseUUIDPipe()) pluginId: string
   ) {
     return this.assignments.listForEmployee(p.organizationId.toString(), pluginId);
   }
 
-  @Put("employees/:pluginId/assignments") @RequirePermission("ai.assignment.manage") upsertAssignment(
+  @Put(["agents/:pluginId/assignments", "employees/:pluginId/assignments"]) @RequirePermission("ai.assignment.manage") upsertAssignment(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
     @Param("pluginId", new ParseUUIDPipe()) pluginId: string,
     @Body() dto: UpsertEmployeeAiProfileAssignmentDto
@@ -143,7 +143,7 @@ export class AiConfigurationController {
     return this.assignments.upsert(p.organizationId.toString(), pluginId, dto);
   }
 
-  @Delete("employees/:pluginId/assignments/:purpose")
+  @Delete(["agents/:pluginId/assignments/:purpose", "employees/:pluginId/assignments/:purpose"])
   @RequirePermission("ai.assignment.manage")
   removeAssignment(
     @CurrentPrincipal() p: AuthenticatedPrincipal,

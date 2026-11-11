@@ -17,7 +17,7 @@ export default function IntegrationsPage() {
     <>
       <PageHero
         eyebrow="Integrations"
-        title="Connect AI Employees to the Systems You Already Use"
+        title="Connect AI Agents to the Systems You Already Use"
         description="Every integration is scoped and permissioned. Status labels reflect where each connector actually stands today."
       />
 
@@ -47,7 +47,7 @@ export default function IntegrationsPage() {
         <div className="mt-8 rounded-3xl border border-gold/30 bg-cream/60 p-8 text-center">
           <h2 className="text-2xl font-bold text-ink">Need something not listed here?</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted">
-            Custom integrations connect AI employees to your internal or bespoke systems through a governed API
+            Custom integrations connect AI agents to your internal or bespoke systems through a governed API
             layer. Tell us what you need and we&apos;ll help scope it.
           </p>
           <div className="mt-6">

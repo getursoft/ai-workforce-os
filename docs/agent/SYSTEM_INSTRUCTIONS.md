@@ -96,7 +96,7 @@ When discovery genuinely is required (new area, `ARCHITECTURE.md` silent or stal
   never runs inside the agent loop (see `docs/connectors.md`).
 - Tools perform actions, never decide; every tool execution is tracked, persisted, idempotent, and
   auditable, and must never be double-executed.
-- Knowledge is employee-scoped (Organization → AI Employee → Collection → Document → Chunk →
+- Knowledge is agent-scoped (Organization → AI Agent → Collection → Document → Chunk →
   Embedding) and never determines business state (see `docs/enterprise-knowledge.md`).
 - Memory (`AgentMemory`) is not canonical business state; it is scoped, searchable context, and any
   legacy state mirrored into it for a compatibility reason must be labeled as such.
@@ -115,15 +115,15 @@ When discovery genuinely is required (new area, `ARCHITECTURE.md` silent or stal
 
 Before writing code, answer:
 
-1. Is this a Skill (a capability an AI Employee can reason about) or a Workflow (a multi-turn,
+1. Is this a Skill (a capability an AI Agent can reason about) or a Workflow (a multi-turn,
    stateful business process)?
-2. Does this need to be reusable by a future AI Employee beyond the one requesting it? If so, does
-   the implementation actually avoid importing employee-specific modules directly (see
+2. Does this need to be reusable by a future AI Agent beyond the one requesting it? If so, does
+   the implementation actually avoid importing agent-specific modules directly (see
    `ARCHITECTURE.md`'s note that today's workflows still import `travel.runtime.ts` directly — a
    known, disclosed gap, not a pattern to copy)?
 3. Does this require a persisted Workflow, or can it be answered synchronously within one turn?
 4. Does this require a Connector (external system integration) or a Tool (an in-agent-loop action)?
-5. Does this touch Knowledge/RAG? If so, is retrieval properly employee-scoped?
+5. Does this touch Knowledge/RAG? If so, is retrieval properly agent-scoped?
 6. Does this touch Memory? If so, is it clearly non-authoritative, or does it need to become a
    typed persisted workflow/entity instead?
 7. Does this require Human Approval? If so, model it as a workflow, not a message pattern.
@@ -190,7 +190,7 @@ Every implementation response for a feature/stage must include, in this order:
 **Critical rule: never claim architecture is complete if legacy authority still exists.** Always
 explicitly distinguish, for anything touched:
 
-- **Platform authority** — genuinely generic, persisted, reusable by any future AI Employee.
+- **Platform authority** — genuinely generic, persisted, reusable by any future AI Agent.
 - **Compatibility layer** — intentionally bridges platform and a still-domain-specific reality
   (name what makes it non-generic and why it's temporary).
 - **Legacy behaviour** — old code that still exists, whether or not it's currently reachable, and

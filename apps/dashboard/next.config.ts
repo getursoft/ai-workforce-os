@@ -55,7 +55,20 @@ const nextConfig: NextConfig = {
   async redirects() {
     // Self-service signup was removed (the platform has one universal owner). Stale bookmarks/links
     // to /signup redirect to the login page instead of 404ing.
-    return [{ source: "/signup", destination: "/login", permanent: true }];
+    // Agent terminology migration: AI workers were previously called "Employees". Old dashboard and
+    // marketing URLs (bookmarks, emailed links, search results) permanently redirect to the Agent URLs.
+    // Query strings (e.g. ?conversationId=) are preserved by Next.js.
+    const agentRedirects = [
+      ["/ai-employees", "/agents"],
+      ["/meet-ai-employees", "/meet-ai-agents"],
+      ...["travel", "hr", "finance", "it-support", "sales", "marketing", "legal", "customer-support"].map(
+        (domain) => [`/${domain}-employee`, `/${domain}-agent`] as const
+      )
+    ].flatMap(([from, to]) => [
+      { source: from, destination: to, permanent: true },
+      { source: `${from}/:path*`, destination: `${to}/:path*`, permanent: true }
+    ]);
+    return [{ source: "/signup", destination: "/login", permanent: true }, ...agentRedirects];
   },
   async headers() {
     return [

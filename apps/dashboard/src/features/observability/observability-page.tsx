@@ -89,7 +89,7 @@ export function ObservabilityPage() {
         <PageHeader
           eyebrow="Platform health"
           title="Observability"
-          description="One correlated trace across employees, workflows, approvals, providers and channels for every request."
+          description="One correlated trace across agents, workflows, approvals, providers and channels for every request."
         />
 
         <section className="dashboard-grid dashboard-grid--summary" aria-label="Summary">
@@ -180,7 +180,7 @@ export function ObservabilityPage() {
         )}
 
         <div className="admin-section-header">
-          <h2>Failures by employee</h2>
+          <h2>Failures by agent</h2>
         </div>
         {metricsQuery.isLoading ? (
           <Skeleton className="dashboard-home__chart-skeleton" />

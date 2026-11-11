@@ -7,7 +7,7 @@ export function EmployeeHero({ employee }: { employee: AiEmployee }) {
   return (
     <section className="relative overflow-hidden bg-royal pb-8">
       <div className="absolute inset-0 watermark-mandala opacity-[0.05]" aria-hidden="true" />
-      <Breadcrumb items={[{ label: "AI Employees", href: "/meet-ai-employees" }, { label: employee.role }]} />
+      <Breadcrumb items={[{ label: "AI Agents", href: "/meet-ai-agents" }, { label: employee.role }]} />
       <div className="relative mx-auto mt-6 flex max-w-4xl flex-col items-center px-6 text-center">
         <EmployeeIcon slug={employee.slug} iconColor={employee.iconColor} className="h-16 w-16 ring-4 ring-white/10" />
         <span className="mt-4 text-xs font-semibold uppercase tracking-[0.2em] text-gold">{employee.department}</span>
@@ -20,8 +20,8 @@ export function EmployeeHero({ employee }: { employee: AiEmployee }) {
           <ButtonLink href="/book-demo" variant="primary" className="bg-saffron hover:bg-[#d97b00]">
             Book a Demo
           </ButtonLink>
-          <ButtonLink href="/meet-ai-employees" variant="secondary" className="border-white/30 bg-transparent text-white hover:bg-white/10">
-            View All AI Employees
+          <ButtonLink href="/meet-ai-agents" variant="secondary" className="border-white/30 bg-transparent text-white hover:bg-white/10">
+            View All AI Agents
           </ButtonLink>
         </div>
       </div>

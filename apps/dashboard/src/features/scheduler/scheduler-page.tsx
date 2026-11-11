@@ -101,7 +101,7 @@ export function SchedulerPage() {
     <div className="scheduler-page">
       <PageHeader
         title="Autonomous Scheduler"
-        description="Background jobs, reminders, and follow-ups that keep every AI Employee proactive."
+        description="Background jobs, reminders, and follow-ups that keep every AI Agent proactive."
       />
 
       <div className="dashboard-tabs" role="tablist">

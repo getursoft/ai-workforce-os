@@ -47,7 +47,7 @@ export function TemplatesTab() {
     <>
       {lastResult ? (
         <Alert tone="success" title={`Installed ${lastResult.templateKey}`}>
-          Granted: {lastResult.result.installedSkills.join(", ") || "none"} · Employee: {lastResult.result.pluginInstallationId}
+          Granted: {lastResult.result.installedSkills.join(", ") || "none"} · Agent: {lastResult.result.pluginInstallationId}
         </Alert>
       ) : null}
       <div className="admin-grid">
@@ -92,7 +92,7 @@ export function TemplatesTab() {
       <Dialog
         open={installTarget !== null}
         title={installTarget ? `Install ${installTarget.name}` : "Install template"}
-        description="Pick an existing employee to grant these skills to, or leave blank to create a new employee automatically."
+        description="Pick an existing agent to grant these skills to, or leave blank to create a new agent automatically."
         confirmLabel="Install"
         onCancel={() => {
           setInstallTarget(null);
@@ -110,7 +110,7 @@ export function TemplatesTab() {
       >
         {installTarget ? (
           <div className="admin-form">
-            <Label htmlFor="template-employee-picker">Target employee (optional)</Label>
+            <Label htmlFor="template-employee-picker">Target agent (optional)</Label>
             {employees.isLoading ? (
               <Skeleton />
             ) : (
@@ -120,7 +120,7 @@ export function TemplatesTab() {
                 value={pluginInstallationId}
                 onChange={(event) => setPluginInstallationId(event.target.value)}
               >
-                <option value="">Create a new {installTarget.targetPluginId} employee</option>
+                <option value="">Create a new {installTarget.targetPluginId} agent</option>
                 {(employees.data ?? []).map((employee) => (
                   <option key={employee.id} value={employee.id}>
                     {employee.displayName}

@@ -4,9 +4,9 @@ const HR_SPEC: EmployeePageSpec = {
   pluginId: "hr-employee",
   permissionPrefix: "hr",
   artifactNoun: "HR request",
-  title: "HR Employee",
-  description: "Configure the AI HR employee shared by Dashboard chat and WhatsApp.",
-  basePath: "/hr-employee",
+  title: "HR Agent",
+  description: "Configure the AI HR agent shared by Dashboard chat and WhatsApp.",
+  basePath: "/hr-agent",
   artifactEndpoint: "tickets",
   showApiToggle: true,
   fallbackDescription:

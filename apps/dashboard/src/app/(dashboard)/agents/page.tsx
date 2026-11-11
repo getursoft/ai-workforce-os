@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { EmployeesPage } from "../../../features/agents/agent-pages";
 
 export const metadata: Metadata = {
-  title: "AI Employees | Krevia.ai"
+  title: "My Agents | Krevia.ai"
 };
 
 export default function AiEmployeesPage() {

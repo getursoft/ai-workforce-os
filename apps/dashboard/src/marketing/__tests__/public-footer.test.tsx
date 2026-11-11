@@ -19,7 +19,7 @@ describe("PublicFooter", () => {
   it("renders the brand name and tagline", () => {
     render(<PublicFooter />);
     expect(screen.getAllByText("Krevia.ai").length).toBeGreaterThan(0);
-    expect(screen.getByText("The Operating System for AI Employees")).toBeInTheDocument();
+    expect(screen.getByText("The Enterprise AI Agent Operating System")).toBeInTheDocument();
   });
 
   it("renders the newsletter form", () => {

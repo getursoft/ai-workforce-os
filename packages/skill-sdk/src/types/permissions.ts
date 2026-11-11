@@ -79,7 +79,7 @@ export interface SkillPermissionDefinition {
 }
 
 export const SKILL_PERMISSION_DEFINITIONS: readonly SkillPermissionDefinition[] = [
-  { key: "skill.execute", label: "Execute skills", description: "Invoke an installed skill on behalf of an employee.", sensitive: false },
+  { key: "skill.execute", label: "Execute skills", description: "Invoke an installed skill on behalf of an agent.", sensitive: false },
   { key: "skill.install", label: "Install skills", description: "Install a marketplace skill into this organization.", sensitive: false },
   { key: "skill.update", label: "Update skills", description: "Change skill lifecycle state and configuration.", sensitive: false },
   { key: "skill.uninstall", label: "Uninstall skills", description: "Remove a skill installation from this organization.", sensitive: true },
@@ -87,5 +87,5 @@ export const SKILL_PERMISSION_DEFINITIONS: readonly SkillPermissionDefinition[] 
   { key: "skill.marketplace.read", label: "Browse the skill marketplace", description: "List published skills and their metadata.", sensitive: false },
   { key: "skill.execution.read", label: "Read skill executions", description: "View execution history, usage and health for skills.", sensitive: false },
   { key: "skill.health.read", label: "Read skill health", description: "Check the health of installed skills.", sensitive: false },
-  { key: "skill.grant.manage", label: "Manage employee grants", description: "Grant or revoke skills to installed employees.", sensitive: false }
+  { key: "skill.grant.manage", label: "Manage agent grants", description: "Grant or revoke skills to installed agents.", sensitive: false }
 ];

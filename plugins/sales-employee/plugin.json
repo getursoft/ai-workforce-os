@@ -1,9 +1,9 @@
 {
   "id": "sales-employee",
-  "name": "Sales Employee",
+  "name": "Sales Agent",
   "version": "1.0.0",
-  "displayName": "Sales Employee",
-  "description": "AI sales employee. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
+  "displayName": "Sales Agent",
+  "description": "AI sales agent. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "sales-employee",
     "employeeType": "SALES",
-    "displayName": "Sales Employee",
+    "displayName": "Sales Agent",
     "summary": "Handles product questions, pricing, quotes, demos, and lead qualification.",
     "domains": [
       "sales",

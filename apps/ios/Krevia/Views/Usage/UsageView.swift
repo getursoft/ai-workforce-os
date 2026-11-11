@@ -73,7 +73,7 @@ struct UsageView: View {
                     }
 
                     if !viewModel.byEmployee.isEmpty {
-                        UsageSection(title: "By AI Employee") {
+                        UsageSection(title: "By AI Agent") {
                             ForEach(viewModel.byEmployee) { row in
                                 UsageBar(label: row.employeeName, credits: row.creditsConsumed, share: row.sharePercentage)
                             }

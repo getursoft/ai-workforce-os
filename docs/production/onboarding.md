@@ -15,8 +15,8 @@ Sprint 5.0 Phase 12/28. What exists today vs. what a full guided-onboarding flow
    `BillingEnforcementService` immediately start applying its limits — no separate "activation" step.
    An org with **no** subscription row is treated as unmetered (existing behavior, preserved deliberately
    so dev/legacy orgs aren't retroactively broken — see `BillingEnforcementService`'s doc comment).
-3. **Install employees** — `POST /plugins/install`, gated by `EntitlementService`'s `MAX_EMPLOYEES` check
-   as of Sprint 5.0. Each org chooses its own workforce; nothing requires installing all employee types.
+3. **Install agents** — `POST /plugins/install`, gated by `EntitlementService`'s `MAX_EMPLOYEES` check
+   as of Sprint 5.0. Each org chooses its own workforce; nothing requires installing all agent types.
 4. **Configure an AI provider** — per-employee provider configuration exists (`PluginAiService`); a
    platform-managed default provider path also exists for orgs that don't configure their own.
 5. **Upload knowledge** — `POST /knowledge/employees/:employeeId/collections/:collectionId/documents`,
@@ -24,7 +24,7 @@ Sprint 5.0 Phase 12/28. What exists today vs. what a full guided-onboarding flow
 6. **Configure a channel** — WhatsApp (Meta Cloud API) / Twilio connection setup, gated by
    `MAX_WHATSAPP_CHANNELS`.
 7. **Invite team members** — `POST /users` (existing, not part of this pass).
-8. **Test an employee** — the dashboard chat UI against any installed employee, immediately.
+8. **Test an agent** — the dashboard chat UI against any installed agent, immediately.
 
 ## What does NOT exist yet (honest gap)
 

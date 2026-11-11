@@ -27,7 +27,7 @@ export default function PlatformIntegrationsPage() {
       <PageHero
         eyebrow="Integrations"
         title="Connected to the Systems You Already Run On"
-        description="AI employees are only as useful as the systems they can reach. Integrations connect them to your real data, safely and visibly."
+        description="AI agents are only as useful as the systems they can reach. Integrations connect them to your real data, safely and visibly."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

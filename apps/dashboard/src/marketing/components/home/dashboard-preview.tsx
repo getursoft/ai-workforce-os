@@ -25,7 +25,7 @@ const activity = [
 
 const sidebarItems = [
   { label: "Overview", icon: LayoutGrid, active: true },
-  { label: "AI Employees", icon: Users },
+  { label: "AI Agents", icon: Users },
   { label: "Conversations", icon: MessagesSquare },
   { label: "Tasks", icon: ListChecks },
   { label: "Knowledge", icon: BookOpen },
@@ -137,7 +137,7 @@ export function DashboardPreview() {
             </div>
             <div className="rounded-xl border border-royal/10 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <p className="text-[11px] font-semibold text-ink">Top AI Employee</p>
+                <p className="text-[11px] font-semibold text-ink">Top AI Agent</p>
                 <span className="text-[9px] font-medium text-saffron">View all</span>
               </div>
               <div className="flex items-center gap-2">

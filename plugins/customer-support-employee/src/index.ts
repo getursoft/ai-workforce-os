@@ -12,11 +12,11 @@ export const CUSTOMER_SUPPORT_EMPLOYEE_PLUGIN_ID = "customer-support-employee";
 
 export const customerSupportEmployeeManifest: PluginManifest = {
   id: CUSTOMER_SUPPORT_EMPLOYEE_PLUGIN_ID,
-  name: "Customer Support Employee",
+  name: "Customer Support Agent",
   version: "1.0.0",
-  displayName: "Customer Support Employee",
+  displayName: "Customer Support Agent",
   description:
-    "AI customer support employee. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
+    "AI customer support agent. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
   author: "AI Workforce OS",
   entryPoint: "customer-support-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class CustomerSupportEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Customer Support Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Customer Support Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

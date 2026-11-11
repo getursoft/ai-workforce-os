@@ -8,7 +8,7 @@ always optional — the internal `Lead` record is persisted first and never depe
 
 - `Lead` (`leads` table) — canonical, tenant-scoped lead: `leadReferenceId` (`KRV-LD-XXXXXX`), `name`,
   `phone`, `email`, `source` (`WEB_CHAT | WHATSAPP | VOICE | MANUAL | API | OTHER`), `agentId` (specialist AI
-  Employee's plugin installation id), `conversationId`, `interactionId`, `voiceSessionId`, `requirement`
+  Agent's plugin installation id), `conversationId`, `interactionId`, `voiceSessionId`, `requirement`
   (short summary, never a full transcript), `status` (`NEW | CONTACTED | QUALIFIED | FOLLOW_UP | CONVERTED |
   LOST`), `priority`, `assignedToUserId`, timestamps.
 - `LeadActivity` (`lead_activities` table) — append-only timeline: `CREATED | UPDATED | STATUS_CHANGED |
@@ -22,16 +22,16 @@ per-vertical detail records (`TravelLead`, `SalesLead`, ...), which keep owning 
 
 `LeadService.captureFromChannel` (`apps/api/src/leads/lead.service.ts`) is the single, channel-agnostic entry
 point. `TravelLeadService.createInternalLead` calls it after persisting the domain `TravelLead` — so every
-existing Travel Employee capture trigger (LLM tool call, deterministic engine, Contact Capture workflow, Trip
+existing Travel Agent capture trigger (LLM tool call, deterministic engine, Contact Capture workflow, Trip
 Submission workflow, below-minimum-budget handoff) automatically produces a Krevia CRM `Lead` too, with zero
 duplicated capture logic.
 
 Dedup/update: the same Interaction (survives a Receptionist → specialist handoff) or conversationId resolves
 to the same still-open `Lead` and updates it in place — a continued conversation never creates a duplicate.
 Channel attribution comes from the resolved `Interaction.channel`, so WEB_CHAT/WHATSAPP/VOICE are automatic
-regardless of which specialist AI Employee handled the conversation.
+regardless of which specialist AI Agent handled the conversation.
 
-A future AI Employee (Sales, ...) wires in the same way: call `LeadService.captureFromChannel` from its own
+A future AI Agent (Sales, ...) wires in the same way: call `LeadService.captureFromChannel` from its own
 domain-lead persistence path, same as `TravelLeadService` does.
 
 ## API (`/api/v1/leads`)

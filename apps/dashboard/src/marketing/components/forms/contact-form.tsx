@@ -127,7 +127,7 @@ export function ContactForm() {
         <Field label="Area of Interest" htmlFor="interest">
           <select id="interest" value={form.interest} onChange={(e) => update("interest", e.target.value)} className={inputClass(false)}>
             <option>General Enquiry</option>
-            <option>AI Employees</option>
+            <option>AI Agents</option>
             <option>Enterprise Deployment</option>
             <option>Integrations</option>
             <option>Partnerships</option>

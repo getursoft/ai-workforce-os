@@ -184,7 +184,7 @@ an already-terminal row and skip re-firing the notification trigger — STEP 31)
   Interaction is created inside `ReceptionistService.execute()`, right after its own conversation
   resolution — this is the TRUE first-contact point, since a `workforce.intake` plugin's execution returns
   from `AgentService.executeTraced()` before that method's own conversation-resolution code ever runs.
-- **Direct employee execution** (a dashboard chat or a specialist handoff dispatch pointed straight at a
+- **Direct agent execution** (a dashboard chat or a specialist handoff dispatch pointed straight at a
   specific plugin): the Interaction is created/found inside `AgentService.executeTraced()`, right after
   its conversation is resolved. A handoff dispatch reaching this point finds the SAME Interaction the
   Receptionist already created, via the shared channel identity — never a duplicate.
@@ -291,7 +291,7 @@ when one exists for the linked conversation (never a raw transcript replay), fal
 Interaction's own `resolutionSummary`.
 
 Registered as a real `ToolRegistry` tool — `platform.interaction.lookup_reference` — so the AI Receptionist
-recognizes "my reference is KRV-842731" through the same tool-calling pipeline every other employee tool
+recognizes "my reference is KRV-842731" through the same tool-calling pipeline every other agent tool
 already uses, not brittle regex-only routing. Tenant-scoped via `ToolExecutionContext.organizationId`.
 
 ## Admin API

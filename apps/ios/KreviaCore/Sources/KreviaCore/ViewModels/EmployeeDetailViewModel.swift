@@ -42,7 +42,7 @@ public final class EmployeeDetailViewModel: ObservableObject {
         } catch let error as APIError {
             uninstallError = error.userMessage
         } catch {
-            uninstallError = "Couldn't uninstall this AI Employee. Please try again."
+            uninstallError = "Couldn't uninstall this AI Agent. Please try again."
         }
         isUninstalling = false
         return false

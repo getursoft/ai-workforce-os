@@ -9,10 +9,10 @@ import type { IdentityRequest } from "../identity/presentation/http/request-cont
 import { ListTravelLeadsDto, UpdateTravelConfigurationDto, UpdateTravelLeadStatusDto } from "./travel.dto";
 import { TravelEmployeeService } from "./travel.service";
 
-@ApiTags("Travel Employee")
+@ApiTags("Travel Agent")
 @ApiBearerAuth()
 @UseGuards(JwtAccessGuard, PermissionGuard)
-@Controller("travel-employee")
+@Controller(["travel-agent", "travel-employee"])
 export class TravelEmployeeController {
   constructor(private readonly travel: TravelEmployeeService) {}
 

@@ -5,7 +5,7 @@ import { caseStudies } from "@/content/case-studies";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Case Studies",
-  description: "Representative case studies showing how organisations use AI employees across departments.",
+  description: "Representative case studies showing how organisations use AI agents across departments.",
   path: "/resources/case-studies",
 });
 

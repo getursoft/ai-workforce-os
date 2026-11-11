@@ -56,7 +56,7 @@ type Page<T> = {
   pagination: { page: number; pageSize: number; total: number; pages: number };
 };
 
-/** Every knowledge read/write is nested under an AI Employee id — see docs/enterprise-knowledge.md
+/** Every knowledge read/write is nested under an AI Agent id — see docs/enterprise-knowledge.md
  * "Knowledge hierarchy". There is no organization-wide knowledge view any more: the dashboard must
  * always know which employee's knowledge it is showing. */
 export function createKnowledgeApi(client: ApiClient) {

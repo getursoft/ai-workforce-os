@@ -21,7 +21,7 @@ const featured = [
   { title: "Multi-Step Task Handling", description: "Plans and tracks complex work from a single request." },
   { title: "Memory", description: "Retains relevant preferences and context over time." },
   { title: "Human Approval", description: "Routes sensitive actions to a human before execution." },
-  { title: "Collaboration", description: "Works alongside human teams and other AI employees." },
+  { title: "Collaboration", description: "Works alongside human teams and other AI agents." },
   { title: "Reporting", description: "Clear visibility into activity, usage and outcomes." },
 ];
 
@@ -32,7 +32,7 @@ export function CapabilitiesSection() {
         <SectionHeading
           eyebrow="Platform"
           title="Core Platform Capabilities"
-          description="The building blocks every AI employee is built on."
+          description="The building blocks every AI agent is built on."
         />
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {featured.map((item, i) => {

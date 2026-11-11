@@ -47,7 +47,7 @@ const AUTOMATIC_CAPABILITIES: ToolCatalogEntry[] = [
     name: "platform.email_sender",
     displayName: "Email Sender",
     description:
-      "Sends real emails (with PDF attachments) over SMTP once an employee's Email Delivery configuration is set — used for ticket delivery and resends.",
+      "Sends real emails (with PDF attachments) over SMTP once an agent's Email Delivery configuration is set — used for ticket delivery and resends.",
     category: "Communication",
     kind: "AUTOMATIC_CAPABILITY"
   },

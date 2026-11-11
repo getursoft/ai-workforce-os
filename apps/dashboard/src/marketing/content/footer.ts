@@ -1,6 +1,6 @@
 export const footerBrand = {
   description:
-    "Empowering organisations with intelligent AI employees that drive real business impact across every department.",
+    "Empowering organisations with intelligent AI agents that drive real business impact across every department.",
   newsletter: {
     heading: "Stay Updated",
     description: "Subscribe to our newsletter for the latest product updates and insights.",

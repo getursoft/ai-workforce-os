@@ -19,7 +19,7 @@ export function DepartmentSolutionTemplate({ slug }: { slug: string }) {
     <>
       <PageHero
         eyebrow="Solutions"
-        title={`AI Employees for ${solution.name}`}
+        title={`AI Agents for ${solution.name}`}
         description={solution.summary}
       >
         <ButtonLink href="/book-demo" variant="primary" className="bg-saffron hover:bg-[#d97b00]">
@@ -46,7 +46,7 @@ export function DepartmentSolutionTemplate({ slug }: { slug: string }) {
           <div className="rounded-card border border-royal/10 bg-white p-6 shadow-soft">
             <div className="mb-4 flex items-center gap-2 text-royal">
               <CheckCircle2 className="h-5 w-5 text-success" aria-hidden="true" />
-              <h2 className="text-lg font-bold text-ink">How AI Employees Help</h2>
+              <h2 className="text-lg font-bold text-ink">How AI Agents Help</h2>
             </div>
             <ul className="space-y-3 text-sm leading-relaxed text-ink/80">
               {solution.howAiEmployeesHelp.map((item) => (
@@ -63,10 +63,10 @@ export function DepartmentSolutionTemplate({ slug }: { slug: string }) {
       {related.length > 0 && (
         <section className="bg-white py-7">
           <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-            <SectionHeading eyebrow="Relevant AI employees" title="Where to Start" size="secondary" />
+            <SectionHeading eyebrow="Relevant AI agents" title="Where to Start" size="secondary" />
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               {related.map((employee) => (
-                <ButtonLink key={employee.slug} href={`/meet-ai-employees/${employee.slug}`} variant="secondary">
+                <ButtonLink key={employee.slug} href={`/meet-ai-agents/${employee.slug}`} variant="secondary">
                   {employee.role}
                 </ButtonLink>
               ))}
@@ -76,7 +76,7 @@ export function DepartmentSolutionTemplate({ slug }: { slug: string }) {
       )}
 
       <section className="mx-auto max-w-3xl px-4 py-7 text-center sm:px-6 lg:px-8">
-        <SectionHeading title={`See ${solution.name} AI Employees in Action`} size="secondary" />
+        <SectionHeading title={`See ${solution.name} AI Agents in Action`} size="secondary" />
         <div className="mt-8">
           <ButtonLink href="/book-demo" variant="primary">Book a Demo</ButtonLink>
         </div>

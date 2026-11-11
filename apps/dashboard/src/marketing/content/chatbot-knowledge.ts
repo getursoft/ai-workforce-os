@@ -20,72 +20,72 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "what-is-platform",
     keywords: ["what is ai workforce os", "what does ai workforce os do", "platform overview", "what is this platform", "overview"],
     answer:
-      "Krevia.ai is the operating system for AI employees — it lets organisations hire, manage and scale specialised AI employees that work across departments, grounded in company knowledge, connected to real tools, and supervised by human teams.",
+      "Krevia.ai is the operating system for AI agents — it lets organisations hire, manage and scale specialised AI agents that work across departments, grounded in company knowledge, connected to real tools, and supervised by human teams.",
     actions: [{ label: "Explore the Platform", href: "/platform", type: "primary" }],
-    relatedQuestions: ["What is an AI employee?", "How is this different from a chatbot?"],
+    relatedQuestions: ["What is an AI agent?", "How is this different from a chatbot?"],
   },
   {
     id: "what-is-ai-employee",
-    keywords: ["what is an ai employee", "ai employee mean", "define ai employee"],
+    keywords: ["what is an ai employee", "ai employee mean", "define ai employee", "what is an ai agent", "ai agent mean", "define ai agent"],
     answer:
-      "An AI employee is a role-based AI worker configured for a specific department — like Travel, HR, Finance, IT Support, Sales or Marketing. It uses your organisational knowledge, connects to real tools, remembers relevant context, and hands off sensitive decisions to humans.",
-    actions: [{ label: "Explore AI Employees", href: "/meet-ai-employees", type: "primary" }],
-    relatedQuestions: ["Which AI employees are available?", "How do AI employees work with human teams?"],
+      "An AI agent is a role-based AI worker configured for a specific department — like Travel, HR, Finance, IT Support, Sales or Marketing. It uses your organisational knowledge, connects to real tools, remembers relevant context, and hands off sensitive decisions to humans.",
+    actions: [{ label: "Explore AI Agents", href: "/meet-ai-agents", type: "primary" }],
+    relatedQuestions: ["Which AI agents are available?", "How do AI agents work with human teams?"],
   },
   {
     id: "ai-employee-roles",
-    keywords: ["which ai employees", "list of ai employees", "roles available", "types of ai employees"],
+    keywords: ["which ai employees", "list of ai employees", "roles available", "types of ai employees", "which ai agents", "list of ai agents", "types of ai agents"],
     answer:
-      "Krevia.ai offers Travel, HR, Finance, IT Support, Sales and Marketing AI employees, plus Custom AI Employees configured around your own workflows.",
-    actions: [{ label: "View All AI Employees", href: "/meet-ai-employees", type: "primary" }],
+      "Krevia.ai offers Travel, HR, Finance, IT Support, Sales and Marketing AI agents, plus Custom AI Agents configured around your own workflows.",
+    actions: [{ label: "View All AI Agents", href: "/meet-ai-agents", type: "primary" }],
   },
   {
     id: "travel-employee",
-    keywords: ["travel ai employee", "trip planning", "itinerary", "travel agent"],
+    keywords: ["travel ai employee", "trip planning", "itinerary", "travel agent", "travel ai agent"],
     answer:
-      "The Travel AI Employee plans trips, builds itineraries, estimates budgets and suggests hotels and destinations aligned to policy. Live booking and payment depend on your connected booking systems and approved integrations.",
-    actions: [{ label: "View Travel AI Employee", href: "/meet-ai-employees/travel", type: "primary" }],
+      "The Travel AI Agent plans trips, builds itineraries, estimates budgets and suggests hotels and destinations aligned to policy. Live booking and payment depend on your connected booking systems and approved integrations.",
+    actions: [{ label: "View Travel AI Agent", href: "/meet-ai-agents/travel", type: "primary" }],
   },
   {
     id: "hr-employee",
-    keywords: ["hr ai employee", "hr assistant", "onboarding", "leave policy"],
+    keywords: ["hr ai employee", "hr assistant", "onboarding", "leave policy", "hr ai agent"],
     answer:
-      "The HR AI Employee answers employee questions, supports onboarding, explains leave and policy, creates HR tickets, and escalates sensitive matters to your human HR team.",
-    actions: [{ label: "View HR AI Employee", href: "/meet-ai-employees/hr", type: "primary" }],
+      "The HR AI Agent answers agent questions, supports onboarding, explains leave and policy, creates HR tickets, and escalates sensitive matters to your human HR team.",
+    actions: [{ label: "View HR AI Agent", href: "/meet-ai-agents/hr", type: "primary" }],
   },
   {
     id: "finance-employee",
-    keywords: ["finance ai employee", "invoices", "expense", "budget", "variance"],
+    keywords: ["finance ai employee", "invoices", "expense", "budget", "variance", "finance ai agent"],
     answer:
-      "The Finance AI Employee helps with financial queries, report generation, invoice support, expense classification and budget summaries — with human approval required for sensitive actions.",
-    actions: [{ label: "View Finance AI Employee", href: "/meet-ai-employees/finance", type: "primary" }],
+      "The Finance AI Agent helps with financial queries, report generation, invoice support, expense classification and budget summaries — with human approval required for sensitive actions.",
+    actions: [{ label: "View Finance AI Agent", href: "/meet-ai-agents/finance", type: "primary" }],
   },
   {
     id: "it-employee",
-    keywords: ["it support ai employee", "it ticket", "troubleshoot", "incident"],
+    keywords: ["it support ai employee", "it ticket", "troubleshoot", "incident", "it support ai agent"],
     answer:
-      "The IT Support AI Employee handles first-line technical support, ticket creation, knowledge-base search, troubleshooting and incident triage, escalating to human engineers when needed.",
-    actions: [{ label: "View IT Support AI Employee", href: "/meet-ai-employees/it-support", type: "primary" }],
+      "The IT Support AI Agent handles first-line technical support, ticket creation, knowledge-base search, troubleshooting and incident triage, escalating to human engineers when needed.",
+    actions: [{ label: "View IT Support AI Agent", href: "/meet-ai-agents/it-support", type: "primary" }],
   },
   {
     id: "sales-employee",
-    keywords: ["sales ai employee", "lead qualification", "crm", "pipeline"],
+    keywords: ["sales ai employee", "lead qualification", "crm", "pipeline", "sales ai agent"],
     answer:
-      "The Sales AI Employee qualifies leads, supports product discovery, follows up with prospects, preps reps for meetings and hands qualified leads to your CRM.",
-    actions: [{ label: "View Sales AI Employee", href: "/meet-ai-employees/sales", type: "primary" }],
+      "The Sales AI Agent qualifies leads, supports product discovery, follows up with prospects, preps reps for meetings and hands qualified leads to your CRM.",
+    actions: [{ label: "View Sales AI Agent", href: "/meet-ai-agents/sales", type: "primary" }],
   },
   {
     id: "marketing-employee",
-    keywords: ["marketing ai employee", "campaign", "content assistance", "social content"],
+    keywords: ["marketing ai employee", "campaign", "content assistance", "social content", "marketing ai agent"],
     answer:
-      "The Marketing AI Employee supports campaign planning, drafts content, researches audiences and summarises performance while keeping your brand voice consistent.",
-    actions: [{ label: "View Marketing AI Employee", href: "/meet-ai-employees/marketing", type: "primary" }],
+      "The Marketing AI Agent supports campaign planning, drafts content, researches audiences and summarises performance while keeping your brand voice consistent.",
+    actions: [{ label: "View Marketing AI Agent", href: "/meet-ai-agents/marketing", type: "primary" }],
   },
   {
     id: "not-a-chatbot",
     keywords: ["different from chatbot", "basic chatbot", "why not just a chatbot"],
     answer:
-      "Unlike a basic chatbot, AI employees are grounded in your organisational knowledge, retain memory across conversations, execute tasks through connected tools, follow human approval rules, and collaborate with your teams — not just answer isolated questions.",
+      "Unlike a basic chatbot, AI agents are grounded in your organisational knowledge, retain memory across conversations, execute tasks through connected tools, follow human approval rules, and collaborate with your teams — not just answer isolated questions.",
     actions: [{ label: "See Platform Capabilities", href: "/platform/capabilities", type: "primary" }],
   },
   {
@@ -106,7 +106,7 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "pricing",
     keywords: ["pricing", "cost", "price", "plan", "how much"],
     answer:
-      "Krevia.ai offers Starter, Growth and Enterprise plans, scaled by the number of AI employees, integrations and governance features you need. Enterprise pricing is handled through our sales team.",
+      "Krevia.ai offers Starter, Growth and Enterprise plans, scaled by the number of AI agents, integrations and governance features you need. Enterprise pricing is handled through our sales team.",
     actions: [{ label: "View Pricing", href: "/pricing", type: "primary" }],
   },
   {
@@ -120,7 +120,7 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "collaboration",
     keywords: ["collaborate", "partnership", "work with human", "human team"],
     answer:
-      "AI employees are built to work alongside human teams — handling repetitive and high-volume work while handing off sensitive decisions, approvals and relationship-building to your people.",
+      "AI agents are built to work alongside human teams — handling repetitive and high-volume work while handing off sensitive decisions, approvals and relationship-building to your people.",
     actions: [{ label: "Book a Demo", href: "/book-demo", type: "primary" }],
   },
   {
@@ -134,16 +134,16 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "demo",
     keywords: ["demo", "book a demo", "schedule a call", "talk to sales"],
     answer:
-      "You can book a guided demo where our team configures a representative AI employee around a real use case from your organisation.",
+      "You can book a guided demo where our team configures a representative AI agent around a real use case from your organisation.",
     actions: [{ label: "Book a Demo", href: "/book-demo", type: "primary" }],
   },
   {
     id: "which-employee-fits",
-    keywords: ["which ai employee should i use", "recommend an ai employee", "suited for my business"],
+    keywords: ["which ai employee should i use", "recommend an ai employee", "suited for my business", "which ai agent should i use", "recommend an ai agent"],
     answer:
       "It depends on where you feel the most repetitive workload today. Travel suits trip planning teams, HR and Finance suit internal operations, IT Support suits technical helpdesks, and Sales or Marketing suit revenue teams. Tell us more about your team on the Contact page and we can help you choose.",
     actions: [
-      { label: "Explore AI Employees", href: "/meet-ai-employees", type: "primary" },
+      { label: "Explore AI Agents", href: "/meet-ai-agents", type: "primary" },
       { label: "Contact Us", href: "/contact", type: "secondary" },
     ],
   },
@@ -151,7 +151,7 @@ export const knowledgeBase: KnowledgeEntry[] = [
     id: "knowledge-connect",
     keywords: ["connect knowledge", "organisational knowledge", "documents", "company data"],
     answer:
-      "You connect your documents, policies and systems as knowledge sources so AI employees ground their answers in your organisation's real content rather than general assumptions.",
+      "You connect your documents, policies and systems as knowledge sources so AI agents ground their answers in your organisation's real content rather than general assumptions.",
     actions: [{ label: "Knowledge and Memory", href: "/platform/knowledge", type: "primary" }],
   },
   {
@@ -165,39 +165,39 @@ export const knowledgeBase: KnowledgeEntry[] = [
 
 export const pageContext: Record<string, { greeting: string; suggestedPrompts: string[] }> = {
   "/": {
-    greeting: "Hi! I'm here to help you explore Krevia.ai. Ask me about AI employees, capabilities, pricing or how to get started.",
-    suggestedPrompts: ["What is an AI employee?", "Which AI employees are available?", "How is this different from a chatbot?"],
+    greeting: "Hi! I'm here to help you explore Krevia.ai. Ask me about AI agents, capabilities, pricing or how to get started.",
+    suggestedPrompts: ["What is an AI agent?", "Which AI agents are available?", "How is this different from a chatbot?"],
   },
   "/platform": {
     greeting: "Ask me about the Krevia.ai platform — knowledge, memory, tools, approvals and analytics.",
     suggestedPrompts: ["What is the platform's operating layer?", "How does organisational knowledge work?", "How do approvals work?"],
   },
-  "/meet-ai-employees": {
-    greeting: "Ask me which AI employee may suit your organisation, or what any of them can do.",
-    suggestedPrompts: ["Which AI employee should I use?", "What can the Sales AI Employee do?", "How do AI employees work with human teams?"],
+  "/meet-ai-agents": {
+    greeting: "Ask me which AI agent may suit your organisation, or what any of them can do.",
+    suggestedPrompts: ["Which AI agent should I use?", "What can the Sales AI Agent do?", "How do AI agents work with human teams?"],
   },
-  "/meet-ai-employees/travel": {
-    greeting: "Ask me how the Travel AI Employee can plan trips, estimate budgets and support travel customers.",
-    suggestedPrompts: ["What can the Travel AI Employee plan?", "Can it book flights directly?", "How does it apply travel policy?"],
+  "/meet-ai-agents/travel": {
+    greeting: "Ask me how the Travel AI Agent can plan trips, estimate budgets and support travel customers.",
+    suggestedPrompts: ["What can the Travel AI Agent plan?", "Can it book flights directly?", "How does it apply travel policy?"],
   },
-  "/meet-ai-employees/hr": {
-    greeting: "Ask me how the HR AI Employee supports onboarding, policy questions and employee requests.",
+  "/meet-ai-agents/hr": {
+    greeting: "Ask me how the HR AI Agent supports onboarding, policy questions and employee requests.",
     suggestedPrompts: ["What HR questions can it answer?", "How does onboarding support work?", "When does it escalate to a human?"],
   },
-  "/meet-ai-employees/finance": {
-    greeting: "Ask me how the Finance AI Employee helps with reports, invoices and budgets.",
+  "/meet-ai-agents/finance": {
+    greeting: "Ask me how the Finance AI Agent helps with reports, invoices and budgets.",
     suggestedPrompts: ["Can it generate financial reports?", "How does expense classification work?", "Who approves sensitive actions?"],
   },
-  "/meet-ai-employees/it-support": {
-    greeting: "Ask me how the IT Support AI Employee handles tickets and troubleshooting.",
+  "/meet-ai-agents/it-support": {
+    greeting: "Ask me how the IT Support AI Agent handles tickets and troubleshooting.",
     suggestedPrompts: ["How does incident triage work?", "Can it resolve access requests?", "When does it escalate to engineers?"],
   },
-  "/meet-ai-employees/sales": {
-    greeting: "Ask me how the Sales AI Employee qualifies leads and supports your pipeline.",
+  "/meet-ai-agents/sales": {
+    greeting: "Ask me how the Sales AI Agent qualifies leads and supports your pipeline.",
     suggestedPrompts: ["How does lead qualification work?", "Can it prepare me for a meeting?", "How does CRM hand-off work?"],
   },
-  "/meet-ai-employees/marketing": {
-    greeting: "Ask me how the Marketing AI Employee supports campaigns and content.",
+  "/meet-ai-agents/marketing": {
+    greeting: "Ask me how the Marketing AI Agent supports campaigns and content.",
     suggestedPrompts: ["Can it draft campaign content?", "How does it keep brand voice consistent?", "Can it summarise performance?"],
   },
   "/pricing": {

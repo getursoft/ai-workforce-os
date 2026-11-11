@@ -20,12 +20,12 @@ wrapped `{ data: ... }`.
 | PATCH | `/skills/installations/:installationId/configure` | `skill.configure` | `SkillConfigureDto`: `{ configuration }` | Updated `SkillInstallationDetail` |
 | POST | `/skills/installations/:installationId/update-version` | `skill.update` | `SkillVersionUpdateDto`: `{ versionConstraint }` | Updated `SkillInstallationDetail` (same-major compatible upgrade only — see `docs/skills/versioning.md`) |
 | POST | `/skills/installations/:installationId/rollback` | `skill.update` | — | `SkillInstallationDetail` restored to the previously recorded version |
-| GET | `/skills/installations/:installationId/grants` | `skill.grant.manage` | — | `EmployeeSkillGrant[]` for this installation, across employees |
-| POST | `/skills/installations/:installationId/grants` | `skill.grant.manage` | `SkillGrantDto`: `{ pluginInstallationId, configurationOverride? }` | The employee's grant list (HTTP 201) |
-| DELETE | `/skills/installations/:installationId/grants/:employeeId` | `skill.grant.manage` | — | The employee's remaining grant list |
-| PATCH | `/skills/installations/:installationId/grants/:employeeId/state` | `skill.grant.manage` | `SkillGrantStateDto`: `{ enabled }` | The employee's grant list |
+| GET | `/skills/installations/:installationId/grants` | `skill.grant.manage` | — | `EmployeeSkillGrant[]` for this installation, across agents |
+| POST | `/skills/installations/:installationId/grants` | `skill.grant.manage` | `SkillGrantDto`: `{ pluginInstallationId, configurationOverride? }` | The agent's grant list (HTTP 201) |
+| DELETE | `/skills/installations/:installationId/grants/:employeeId` | `skill.grant.manage` | — | The agent's remaining grant list |
+| PATCH | `/skills/installations/:installationId/grants/:employeeId/state` | `skill.grant.manage` | `SkillGrantStateDto`: `{ enabled }` | The agent's grant list |
 | POST | `/skills/execute` | `skill.execute` | `SkillExecuteDto`: `{ skillKey, versionConstraint?, pluginInstallationId?, conversationId?, agentExecutionId?, workflowExecutionId?, idempotencyKey?, input? }` | `SkillExecuteResult` — see `docs/skills/runtime.md` |
-| GET | `/skills/employees/:employeeId/skills` | `skill.execute` | — | Capability discovery: skills installed *and* granted to this employee (`skillsForEmployee()`) |
+| GET | `/skills/employees/:employeeId/skills` | `skill.execute` | — | Capability discovery: skills installed *and* granted to this agent (`skillsForEmployee()`) |
 | GET | `/skills/installations/:installationId/executions` | `skill.execution.read` | Query `SkillPageDto`: `{ page?, pageSize? }` (1-100) | `{ items: SkillRun[] (safe fields only), total }` — never raw input/output summaries, see `docs/skills/runtime.md` |
 | GET | `/skills/installations/:installationId/health` | `skill.health.read` | — | `{ status, checks, checkedAt }` from the adapter's `health()` |
 
@@ -55,7 +55,7 @@ permission to be visible:
 |---|---|---|---|
 | **Marketplace** | `skill.marketplace.read` | `MarketplaceTab` — every published skill, install state, and an install action | `GET /skills/marketplace`, `POST /skills/install` |
 | **Installed** | `skill.marketplace.read` | `InstallationList` (left) + `InstalledDetail` (right) — an installation's status, configuration, version, dependencies, and enable/disable/configure/update-version/rollback/uninstall actions | `GET /skills/installations`, `GET /skills/installations/:id`, the lifecycle PATCH/POST/DELETE routes |
-| **Employee Grants** | `skill.grant.manage` | `GrantsPanel` — grant/revoke a selected installation to/from an AI Employee, toggle a grant's enabled state | `GET/POST/DELETE /skills/installations/:id/grants`, `PATCH .../grants/:employeeId/state` |
+| **Agent Grants** | `skill.grant.manage` | `GrantsPanel` — grant/revoke a selected installation to/from an AI Agent, toggle a grant's enabled state | `GET/POST/DELETE /skills/installations/:id/grants`, `PATCH .../grants/:employeeId/state` |
 | **Executions** | `skill.execution.read` | `ExecutionsPanel` — paginated run history for a selected installation (status, duration, tokens, credits, retry count, error code — never raw content) | `GET /skills/installations/:id/executions` |
 | **Health** | `skill.health.read` | `HealthPanel` — the adapter's live health report for a selected installation | `GET /skills/installations/:id/health` |
 

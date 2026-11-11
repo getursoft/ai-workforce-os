@@ -12,11 +12,11 @@ export const IT_SUPPORT_EMPLOYEE_PLUGIN_ID = "it-support-employee";
 
 export const itSupportEmployeeManifest: PluginManifest = {
   id: IT_SUPPORT_EMPLOYEE_PLUGIN_ID,
-  name: "IT Support Employee",
+  name: "IT Support Agent",
   version: "1.0.0",
-  displayName: "IT Support Employee",
+  displayName: "IT Support Agent",
   description:
-    "AI IT support employee. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
+    "AI IT support agent. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
   author: "AI Workforce OS",
   entryPoint: "it-support-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class ItSupportEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "IT Support Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "IT Support Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

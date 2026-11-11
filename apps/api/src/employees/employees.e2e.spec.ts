@@ -309,12 +309,12 @@ suite("Domain AI Employee behavior (out-of-scope routing + in-domain answers)", 
     await app?.close();
   });
 
-  it("legal employee routes an out-of-scope travel request to the Travel Employee", async () => {
+  it("legal employee routes an out-of-scope travel request to the Travel Agent", async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const conversationId = await start(legalPluginId, auth);
     const reply = await send(legalPluginId, conversationId, auth, "I want to plan a trip to Dubai next month");
     expect(reply.response).toMatch(/outside my scope|route|correct employee/i);
-    expect(reply.response).toMatch(/Travel Employee/i);
+    expect(reply.response).toMatch(/Travel Agent/i);
   });
 
   it("legal employee answers an in-domain legal question in legal terms", async () => {
@@ -324,12 +324,12 @@ suite("Domain AI Employee behavior (out-of-scope routing + in-domain answers)", 
     expect(reply.response).toMatch(/notice|licensed CA|advocate|draft/i);
   });
 
-  it("hr employee routes a finance question to the Finance Employee", async () => {
+  it("hr employee routes a finance question to the Finance Agent", async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const conversationId = await start(hrPluginId, auth);
     const reply = await send(hrPluginId, conversationId, auth, "I need help classifying an expense");
     expect(reply.response).toMatch(/outside my scope|route|correct employee/i);
-    expect(reply.response).toMatch(/Finance Employee/i);
+    expect(reply.response).toMatch(/Finance Agent/i);
   });
 
   it("hr employee answers an in-domain policy question in HR terms", async () => {
@@ -339,12 +339,12 @@ suite("Domain AI Employee behavior (out-of-scope routing + in-domain answers)", 
     expect(reply.response).toMatch(/leave|policy|HR/i);
   });
 
-  it("finance employee routes an IT support request to the IT Support Employee", async () => {
+  it("finance employee routes an IT support request to the IT Support Agent", async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const conversationId = await start(financePluginId, auth);
     const reply = await send(financePluginId, conversationId, auth, "my vpn is not connecting");
     expect(reply.response).toMatch(/outside my scope|route|correct employee/i);
-    expect(reply.response).toMatch(/IT Support Employee/i);
+    expect(reply.response).toMatch(/IT Support Agent/i);
   });
 
   it("finance employee answers an in-domain finance question in finance terms", async () => {
@@ -354,20 +354,20 @@ suite("Domain AI Employee behavior (out-of-scope routing + in-domain answers)", 
     expect(reply.response).toMatch(/expense|classif|finance/i);
   });
 
-  it("IT employee routes a sales request to the Sales Employee", async () => {
+  it("IT employee routes a sales request to the Sales Agent", async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const conversationId = await start(itPluginId, auth);
     const reply = await send(itPluginId, conversationId, auth, "I would like a quote for your product");
     expect(reply.response).toMatch(/outside my scope|route|correct employee/i);
-    expect(reply.response).toMatch(/Sales Employee/i);
+    expect(reply.response).toMatch(/Sales Agent/i);
   });
 
-  it("sales employee routes a legal request to the Legal Employee", async () => {
+  it("sales employee routes a legal request to the Legal Agent", async () => {
     const auth = { Authorization: `Bearer ${token}` };
     const conversationId = await start(salesPluginId, auth);
     const reply = await send(salesPluginId, conversationId, auth, "I need to draft a reply to a compliance notice");
     expect(reply.response).toMatch(/outside my scope|route|correct employee/i);
-    expect(reply.response).toMatch(/Legal Employee/i);
+    expect(reply.response).toMatch(/Legal Agent/i);
   });
 
   async function start(pluginId: string, auth: Record<string, string>) {

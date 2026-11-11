@@ -298,7 +298,7 @@ function purposeLine(definitionKey: string): string {
     "sales.reminder.lead_followup": "A follow-up on the lead we discussed.",
     "sales.reminder.proposal": "A reminder about the proposal that was shared."
   };
-  return purposes[definitionKey] ?? "A reminder from your AI Employee.";
+  return purposes[definitionKey] ?? "A reminder from your AI Agent.";
 }
 
 function subjectFor(definitionKey: string): string {
@@ -321,5 +321,5 @@ function subjectFor(definitionKey: string): string {
     "sales.reminder.lead_followup": "Lead follow-up",
     "sales.reminder.proposal": "Proposal reminder"
   };
-  return subjects[definitionKey] ?? "AI Employee reminder";
+  return subjects[definitionKey] ?? "AI Agent reminder";
 }

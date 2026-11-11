@@ -23,7 +23,7 @@ describe("PublicHeader", () => {
     renderHeader();
     await waitFor(() => expect(screen.getByText("Log in")).toBeInTheDocument());
     expect(screen.getByText("Platform")).toBeInTheDocument();
-    expect(screen.getByText("AI Employees")).toBeInTheDocument();
+    expect(screen.getByText("AI Agents")).toBeInTheDocument();
     expect(screen.getByText("Solutions")).toBeInTheDocument();
     expect(screen.getByText("Resources")).toBeInTheDocument();
     expect(screen.getByText("Customers")).toBeInTheDocument();

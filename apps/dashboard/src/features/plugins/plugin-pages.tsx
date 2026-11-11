@@ -314,7 +314,7 @@ function InstallDialog({
           </div>
         </section>
         <fieldset>
-          <legend>Permissions</legend>
+          <legend>Agent Permissions</legend>
           {plugin.permissions.length ? (
             plugin.permissions.map((permission) => (
               <label key={permission}>

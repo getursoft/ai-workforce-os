@@ -12,11 +12,11 @@ export const FINANCE_EMPLOYEE_PLUGIN_ID = "finance-employee";
 
 export const financeEmployeeManifest: PluginManifest = {
   id: FINANCE_EMPLOYEE_PLUGIN_ID,
-  name: "Finance Employee",
+  name: "Finance Agent",
   version: "1.0.0",
-  displayName: "Finance Employee",
+  displayName: "Finance Agent",
   description:
-    "AI finance employee. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
+    "AI finance agent. Helps with reports, invoices, expense classification and budget questions, with approvals kept in human hands.",
   author: "AI Workforce OS",
   entryPoint: "finance-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class FinanceEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Finance Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Finance Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

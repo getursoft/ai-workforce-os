@@ -45,7 +45,7 @@ test.afterAll(async () => {
 });
 
 test("CHAT-001 with no AI provider configured, the chat completes with a clear, honest message instead of a crash", async ({ page }) => {
-  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/ai-employees/${pluginId}`);
+  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/agents/${pluginId}`);
   await page.locator("#agent-message").fill("Hi");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.locator("text=/no AI provider has been configured/i").first()).toBeVisible({ timeout: 15000 });
@@ -74,7 +74,7 @@ test("CHAT-002 once a provider connection/profile/assignment exists but the cred
   });
   expect(assignRes.ok()).toBeTruthy();
 
-  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/ai-employees/${pluginId}`);
+  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/agents/${pluginId}`);
   await page.locator("#agent-message").fill("Hi");
   await page.getByRole("button", { name: "Send" }).click();
   // Resolution now reaches the real provider (proves the SHARED_AI_CONFIGURATION_ENABLED flag + the

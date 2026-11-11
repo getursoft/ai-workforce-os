@@ -9,14 +9,14 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Knowledge and Memory",
   description:
-    "See how Krevia.ai grounds AI employees in your organisation's documents and systems, and how memory keeps context relevant over time.",
+    "See how Krevia.ai grounds AI agents in your organisation's documents and systems, and how memory keeps context relevant over time.",
   path: "/platform/knowledge",
 });
 
 const knowledgeFeatures = [
   { icon: FolderKanban, title: "Connected Knowledge Sources", description: "Bring in documents, policies, wikis and structured data as sources of truth." },
   { icon: FileSearch, title: "Grounded Answers", description: "Responses reference your organisation's real content rather than general assumptions." },
-  { icon: ShieldAlert, title: "Confirmed Answers Only", description: "When a confirmed answer is not available, AI employees say so instead of guessing." },
+  { icon: ShieldAlert, title: "Confirmed Answers Only", description: "When a confirmed answer is not available, AI agents say so instead of guessing." },
   { icon: RefreshCw, title: "Keeps Pace with Change", description: "Knowledge sources can be updated as your policies and documents evolve." },
 ];
 
@@ -31,7 +31,7 @@ export default function KnowledgePage() {
       <PageHero
         eyebrow="Knowledge and memory"
         title="Grounded in Your Organisation, Not Generic Assumptions"
-        description="AI employees answer using your documents, policies and systems — and remember relevant context so every interaction builds on the last."
+        description="AI agents answer using your documents, policies and systems — and remember relevant context so every interaction builds on the last."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

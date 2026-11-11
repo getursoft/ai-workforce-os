@@ -1,6 +1,6 @@
 # Sprint 3.3 agent runtime
 
-Sprint 3.3 turns enabled organization plugin installations into executable AI employees. The
+Sprint 3.3 turns enabled organization plugin installations into executable AI agents. The
 runtime owns conversations, messages, model usage, tool activity, and scoped memory. Plugins and
 models never receive Prisma, NestJS dependency injection, environment variables, credentials,
 filesystem access, shell access, or unrestricted HTTP access.
@@ -51,7 +51,7 @@ vector search is intentionally deferred.
 ## APIs and dashboard
 
 The API provides agent run, conversation list/detail/messages/archive, execution list/detail, and
-memory CRUD/search endpoints. The dashboard exposes `/ai-employees`, `/conversations`, and
+memory CRUD/search endpoints. The dashboard exposes `/agents`, `/conversations`, and
 `/execution-history`, including safe tool summaries without chain-of-thought or raw internal JSON.
 
 ## Extension points and limitations

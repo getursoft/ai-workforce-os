@@ -153,7 +153,7 @@ export class ObservabilityAlertsService {
       candidates.push({
         ruleCode: "EMPLOYEE_FAILURE_RATE",
         severity: "CRITICAL",
-        title: `An installed employee is failing ${Math.round(rate * 100)}% of executions`,
+        title: `An installed agent is failing ${Math.round(rate * 100)}% of executions`,
         details: { employeeInstallationId: row.employeeInstallationId, failureCount: row.failureCount, totalExecutions: totalForEmployee, rate },
         relatedEntityType: "Plugin",
         relatedEntityId: row.employeeInstallationId

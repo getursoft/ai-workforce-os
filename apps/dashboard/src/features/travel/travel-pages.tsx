@@ -66,15 +66,15 @@ export function TravelEmployeePage() {
       <section className="admin-page">
         <header className="admin-page__header">
           <div>
-            <h1>Travel Employee</h1>
-            <p>Configure the AI travel planning employee shared by Dashboard chat and WhatsApp.</p>
+            <h1>Travel Agent</h1>
+            <p>Configure the AI travel planning agent shared by Dashboard chat and WhatsApp.</p>
           </div>
         </header>
         {installedList.isLoading || available.isLoading ? (
           <Skeleton />
         ) : !installedPlugin ? (
           <Card>
-            <h2>Install the Travel Employee</h2>
+            <h2>Install the Travel Agent</h2>
             <p>
               {manifest?.description ??
                 "Collects destination, dates, passengers, and budget; searches placeholder flights and hotels; and produces an itinerary summary. Never claims a booking occurred."}
@@ -85,7 +85,7 @@ export function TravelEmployeePage() {
                 disabled={install.isPending || !manifest}
                 onClick={() => install.mutate()}
               >
-                Install Travel Employee
+                Install Travel Agent
               </Button>
             </Can>
             {install.isError ? (
@@ -109,7 +109,7 @@ export function TravelEmployeePage() {
                 </Button>
               </Can>
               <p>
-                <Link href={`/ai-employees/${installedPlugin.id}`}>Chat with the Travel Employee</Link>
+                <Link href={`/agents/${installedPlugin.id}`}>Chat with the Travel Agent</Link>
                 {" · "}
                 <Link href="/conversations">View conversations</Link>
               </p>
@@ -297,10 +297,10 @@ function ConfigurationForm({
 export function travelErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "The request could not be completed safely.";
   const messages: Record<string, string> = {
-    TRAVEL_EMPLOYEE_NOT_FOUND: "The Travel Employee is not installed for this organization.",
+    TRAVEL_EMPLOYEE_NOT_FOUND: "The Travel Agent is not installed for this organization.",
     CONVERSATION_NOT_FOUND: "That conversation could not be found.",
-    TRAVEL_EMPLOYEE_MANIFEST_UNAVAILABLE: "The Travel Employee package is not available to install.",
-    PLUGIN_ALREADY_INSTALLED: "The Travel Employee is already installed."
+    TRAVEL_EMPLOYEE_MANIFEST_UNAVAILABLE: "The Travel Agent package is not available to install.",
+    PLUGIN_ALREADY_INSTALLED: "The Travel Agent is already installed."
   };
   return messages[error.code] ?? "The request could not be completed safely.";
 }

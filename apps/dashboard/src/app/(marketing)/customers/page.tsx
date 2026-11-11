@@ -8,7 +8,7 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Customers and Use Cases",
   description:
-    "Representative scenarios showing how organisations use AI employees across travel, HR, IT, sales, finance and marketing.",
+    "Representative scenarios showing how organisations use AI agents across travel, HR, IT, sales, finance and marketing.",
   path: "/customers",
 });
 
@@ -17,42 +17,42 @@ const scenarios = [
     icon: Plane,
     title: "Travel Planning Company",
     context: "A travel company handling a high volume of custom itinerary requests from individual and corporate travellers.",
-    approach: "A Travel AI Employee drafts itineraries and budget estimates, applies travel policy, and captures lead details before handing qualified enquiries to human travel consultants.",
+    approach: "A Travel AI Agent drafts itineraries and budget estimates, applies travel policy, and captures lead details before handing qualified enquiries to human travel consultants.",
     outcome: "Faster first response and more consistent itinerary quality across all enquiries.",
   },
   {
     icon: Users,
     title: "Enterprise HR Help Desk",
     context: "A large organisation with a shared-services HR team fielding thousands of policy and onboarding questions monthly.",
-    approach: "An HR AI Employee answers routine policy and leave questions, guides onboarding, and escalates sensitive matters to human HR staff.",
+    approach: "An HR AI Agent answers routine policy and leave questions, guides onboarding, and escalates sensitive matters to human HR staff.",
     outcome: "Reduced repetitive query volume, freeing the HR team for higher-judgement work.",
   },
   {
     icon: Headset,
     title: "Internal IT Support",
     context: "A mid-sized company whose small IT team is overwhelmed by first-line technical requests.",
-    approach: "An IT Support AI Employee resolves common issues, triages incidents by urgency, and escalates complex cases with full context attached.",
+    approach: "An IT Support AI Agent resolves common issues, triages incidents by urgency, and escalates complex cases with full context attached.",
     outcome: "Faster first response times and better-prioritised escalations for engineers.",
   },
   {
     icon: Target,
     title: "Sales Qualification Team",
     context: "A B2B software company receiving more inbound leads than its sales development team can qualify quickly.",
-    approach: "A Sales AI Employee qualifies leads against defined criteria, prepares meeting briefs, and hands qualified leads to the CRM with full context.",
+    approach: "A Sales AI Agent qualifies leads against defined criteria, prepares meeting briefs, and hands qualified leads to the CRM with full context.",
     outcome: "Faster lead response times and reps arriving better prepared to every call.",
   },
   {
     icon: Wallet,
     title: "Finance Operations",
     context: "A finance team spending significant time on routine reporting and expense classification.",
-    approach: "A Finance AI Employee generates summarised reports, classifies expenses, and explains budget variance, routing sensitive actions for approval.",
+    approach: "A Finance AI Agent generates summarised reports, classifies expenses, and explains budget variance, routing sensitive actions for approval.",
     outcome: "Faster turnaround on routine finance questions and more consistent expense classification.",
   },
   {
     icon: Megaphone,
     title: "Marketing Content Team",
     context: "A marketing team unable to keep pace with content demand across channels.",
-    approach: "A Marketing AI Employee drafts first-pass content, researches audience segments, and summarises campaign performance for the team to refine.",
+    approach: "A Marketing AI Agent drafts first-pass content, researches audience segments, and summarises campaign performance for the team to refine.",
     outcome: "Faster first drafts and more consistent brand voice across channels.",
   },
 ];
@@ -62,7 +62,7 @@ export default function CustomersPage() {
     <>
       <PageHero
         eyebrow="Customers and use cases"
-        title="How Organisations Put AI Employees to Work"
+        title="How Organisations Put AI Agents to Work"
         description="These are representative scenarios based on common patterns we see across customer organisations — not endorsements from named customers."
       />
 

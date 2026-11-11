@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = defaultMetadata({
   title: "Pricing",
   description:
-    "Explore Starter, Growth and Enterprise plans for Krevia.ai, scaled by the number of AI employees, integrations and governance features you need.",
+    "Explore Starter, Growth and Enterprise plans for Krevia.ai, scaled by the number of AI agents, integrations and governance features you need.",
   path: "/pricing",
 });
 
@@ -24,7 +24,7 @@ export default function PricingPage() {
       <PageHero
         eyebrow="Pricing"
         title="Plans That Scale With Your AI Workforce"
-        description="Every plan is built around the number of AI employees, integrations and governance features your organisation needs. Enterprise pricing is handled directly with our sales team."
+        description="Every plan is built around the number of AI agents, integrations and governance features your organisation needs. Enterprise pricing is handled directly with our sales team."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">

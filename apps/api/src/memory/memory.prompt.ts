@@ -49,7 +49,7 @@ export function buildMemoryContextBlock(
   const lines: string[] = [];
   lines.push(
     ...section("Organization memory", context.organization, false),
-    ...section("Employee memory", context.employee, false),
+    ...section("Agent memory", context.employee, false),
     ...section("User memory", context.user, false)
   );
   if (context.conversationSummary) {

@@ -12,11 +12,11 @@ export const TRAVEL_EMPLOYEE_PLUGIN_ID = "travel-employee";
 
 export const travelEmployeeManifest: PluginManifest = {
   id: TRAVEL_EMPLOYEE_PLUGIN_ID,
-  name: "Travel Employee",
+  name: "Travel Agent",
   version: "1.0.0",
-  displayName: "Travel Employee",
+  displayName: "Travel Agent",
   description:
-    "AI travel planning employee. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
+    "AI travel planning agent. Collects destination, dates, passengers, and budget; searches placeholder flight and hotel options; recommends a plan; produces an itinerary summary; and escalates to a human when requested. Never claims a booking occurred and always labels prices and availability as unverified.",
   author: "AI Workforce OS",
   entryPoint: "travel-employee",
   permissions: [
@@ -59,7 +59,7 @@ export class TravelEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Travel Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Travel Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

@@ -94,7 +94,7 @@ const MANIFEST: SkillManifest = {
   key: "translation",
   name: "Translation",
   description:
-    "Translates text into a target language. Uses the employee's configured AI provider when available and a deterministic adapter otherwise.",
+    "Translates text into a target language. Uses the agent's configured AI provider when available and a deterministic adapter otherwise.",
   category: "Text Processing",
   version: "1.0.0",
   author: "Krevia.ai",

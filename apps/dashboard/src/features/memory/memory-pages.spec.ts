@@ -29,7 +29,7 @@ describe("memory page helpers", () => {
   it("labels the four scope tabs", () => {
     expect(scopeLabel("USER")).toBe("User Memory");
     expect(scopeLabel("ORGANIZATION")).toBe("Organization Memory");
-    expect(scopeLabel("EMPLOYEE")).toBe("Employee Memory");
+    expect(scopeLabel("EMPLOYEE")).toBe("Agent Memory");
     expect(scopeLabel("CONVERSATION")).toBe("Conversation Memory");
   });
 

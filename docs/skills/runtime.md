@@ -1,7 +1,7 @@
 # Skill Runtime
 
 `SkillsRuntimeService` (`apps/api/src/skills-platform/skill-runtime.service.ts`) is the single stable
-entry point employees, workflows, and schedulers use to run a skill. Every caller — an agent tool
+entry point agents, workflows, and schedulers use to run a skill. Every caller — an agent tool
 call, `WorkflowSkillStepService.invoke()`, the scheduler's `RUN_SKILL` handler, the HTTP
 `POST /skills/execute` route, `attachment.service.ts`'s file routing — ultimately calls
 `SkillsRuntimeService.execute()`. There is no second path that bypasses these checks.
@@ -127,8 +127,8 @@ exception via `toSkillHttpError()`, used by the controller's catch blocks.
 | `SKILL_NOT_INSTALLED` | 404 | No `SkillInstallation` row exists for this org/skill/version (`assertInstallation`, `getInstallation`). |
 | `SKILL_ALREADY_INSTALLED` | 409 | `install()` called for a skill version the org already has an active installation of. |
 | `SKILL_DISABLED` | 409 | Installation exists but `enabled: false` (`assertInstallation`). |
-| `SKILL_EMPLOYEE_GRANT_DENIED` | 403 | No enabled `EmployeeSkillGrant` links this employee to this installation (`assertEmployeeGrant`), or `revokeFromEmployee`/`setEmployeeGrantEnabled` target a grant that doesn't exist. |
-| `SKILL_EMPLOYEE_NOT_FOUND` | 404 | `grantToEmployee` targets a `Plugin` (employee installation) that doesn't exist in this org. |
+| `SKILL_EMPLOYEE_GRANT_DENIED` | 403 | No enabled `EmployeeSkillGrant` links this agent to this installation (`assertEmployeeGrant`), or `revokeFromEmployee`/`setEmployeeGrantEnabled` target a grant that doesn't exist. |
+| `SKILL_EMPLOYEE_NOT_FOUND` | 404 | `grantToEmployee` targets a `Plugin` (agent installation) that doesn't exist in this org. |
 | `SKILL_ORGANIZATION_DENIED` | 403 | A capability handle is invoked with an `organizationId` that doesn't match the calling context's — see `buildSkillCapabilities`'s `object.read` check. Tenant-isolation defense inside a capability handle itself. |
 | `SKILL_ENTITLEMENT_DENIED` | 403 | A capability was requested by the manifest but the underlying service isn't available at runtime (e.g. `ai.provider.execute` with no `PluginAiService`, or no `pluginInstallationId` in context), or `knowledge.read` is invoked (declared but unimplemented — always throws this). |
 | `SKILL_LIMIT_REACHED` | 409 | `SKILLS_EXECUTION_MONTHLY_LIMIT` exceeded (runtime), or `SKILLS_MAX_PER_EMPLOYEE` exceeded (installation service, granting). |

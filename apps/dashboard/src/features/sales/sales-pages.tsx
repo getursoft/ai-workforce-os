@@ -4,9 +4,9 @@ const SALES_SPEC: EmployeePageSpec = {
   pluginId: "sales-employee",
   permissionPrefix: "sales",
   artifactNoun: "sales lead",
-  title: "Sales Employee",
-  description: "Configure the AI sales employee shared by Dashboard chat and WhatsApp.",
-  basePath: "/sales-employee",
+  title: "Sales Agent",
+  description: "Configure the AI sales agent shared by Dashboard chat and WhatsApp.",
+  basePath: "/sales-agent",
   artifactEndpoint: "leads",
   showApiToggle: true,
   fallbackDescription:

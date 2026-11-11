@@ -412,7 +412,7 @@ export class SkillInstallationService {
           this.entitlements.getLimit(organizationId, "SKILLS_MAX_PER_EMPLOYEE"),
           this.prisma.employeeSkillGrant.count({ where: { organizationId, pluginInstallationId } })
         ]);
-        if (used + 1 > limit) throw new SkillError("SKILL_LIMIT_REACHED", "This employee has reached its plan limit for granted skills");
+        if (used + 1 > limit) throw new SkillError("SKILL_LIMIT_REACHED", "This agent has reached its plan limit for granted skills");
       }
     }
 
@@ -462,7 +462,7 @@ export class SkillInstallationService {
     const grant = await this.prisma.employeeSkillGrant.findFirst({
       where: { organizationId, pluginInstallationId, skillInstallationId }
     });
-    if (!grant) throw new SkillError("SKILL_EMPLOYEE_GRANT_DENIED", "No grant exists for this employee");
+    if (!grant) throw new SkillError("SKILL_EMPLOYEE_GRANT_DENIED", "No grant exists for this agent");
     await this.prisma.employeeSkillGrant.delete({ where: { id: grant.id } });
     this.audit?.record("SKILL_REVOKED_FROM_EMPLOYEE", requestId ?? "skill-revoke", {
       organizationId,

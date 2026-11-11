@@ -38,7 +38,7 @@ const MANIFEST: SkillManifest = {
   key: "entity-extraction",
   name: "Entity Extraction",
   description:
-    "Extracts structured fields from free text according to a caller-supplied schema. The schema is fully caller-defined — this skill never hardcodes any employee's domain entities.",
+    "Extracts structured fields from free text according to a caller-supplied schema. The schema is fully caller-defined — this skill never hardcodes any agent's domain entities.",
   category: "Text Processing",
   version: "1.0.0",
   author: "Krevia.ai",

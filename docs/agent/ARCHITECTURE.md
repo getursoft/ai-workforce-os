@@ -29,11 +29,11 @@ Skill Runtime → Capability Decision → Workflow Runtime → Capability Execut
 | `agents` | The agent execution loop: `AgentService`/`AgentController`, `MemoryService`, `agent.runtime.ts`, `request-classifier.ts`. The central orchestrator that wires Skills, Workflows, Capability Execution, and the legacy Travel Runtime together for one HTTP turn. |
 | `skills` | Skill Runtime: `SkillRegistry`, `SkillRuntimeService`, `SkillExecutionService`, typed `InputDecision`/capability-execution contracts, and the one registered skill, `travel.plan-trip` (`skills/travel/`). |
 | `workflows` | Workflow Runtime: `WorkflowExecutionService` (generic persistence), `WorkflowCoordinator` (sole routing authority), and three workflow types: `contact-capture`, `booking-handoff`, `trip-submission`. |
-| `travel` | The Travel AI Employee's execution-provider code: `travel.runtime.ts` (legacy orchestrator + provider), `travel-lead.service.ts`, `currency.service.ts`. See §11 for its still-incomplete separation from business-state ownership. |
+| `travel` | The Travel AI Agent's execution-provider code: `travel.runtime.ts` (legacy orchestrator + provider), `travel-lead.service.ts`, `currency.service.ts`. See §11 for its still-incomplete separation from business-state ownership. |
 | `connectors` | Tenant-scoped external-system integration framework: `connector.runtime.ts`, `connector.service.ts`, reference connectors (`dummy-crm`, `generic-http`, `hubspot`). |
-| `knowledge` | Employee-scoped RAG: collections → documents → chunks → pgvector embeddings, grounded retrieval (`knowledge.search.ts`). |
+| `knowledge` | Agent-scoped RAG: collections → documents → chunks → pgvector embeddings, grounded retrieval (`knowledge.search.ts`). |
 | `channels` | Inbound/outbound channel connections (e.g. WhatsApp via Twilio) and message processing, separate from the HTTP agent-run API. |
-| `conversation` | Employee-agnostic, DI-free conversation primitives: affirmative/negative detection, phone normalization/extraction, lead-reference generation (`conversation-completion.ts`). Deliberately the one module built platform-first for reuse beyond Travel. |
+| `conversation` | Agent-agnostic, DI-free conversation primitives: affirmative/negative detection, phone normalization/extraction, lead-reference generation (`conversation-completion.ts`). Deliberately the one module built platform-first for reuse beyond Travel. |
 | `customer-identity` | Customer/end-user identity linked to conversations, independent of the organization's own `identity` module. |
 | `infrastructure` | Prisma module/service, cross-cutting infra. |
 | `production` | Production config validation. |
@@ -181,7 +181,7 @@ change again to add a workflow type's start trigger:
   just a manual factory call, while staying 100% backward compatible. Proven with a non-Travel test
   double in `workflow-signal-registry.spec.ts`/`workflow-coordinator.spec.ts` (a fixture provider the
   coordinator/registry have zero compile-time knowledge of) — see §11/§14 for the honest limit of what
-  this proves (one process's DI container, not a real second employee).
+  this proves (one process's DI container, not a real second agent).
 - **`WorkflowCoordinator.dispatchSignal(scope, signal, turnId, dispatchSignals, text)`** — the
   single generic entry point every workflow start now funnels through: `dispatchTurn`'s free-text
   path calls it with the engine's derived signal; `startBookingHandoff` (kept as a thin wrapper for
@@ -311,7 +311,7 @@ function directly (`EXECUTED`), assembles an invocation target for the existing 
 (`PREPARED`), or explicitly defers to Travel Runtime's own orchestration (`DELEGATED`) — designed
 never to throw; failures fall back to legacy Travel Runtime.
 
-## 8. Travel Runtime (`travel/travel.runtime.ts`) — the AI Employee under active migration
+## 8. Travel Runtime (`travel/travel.runtime.ts`) — the AI Agent under active migration
 
 Two large classes: `TravelEmployeeProvider` (deterministic + LLM-backed trip planning) and
 `TravelEmployeeLlmOrchestrator`. Historically owned everything: intent classification, a private
@@ -412,8 +412,8 @@ installation + external event ID.
 
 Hierarchy: `Organization → AI Employee (Plugin installation) → KnowledgeCollection →
 KnowledgeDocument → KnowledgeChunk (+ embedding)`. Every read/write API is nested under an AI
-Employee id — there is no organization-wide knowledge view, and `KnowledgeChunk` denormalizes
-`pluginInstallationId` + `collectionId` directly so retrieval can never cross an employee boundary.
+Agent id — there is no organization-wide knowledge view, and `KnowledgeChunk` denormalizes
+`pluginInstallationId` + `collectionId` directly so retrieval can never cross an agent boundary.
 Embeddings are real pgvector (`vector(1536)`, HNSW, cosine distance), standardized at 1536
 dimensions across every provider including the deterministic dev/test one. Ranking blends semantic
 similarity, keyword overlap, title boost, metadata (heading-path) boost, exact-phrase boost, and a
@@ -426,11 +426,11 @@ Per the mandatory reporting distinction in `SYSTEM_INSTRUCTIONS.md` §11, here i
 state (as of Stage 9E.1, 2026-07-27):
 
 **Platform authority (genuinely generic today):**
-- `WorkflowExecutionService` — tenant-scoped, employee-agnostic persistence; any future employee's
+- `WorkflowExecutionService` — tenant-scoped, agent-agnostic persistence; any future agent's
   workflow can use it unmodified.
-- `WorkflowCoordinator` — employee-agnostic routing MECHANISM (dispatch, priority, cancellation,
+- `WorkflowCoordinator` — agent-agnostic routing MECHANISM (dispatch, priority, cancellation,
   signal resolution, semantic-detour deferral) — though only ever instantiated with Travel's three
-  workflow types today; no second employee exists yet to prove it end-to-end. It contains zero
+  workflow types today; no second agent exists yet to prove it end-to-end. It contains zero
   hardcoded per-workflow-type "should this start" branching (moved to `WorkflowSignalEngine`, Stage
   9E) and, as of Stage 9E.1, its start-time registry is built from an `@Optional()`-injected
   `WorkflowSignalProvider[]` (`WORKFLOW_SIGNAL_PROVIDERS` token) rather than a hardcoded factory call
@@ -441,15 +441,15 @@ state (as of Stage 9E.1, 2026-07-27):
   generic, proven with a non-Travel test-double fixture in `workflow-signal-registry.spec.ts` and
   `workflow-coordinator.spec.ts` (a fixture the coordinator/registry have zero compile-time knowledge
   of). The honest limit of what this proves: one process's NestJS DI container composing an array
-  from providers it was handed, not a real second AI Employee module contributing across a module
+  from providers it was handed, not a real second AI Agent module contributing across a module
   boundary — see §14.
 - `WorkflowResumeDecision`'s `DEFER` outcome and `WorkflowCoordinator.dispatchResumeResult` — a
   generic translation (any workflow type's `resume()` can return `DEFER`) applied uniformly, not a
   Travel-only special case, even though only `TripSubmissionWorkflowService` uses it today.
 - Typed contracts: `WorkflowStartRequest`, `WorkflowTurnResult`, `WorkflowSignal`, `ExecutionDecision`,
   `InputDecision`, `SkillEvaluation`.
-- `conversation/conversation-completion.ts` — explicitly built employee-agnostic (no NestJS DI, no
-  employee-domain imports): affirmative/negative detection, phone normalization/extraction,
+- `conversation/conversation-completion.ts` — explicitly built agent-agnostic (no NestJS DI, no
+  agent-domain imports): affirmative/negative detection, phone normalization/extraction,
   lead-reference generation.
 
 **Compatibility layer (intentional bridges, not yet generic — real debt):**
@@ -457,11 +457,11 @@ state (as of Stage 9E.1, 2026-07-27):
   `entitiesToStoredState`, `TRAVEL_TRIP_STATE_MEMORY_KEY`) to keep the legacy `/state` HTTP
   endpoint truthful after a `TRIP_SUBMISSION` workflow completes (bumping the legacy
   `travel.trip_state` `AgentMemory` blob's `completionStage`/`capturedLeadReference`). A
-  platform-level class currently contains employee-specific knowledge.
+  platform-level class currently contains agent-specific knowledge.
 - `ContactCaptureWorkflowService` / `BookingHandoffWorkflowService` /
   `TripSubmissionWorkflowService` are correctly modeled as workflows, but their internals import
   `travel.runtime.ts` functions and text builders directly, and contact validation
-  (`phone-validation.ts`) is India-phone-number-specific. A future non-Travel employee could not
+  (`phone-validation.ts`) is India-phone-number-specific. A future non-Travel agent could not
   reuse these workflows without forking them.
 - `buildDefaultWorkflowSignalProviders` (in `workflow-signal-registry.ts`) and the still-per-type
   `if` branches in `WorkflowCoordinator.resume()`/`cancel()` are, by design, the remaining places in
@@ -491,7 +491,7 @@ state (as of Stage 9E.1, 2026-07-27):
 
 ## 12. Travel Runtime: Stage 9F targeted correctness fixes
 
-Stage 9F was scoped as Travel Employee behavioral/state defects found in UAT, explicitly NOT a
+Stage 9F was scoped as Travel Agent behavioral/state defects found in UAT, explicitly NOT a
 Workflow Engine redesign. Rather than build the charter's full proposed new type system
 (`BudgetConstraintType`/`TravelBudgetConstraint`, `DerivedTravelResultMetadata`, a separate
 `travelStyle` field, etc.), each defect was root-caused against the ACTUAL existing code first —
@@ -569,8 +569,8 @@ confirmed-field-override gate). What actually changed:
 
 Sprint 0–1: bootstrap, identity. Sprint 2.3–2.4: teams, service accounts. Sprint 3.1–3.2: plugin
 runtime + SDK. Sprint 3.3: agent runtime (tool loop, memory). Sprint 3.4: AI provider runtime.
-Sprint 3.5: connector framework. Sprint 4.2: Travel Employee conversation engine (legacy,
-monolithic). Sprint 4.3: employee-scoped knowledge + grounded RAG (pgvector). Skill Runtime Stages
+Sprint 3.5: connector framework. Sprint 4.2: Travel Agent conversation engine (legacy,
+monolithic). Sprint 4.3: agent-scoped knowledge + grounded RAG (pgvector). Skill Runtime Stages
 1–9A (shadow → durable mirror → diagnostics → UAT → real shadow review → authoritative input
 collection → capability execution adapter). Workflow Runtime Stage 9B (Contact Capture, generic
 `WorkflowExecutionService`), 9C (Workflow Authority Consolidation — `WorkflowCoordinator`,
@@ -611,19 +611,19 @@ Still open:
    test-coverage reasons (§11, §8).
 2. Workflow implementations (`ContactCaptureWorkflowService`, `TripSubmissionWorkflowService`,
    `BookingHandoffWorkflowService`), and `buildDefaultWorkflowSignalProviders`, are not
-   employee-agnostic in practice — they import or reference Travel-specific services/functions
-   directly. No second AI Employee exists yet to validate genericity.
+   agent-agnostic in practice — they import or reference Travel-specific services/functions
+   directly. No second AI Agent exists yet to validate genericity.
 3. `AgentService`, a platform-level class, contains Travel-specific compatibility logic (the
    legacy `/state` memory bump, and the BELOW_MINIMUM post-turn signal-dispatch hook). This is
-   a violation of "no employee-specific assumptions in platform layers," disclosed and intentional
+   a violation of "no agent-specific assumptions in platform layers," disclosed and intentional
    but unresolved.
 4. Human Approval is not yet built as a workflow type — the charter requires it to be one when it
    is built; nothing currently implements it.
 5. Booking execution (real reservation/payment) does not exist. `BOOKING_HANDOFF` is scaffolding
    only, by design — never claim otherwise.
-6. Only one Skill (`travel.plan-trip`) and one AI Employee (Travel) exist. Every "generic" platform
+6. Only one Skill (`travel.plan-trip`) and one AI Agent (Travel) exist. Every "generic" platform
    claim in this document — including Stage 9E.1's DI-pluggable `WORKFLOW_SIGNAL_PROVIDERS`
-   registration, proven only with an in-process test-double fixture, never a real second employee
+   registration, proven only with an in-process test-double fixture, never a real second agent
    module across an actual module boundary — is unproven beyond one concrete instantiation.
 7. `WorkflowCoordinator.resume()`/`cancel()` still contain per-`workflowType` `if` branches calling
    the three concrete workflow services' own `.resume()`/`.cancel()`-equivalent methods directly —
@@ -631,7 +631,7 @@ Still open:
    but explicitly scoped RESUME dispatch as a separate, still-per-type-coupled concern (the charter's
    own Part 7 execution-order diagram treats "resume active workflow" as a distinct early step from
    signal handling). A future stage could extend the same `WorkflowSignalProvider`-style DI pattern to
-   resume/cancel if full coordinator-level employee-agnosticism is required.
+   resume/cancel if full coordinator-level agent-agnosticism is required.
 8. **(Stage 9F)** `WorkflowCoordinator.reevaluateBelowMinimumTrigger` is wired only for
    `TravelEmployeeLlmOrchestrator` — the deterministic `TravelEmployeeProvider` has no
    `lastDiagnostics`/feasibility getter today, so a `BELOW_MINIMUM` trigger corrected under a

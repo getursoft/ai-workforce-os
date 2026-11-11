@@ -21,7 +21,7 @@ export class WorkforceController {
     private readonly policyService: WorkforceCollaborationPolicyService
   ) {}
 
-  @Get("employees") @RequirePermission("workforce.read")
+  @Get(["agents", "employees"]) @RequirePermission("workforce.read")
   listEmployees(@CurrentPrincipal() p: AuthenticatedPrincipal) {
     return this.registry.listInstalled(p.organizationId.toString());
   }

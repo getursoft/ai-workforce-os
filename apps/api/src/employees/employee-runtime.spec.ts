@@ -99,30 +99,30 @@ describe("buildAttachmentReadMessage", () => {
     ]);
     expect(message).toMatch(/I've read your attached document/i);
     expect(message).toMatch(/document is about/i);
-    expect(message).toMatch(/related to HR Employee/i);
+    expect(message).toMatch(/related to HR Agent/i);
     expect(message).toMatch(/if it's not relevant to me/i);
   });
 
-  it("routes an out-of-scope document to the correct employee", () => {
+  it("routes an out-of-scope document to the correct agent", () => {
     const message = buildAttachmentReadMessage(HR_DOMAIN_SPEC, [
       { filename: "expense.jpg", mimeType: "image/jpeg", content: "Client dinner expense invoice." }
     ]);
-    expect(message).toMatch(/Finance Employee/i);
-    expect(message).toMatch(/route it to the relevant employee/i);
+    expect(message).toMatch(/Finance Agent/i);
+    expect(message).toMatch(/route it to the relevant agent/i);
   });
 });
 
 describe("detectOutOfScopeEmployee", () => {
-  it("routes a travel request away from the Legal employee to the Travel Employee", () => {
+  it("routes a travel request away from the Legal employee to the Travel Agent", () => {
     const target = detectOutOfScopeEmployee(LEGAL_DOMAIN_SPEC, "I want to plan a trip to Dubai");
     expect(target).not.toBeNull();
-    expect(target?.displayName).toBe("Travel Employee");
+    expect(target?.displayName).toBe("Travel Agent");
   });
 
-  it("routes an expense question away from HR to the Finance Employee", () => {
+  it("routes an expense question away from HR to the Finance Agent", () => {
     const target = detectOutOfScopeEmployee(HR_DOMAIN_SPEC, "I need help classifying an expense");
     expect(target).not.toBeNull();
-    expect(target?.displayName).toBe("Finance Employee");
+    expect(target?.displayName).toBe("Finance Agent");
   });
 
   it("routes an explicit 'HR employee' mention from the Travel employee to HR", () => {
@@ -131,7 +131,7 @@ describe("detectOutOfScopeEmployee", () => {
       "yeh kaam HR employee se karna hai"
     );
     expect(target).not.toBeNull();
-    expect(target?.displayName).toBe("HR Employee");
+    expect(target?.displayName).toBe("HR Agent");
   });
 
   it("routes a reimbursement claim for a food bill away from the Travel employee to Finance", () => {
@@ -140,7 +140,7 @@ describe("detectOutOfScopeEmployee", () => {
       "mujhe ye bill food ke liye reimbursement claim karna hai"
     );
     expect(target).not.toBeNull();
-    expect(target?.displayName).toBe("Finance Employee");
+    expect(target?.displayName).toBe("Finance Agent");
   });
 
   it("does NOT route a plain travel meal preference away from the Travel employee to Finance", () => {
@@ -168,7 +168,7 @@ describe("detectOutOfScopeEmployee", () => {
 describe("detectRoutingConfirmation", () => {
   const offerMessage = buildOutOfScopeRoutingMessage(TRAVEL_DOMAIN_SPEC, {
     slug: "hr-employee",
-    displayName: "HR Employee",
+    displayName: "HR Agent",
     keywords: []
   });
 
@@ -179,7 +179,7 @@ describe("detectRoutingConfirmation", () => {
       { role: "assistant", content: offerMessage },
       { role: "user", content: "yes" }
     ]);
-    expect(result?.target.displayName).toBe("HR Employee");
+    expect(result?.target.displayName).toBe("HR Agent");
     expect(result?.originalText).toBe("need to apply leave");
   });
 
@@ -189,7 +189,7 @@ describe("detectRoutingConfirmation", () => {
       { role: "assistant", content: offerMessage },
       { role: "user", content: "route it" }
     ]);
-    expect(result?.target.displayName).toBe("HR Employee");
+    expect(result?.target.displayName).toBe("HR Agent");
     expect(result?.originalText).toBe("need to apply leave");
   });
 
@@ -221,19 +221,19 @@ describe("detectRoutingConfirmation", () => {
 
 describe("employeeScopeProfile", () => {
   it("returns the profile for a known slug and null otherwise", () => {
-    expect(employeeScopeProfile("legal-employee")?.displayName).toBe("Legal Employee");
+    expect(employeeScopeProfile("legal-employee")?.displayName).toBe("Legal Agent");
     expect(employeeScopeProfile("not-an-employee")).toBeNull();
   });
 });
 
 describe("buildOutOfScopeRoutingMessage", () => {
-  it("says it is outside scope and routes to the correct employee", () => {
+  it("says it is outside scope and routes to the correct agent", () => {
     const travel = employeeScopeProfile("travel-employee");
     if (!travel) throw new Error("travel profile missing");
     const message = buildOutOfScopeRoutingMessage(LEGAL_DOMAIN_SPEC, travel);
     expect(message).toMatch(/outside my scope/i);
     expect(message).toMatch(/route/i);
-    expect(message).toMatch(/Travel Employee/i);
+    expect(message).toMatch(/Travel Agent/i);
   });
 });
 

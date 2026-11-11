@@ -1,7 +1,7 @@
 # Connector framework
 
 Sprint 3.5 adds organization-scoped connectors as the business-integration boundary for AI
-employees. Connector definitions are trusted, in-process adapters registered by the API. An
+agents. Connector definitions are trusted, in-process adapters registered by the API. An
 organization installs a definition, supplies non-secret configuration and write-only credentials,
 grants declared capabilities, and enables the installation. Connector-specific code never runs in
 the agent loop: connector tools are registered through the existing tool registry and executor.

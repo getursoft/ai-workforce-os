@@ -9,15 +9,15 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "About Us",
   description:
-    "Learn about Krevia.ai's mission, product philosophy and responsible AI principles — building AI employees that extend human teams.",
+    "Learn about Krevia.ai's mission, product philosophy and responsible AI principles — building AI agents that extend human teams.",
   path: "/about",
 });
 
 const principles = [
   { icon: ShieldCheck, title: "Human Oversight by Design", description: "Sensitive and high-impact actions are always routed to a human before they run." },
-  { icon: Handshake, title: "Collaborators, Not Replacements", description: "AI employees are built to support and extend human teams, not operate in isolation." },
-  { icon: Compass, title: "Honesty About Limits", description: "When a confirmed answer isn't available, our AI employees say so instead of guessing." },
-  { icon: Users, title: "Built With Customers", description: "We shape every AI employee deployment around real workflows, in partnership with the people using it." },
+  { icon: Handshake, title: "Collaborators, Not Replacements", description: "AI agents are built to support and extend human teams, not operate in isolation." },
+  { icon: Compass, title: "Honesty About Limits", description: "When a confirmed answer isn't available, our AI agents say so instead of guessing." },
+  { icon: Users, title: "Built With Customers", description: "We shape every AI agent deployment around real workflows, in partnership with the people using it." },
 ];
 
 export default function AboutPage() {
@@ -25,7 +25,7 @@ export default function AboutPage() {
     <>
       <PageHero
         eyebrow="About us"
-        title="Building the Operating System for AI Employees"
+        title="Building the Operating System for AI Agents"
         description="We started Krevia.ai to help organisations put AI to work responsibly — as a colleague that extends teams, not a black box that replaces them."
       />
 
@@ -35,7 +35,7 @@ export default function AboutPage() {
             <Target className="h-7 w-7 text-saffron" aria-hidden="true" />
             <h2 className="mt-4 text-xl font-bold text-ink">Our Mission</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
-              To give every organisation, regardless of size, access to specialised AI employees that handle
+              To give every organisation, regardless of size, access to specialised AI agents that handle
               repetitive, high-volume work reliably — so human teams can spend their time on decisions,
               relationships and growth.
             </p>
@@ -44,7 +44,7 @@ export default function AboutPage() {
             <Eye className="h-7 w-7 text-saffron" aria-hidden="true" />
             <h2 className="mt-4 text-xl font-bold text-ink">Our Vision</h2>
             <p className="mt-3 text-sm leading-relaxed text-muted">
-              A future where every department has an AI employee it can rely on — grounded in real organisational
+              A future where every department has an AI agent it can rely on — grounded in real organisational
               knowledge, connected to real tools, and accountable to the people it works alongside.
             </p>
           </div>
@@ -56,7 +56,7 @@ export default function AboutPage() {
             Most AI tools on the market are either narrow single-purpose chatbots or complex automation platforms
             that require significant engineering investment to configure. Neither gives a business team a
             dependable AI colleague they can hand real work to. Krevia.ai was built to close that gap — an
-            operating layer that makes it possible to deploy an AI employee for a specific department in days,
+            operating layer that makes it possible to deploy an AI agent for a specific department in days,
             grounded in that department&apos;s real knowledge and tools, with governance built in from the start.
           </p>
         </div>
@@ -98,7 +98,7 @@ export default function AboutPage() {
       </section>
 
       <section className="mx-auto max-w-3xl px-4 py-9 text-center sm:px-6 lg:px-8">
-        <SectionHeading title="Let's Build This Together" description="We work closely with every customer to shape AI employees around real workflows." />
+        <SectionHeading title="Let's Build This Together" description="We work closely with every customer to shape AI agents around real workflows." />
         <div className="mt-8">
           <ButtonLink href="/book-demo" variant="primary">Book a Demo</ButtonLink>
         </div>

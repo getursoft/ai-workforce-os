@@ -11,10 +11,10 @@ export const metadata: Metadata = defaultMetadata({
 });
 
 const resources = [
-  { icon: BookOpen, title: "Documentation", description: "Guides for configuring AI employees, knowledge, integrations and governance.", href: "/resources/documentation" },
+  { icon: BookOpen, title: "Documentation", description: "Guides for configuring AI agents, knowledge, integrations and governance.", href: "/resources/documentation" },
   { icon: LifeBuoy, title: "Help Centre", description: "Answers to common account, billing and platform questions.", href: "/resources/help-centre" },
-  { icon: Newspaper, title: "Blog", description: "Perspectives on AI employees, governance and how teams put them to work.", href: "/resources/blog" },
-  { icon: FileSearch, title: "Case Studies", description: "Representative scenarios showing AI employees in action.", href: "/resources/case-studies" },
+  { icon: Newspaper, title: "Blog", description: "Perspectives on AI agents, governance and how teams put them to work.", href: "/resources/blog" },
+  { icon: FileSearch, title: "Case Studies", description: "Representative scenarios showing AI agents in action.", href: "/resources/case-studies" },
   { icon: HelpCircle, title: "FAQs", description: "Frequently asked questions about the platform.", href: "/resources/faq" },
   { icon: Newspaper, title: "Contact", description: "Get in touch with our team directly.", href: "/contact" },
 ];
@@ -25,7 +25,7 @@ export default function ResourcesPage() {
       <PageHero
         eyebrow="Resources"
         title="Everything You Need to Get the Most from Krevia.ai"
-        description="Documentation, guidance and real-world scenarios to help you plan, deploy and scale AI employees."
+        description="Documentation, guidance and real-world scenarios to help you plan, deploy and scale AI agents."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

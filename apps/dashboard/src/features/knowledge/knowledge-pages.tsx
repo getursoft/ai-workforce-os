@@ -39,7 +39,7 @@ function statusTone(status: KnowledgeStatus) {
   return "warning" as const;
 }
 
-/** Every AI Employee owns its own knowledge — this selector is the scoping boundary the rest of the
+/** Every AI Agent owns its own knowledge — this selector is the scoping boundary the rest of the
  * page operates within, matching the backend's per-employee routes (see knowledge-api.ts). */
 function EmployeeSelect({
   employees,
@@ -52,7 +52,7 @@ function EmployeeSelect({
 }) {
   return (
     <>
-      <Label htmlFor="knowledge-employee">AI Employee</Label>
+      <Label htmlFor="knowledge-employee">AI Agent</Label>
       <select
         className="ui-input"
         id="knowledge-employee"
@@ -141,8 +141,8 @@ export function KnowledgePage() {
           <div>
             <h1>Knowledge Base</h1>
             <p>
-              Each AI Employee owns its own knowledge collections — documents uploaded here are only
-              ever retrieved by the employee selected below.
+              Each AI Agent owns its own knowledge collections — documents uploaded here are only
+              ever retrieved by the agent selected below.
             </p>
           </div>
         </header>
@@ -157,15 +157,15 @@ export function KnowledgePage() {
         </div>
         {!employeeId ? (
           <EmptyState
-            title="No AI Employees"
-            description="Install and enable an AI Employee before uploading knowledge."
+            title="No AI Agents"
+            description="Install and enable an AI Agent before uploading knowledge."
           />
         ) : (
           <>
             <div className="admin-section-header">
               <div>
                 <h2>Collections</h2>
-                <p>A collection groups related documents for this employee (e.g. Visa Rules, Refund Rules).</p>
+                <p>A collection groups related documents for this agent (e.g. Visa Rules, Refund Rules).</p>
               </div>
             </div>
             <div className="admin-table-wrap">
@@ -211,7 +211,7 @@ export function KnowledgePage() {
               <div className="admin-section-header">
                 <div>
                   <h2>Upload document</h2>
-                  <p>Add documents to ground this AI Employee's answers.</p>
+                  <p>Add documents to ground this AI Agent's answers.</p>
                 </div>
               </div>
               <form className="admin-form" onSubmit={submitUpload}>
@@ -249,7 +249,7 @@ export function KnowledgePage() {
               ) : null}
               {upload.isSuccess ? (
                 <Alert tone="success" title="Document indexed">
-                  The document is ready for this AI Employee's knowledge search.
+                  The document is ready for this AI Agent's knowledge search.
                 </Alert>
               ) : null}
             </Can>
@@ -335,7 +335,7 @@ export function KnowledgePage() {
             ) : (
               <EmptyState
                 title="No knowledge documents"
-                description="Upload a document to ground this AI Employee's answers."
+                description="Upload a document to ground this AI Agent's answers."
               />
             )}
           </>
@@ -343,7 +343,7 @@ export function KnowledgePage() {
         <Dialog
           open={Boolean(selected)}
           title="Delete knowledge document?"
-          description="Deleted documents immediately stop being used by this AI employee."
+          description="Deleted documents immediately stop being used by this AI agent."
           destructive
           confirmLabel="Delete document"
           onCancel={() => setSelected(null)}
@@ -442,7 +442,7 @@ export function KnowledgeDetailPage({ id }: { id: string }) {
             <Dialog
               open={confirmDelete}
               title="Delete knowledge document?"
-              description="This document will immediately stop being used by AI employees."
+              description="This document will immediately stop being used by AI agents."
               destructive
               confirmLabel="Delete document"
               onCancel={() => setConfirmDelete(false)}

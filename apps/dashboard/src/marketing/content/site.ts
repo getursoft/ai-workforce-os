@@ -1,19 +1,19 @@
 export const siteConfig = {
   name: "Krevia.ai",
-  tagline: "The Operating System for AI Employees",
+  tagline: "The Enterprise AI Agent Operating System",
   domain: "krevia.ai",
   description:
-    "Krevia.ai lets organisations hire, manage and scale specialised AI employees that work across departments — grounded in company knowledge, connected to real tools, and supervised by human teams.",
+    "Krevia.ai lets organisations hire, manage and scale specialised AI agents that work across departments — grounded in company knowledge, connected to real tools, and supervised by human teams.",
   headline: {
-    line1: "AI Employees.",
+    line1: "AI Agents.",
     line2: "Real Impact.",
     line3: "Built for Business.",
   },
   supportingText:
-    "Hire, manage and scale specialised AI employees that work around the clock across your organisation, so your teams can focus on decisions, relationships and growth.",
+    "Hire, manage and scale specialised AI agents that work around the clock across your organisation, so your teams can focus on decisions, relationships and growth.",
   heroCtas: {
     primary: { label: "Book a Demo", href: "/book-demo" },
-    secondary: { label: "Explore AI Employees", href: "/meet-ai-employees" },
+    secondary: { label: "Explore AI Agents", href: "/meet-ai-agents" },
   },
   trustPoints: [
     {
@@ -22,11 +22,11 @@ export const siteConfig = {
     },
     {
       label: "Available 24/7",
-      description: "AI employees stay on duty around the clock.",
+      description: "AI agents stay on duty around the clock.",
     },
     {
       label: "Quick to Deploy",
-      description: "Get an AI employee live in days, not quarters.",
+      description: "Get an AI agent live in days, not quarters.",
     },
     {
       label: "Secure and Governed",

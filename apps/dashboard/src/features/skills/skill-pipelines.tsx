@@ -310,13 +310,13 @@ function PipelineDetail({ pipelineId }: Readonly<{ pipelineId: string }>) {
       <Dialog
         open={executeOpen}
         title={`Execute ${pipeline.data.name}`}
-        description="Pick an employee (optional) and provide the trigger input as JSON."
+        description="Pick an agent (optional) and provide the trigger input as JSON."
         confirmLabel="Execute"
         onCancel={() => setExecuteOpen(false)}
         onConfirm={() => execute.mutate()}
       >
         <div className="admin-form">
-          <Label htmlFor="pipeline-execute-employee">Employee (optional)</Label>
+          <Label htmlFor="pipeline-execute-employee">Agent (optional)</Label>
           {employees.isLoading ? (
             <Skeleton />
           ) : (

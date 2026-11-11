@@ -3,12 +3,17 @@ import { composeChannelResponse, stripDebugWording, toVoiceSafeText } from "./co
 
 describe("stripDebugWording", () => {
   it("removes a 'Connected to X' line", () => {
-    expect(stripDebugWording("Connected to Travel Employee\nWhere would you like to go?")).toBe(
+    expect(stripDebugWording("Connected to Travel Agent\nWhere would you like to go?")).toBe(
       "Where would you like to go?"
     );
   });
 
-  it("removes a leading 'Travel Employee:' prefix line", () => {
+  it("removes a leading 'Travel Agent:' prefix line", () => {
+    expect(stripDebugWording("Travel Agent: Your booking is confirmed!")).toBe("Your booking is confirmed!");
+    expect(stripDebugWording("HR Agent: Your leave is approved.")).toBe("Your leave is approved.");
+  });
+
+  it("still removes the legacy 'Travel Employee:' prefix (old display names persist in stored data)", () => {
     expect(stripDebugWording("Travel Employee: Your booking is confirmed!")).toBe("Your booking is confirmed!");
   });
 

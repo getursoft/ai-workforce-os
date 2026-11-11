@@ -104,7 +104,7 @@ export class KnowledgeCollectionService {
         organizationId,
         pluginInstallationId: employeeId,
         name: "General Knowledge",
-        description: "Default knowledge collection for this AI Employee.",
+        description: "Default knowledge collection for this AI Agent.",
         isDefault: true
       }
     });

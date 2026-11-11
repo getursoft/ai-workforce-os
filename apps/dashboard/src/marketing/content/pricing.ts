@@ -21,11 +21,11 @@ export const pricingPlans: PricingPlan[] = [
     slug: "starter",
     name: "Starter",
     price: "Contact Sales",
-    priceNote: "Ideal for a single team getting started with one AI employee",
-    description: "Everything a small team needs to deploy its first AI employee with confidence.",
+    priceNote: "Ideal for a single team getting started with one AI agent",
+    description: "Everything a small team needs to deploy its first AI agent with confidence.",
     cta: { label: "Book a Demo", href: "/book-demo" },
     features: [
-      "1 AI employee",
+      "1 AI agent",
       "Core conversational intelligence",
       "Up to 2 knowledge sources",
       "Standard integrations",
@@ -38,11 +38,11 @@ export const pricingPlans: PricingPlan[] = [
     name: "Growth",
     price: "Contact Sales",
     priceNote: "For growing organisations scaling across departments",
-    description: "Deploy multiple AI employees with expanded knowledge, integrations and reporting.",
+    description: "Deploy multiple AI agents with expanded knowledge, integrations and reporting.",
     cta: { label: "Book a Demo", href: "/book-demo" },
     highlighted: true,
     features: [
-      "Up to 5 AI employees",
+      "Up to 5 AI agents",
       "Advanced knowledge and memory",
       "Expanded integration library",
       "Human approval workflows",
@@ -58,8 +58,8 @@ export const pricingPlans: PricingPlan[] = [
     description: "Governed, scalable deployment across your entire organisation with dedicated support.",
     cta: { label: "Contact Sales", href: "/contact" },
     features: [
-      "Unlimited AI employees",
-      "Custom AI employee configuration",
+      "Unlimited AI agents",
+      "Custom AI agent configuration",
       "Full integration and API access",
       "Advanced governance and audit controls",
       "Dedicated onboarding and support",
@@ -69,7 +69,7 @@ export const pricingPlans: PricingPlan[] = [
 ];
 
 export const pricingComparison: PricingFeatureRow[] = [
-  { feature: "AI employees", starter: "1", growth: "Up to 5", enterprise: "Unlimited" },
+  { feature: "AI agents", starter: "1", growth: "Up to 5", enterprise: "Unlimited" },
   { feature: "Conversations", starter: "Standard volume", growth: "Expanded volume", enterprise: "Custom volume" },
   { feature: "Knowledge sources", starter: "Up to 2", growth: "Up to 10", enterprise: "Unlimited" },
   { feature: "Integrations", starter: "Standard", growth: "Expanded", enterprise: "Full + custom" },

@@ -77,7 +77,7 @@ Next.js, built standalone (`output: 'standalone'` via `Dockerfile.dashboard`), s
   incidental word in its phrasing rather than its actual topic — "what are the benefits of **booking**
   through your portal" pulls in the booking/reservation group purely because it contains the word
   "booking", so the otherwise-exact "## Portal Benefits" heading match gets rejected (it doesn't also
-  mention booking/reservation) and the employee answers "I could not find this information" even though
+  mention booking/reservation) and the agent answers "I could not find this information" even though
   the document has the answer verbatim. Reproduced in
   `apps/api/src/knowledge/knowledge-grounding.e2e.spec.ts` ("returns the document content for a
   portal-benefits question"). Not fixed in this pass: `TERM_GROUPS`/the heading-matching heuristic is
@@ -91,7 +91,7 @@ Next.js, built standalone (`output: 'standalone'` via `Dockerfile.dashboard`), s
   "Got it." acknowledgment instead. Reproduced in `apps/api/src/travel/travel.llm.spec.ts` ("UAT acceptance
   — Scenario B... resolves 'bhai multileg hai' without restarting budget collection"). Not root-caused in
   this pass — needs tracing through the orchestrator's `confirm_plan`-intent handling for multi-leg journey
-  state, which is deep, employee-specific conversational logic.
+  state, which is deep, agent-specific conversational logic.
 - The full API test suite (`pnpm --filter api test`, `--no-file-parallelism`, one shared Postgres) has
   intermittent cross-file test pollution: `travel.uat-booking-flow.e2e.spec.ts` and
   `workforce-capabilities.e2e.spec.ts` both pass cleanly every time when run alone, but fail

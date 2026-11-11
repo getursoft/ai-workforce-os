@@ -18,7 +18,7 @@ const poppins = Poppins({
 export const metadata: Metadata = {
   metadataBase: new URL(`https://${siteConfig.domain}`),
   title: "Krevia.ai",
-  description: "Enterprise AI workforce operations platform"
+  description: "AI Workforce OS — an Enterprise AI Agent Operating System"
 };
 
 type RootLayoutProperties = Readonly<{

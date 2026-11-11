@@ -3,7 +3,7 @@ import type { ApiClient } from "../../lib/api-client";
 import { createKnowledgeApi } from "./knowledge-api";
 
 describe("knowledge API", () => {
-  it("scopes list, upload, re-index and delete to an AI Employee", async () => {
+  it("scopes list, upload, re-index and delete to an AI Agent", async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createKnowledgeApi({ request } as unknown as ApiClient);
     await api.list("employee-1", { search: "policy", status: "INDEXED" });
@@ -25,7 +25,7 @@ describe("knowledge API", () => {
     });
   });
 
-  it("manages an employee's knowledge collections", async () => {
+  it("manages an agent's knowledge collections", async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createKnowledgeApi({ request } as unknown as ApiClient);
     await api.collections.list("employee-1");

@@ -4,9 +4,9 @@ const FINANCE_SPEC: EmployeePageSpec = {
   pluginId: "finance-employee",
   permissionPrefix: "finance",
   artifactNoun: "finance request",
-  title: "Finance Employee",
-  description: "Configure the AI finance employee shared by Dashboard chat and WhatsApp.",
-  basePath: "/finance-employee",
+  title: "Finance Agent",
+  description: "Configure the AI finance agent shared by Dashboard chat and WhatsApp.",
+  basePath: "/finance-agent",
   artifactEndpoint: "records",
   showApiToggle: true,
   fallbackDescription:

@@ -70,7 +70,7 @@ function truncate(value: string | null, max = 60): string {
   return value.length > max ? `${value.slice(0, max)}…` : value;
 }
 
-/** Best-effort AI Employee display-name lookup (installed plugins list) — degrades to a raw id fragment,
+/** Best-effort AI Agent display-name lookup (installed plugins list) — degrades to a raw id fragment,
  *  never blocks the page, since a user without plugin.read still needs to see their leads. */
 function useAgentNames() {
   const { client } = useAuth();
@@ -207,7 +207,7 @@ export function CrmPage() {
                     <th>Customer</th>
                     <th>Contact</th>
                     <th>Source</th>
-                    <th>AI Employee</th>
+                    <th>AI Agent</th>
                     <th>Requirement</th>
                     <th>Status</th>
                     <th>Created</th>
@@ -392,7 +392,7 @@ export function LeadDetailPage() {
             <div><Label>Email</Label><p>{lead.email ?? "—"}</p></div>
             <div><Label>Priority</Label><p>{lead.priority}</p></div>
             <div><Label>Source</Label><p>{SOURCE_LABELS[lead.source]}</p></div>
-            <div><Label>AI Employee</Label><p>{lead.agentId ? (agentNames.get(lead.agentId) ?? lead.agentId) : "—"}</p></div>
+            <div><Label>AI Agent</Label><p>{lead.agentId ? (agentNames.get(lead.agentId) ?? lead.agentId) : "—"}</p></div>
             <div><Label>Assigned to</Label><p>{assignee ? `${assignee.firstName} ${assignee.lastName ?? ""}`.trim() : "Unassigned"}</p></div>
             {lead.interactionId ? (
               <div><Label>Interaction</Label><p><Link href={`/interactions/${lead.interactionId}`}>View interaction</Link></p></div>

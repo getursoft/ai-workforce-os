@@ -21,7 +21,7 @@ export interface ConversationRoutingState {
 
 export const DEFAULT_RECEPTIONIST_GREETING = "Hello! Good Morning! Thank you for contacting us, How can we help you today?";
 export const DEFAULT_INTENT_QUESTION = "May I know the reason for contacting us?";
-export const DEFAULT_OUT_OF_SCOPE_MESSAGE = "This request is outside the scope of the AI Employees currently available for this organisation.";
+export const DEFAULT_OUT_OF_SCOPE_MESSAGE = "This request is outside the scope of the AI Agents currently available for this organisation.";
 export const DEFAULT_AMBIGUOUS_MESSAGE = "Could you please provide more details so I can connect you to the right team?";
 export const DEFAULT_ACKNOWLEDGEMENT_MESSAGE = "Thank you for reaching out. I'll be happy to help with that. Please allow me a moment while I check the relevant information.";
 export const DEFAULT_FAILURE_MESSAGE = "Sorry, I wasn't able to complete that request right now. Please try again in a moment.";

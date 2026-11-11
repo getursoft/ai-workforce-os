@@ -70,8 +70,8 @@ export function BookingTrackingPage() {
       <PageHeader
         title="Travel Bookings"
         description="Track and manage travel bookings from booking request to ticket delivery."
-        backHref="/travel-employee"
-        backLabel="Back to Travel Employee"
+        backHref="/travel-agent"
+        backLabel="Back to Travel Agent"
       />
       <Card className="admin-toolbar" style={{ padding: "6px" }}>
         <div className="admin-tabs">

@@ -24,10 +24,10 @@ export interface EmployeePageSpec {
   basePath: string;
   artifactEndpoint: string;
   fallbackDescription: string;
-  /** Whether the "use real API" toggle + API endpoint/key fields appear on this employee's config form.
+  /** Whether the "use real API" toggle + API endpoint/key fields appear on this agent's config form.
    *  False for the Legal employee (which relies on knowledge + LLM + PDFs instead of a real API). */
   showApiToggle?: boolean;
-  /** Whether a "default country/jurisdiction" field appears on this employee's config form. Only the
+  /** Whether a "default country/jurisdiction" field appears on this agent's config form. Only the
    *  Legal employee uses it (verdicts/notices default to the configured country, e.g. India). */
   showCountryField?: boolean;
 }
@@ -37,9 +37,9 @@ function usePluginApi() {
   return useMemo(() => createPluginApi(client), [client]);
 }
 
-/** Shared configuration page for every non-Travel domain employee. Mirrors the Travel Employee page's
+/** Shared configuration page for every non-Travel domain employee. Mirrors the Travel Agent page's
  *  layout/orientation exactly: install card when uninstalled, then a status/toggle card, the configuration
- *  form, and the email-delivery section. Each employee supplies a {@link EmployeePageSpec}. */
+ *  form, and the email-delivery section. Each agent supplies a {@link EmployeePageSpec}. */
 export function EmployeePage({ spec }: { spec: EmployeePageSpec }) {
   const { client } = useAuth();
   const plugins = usePluginApi();
@@ -124,7 +124,7 @@ export function EmployeePage({ spec }: { spec: EmployeePageSpec }) {
                 </Button>
               </Can>
               <p>
-                <Link href={`/ai-employees/${installedPlugin.id}`}>
+                <Link href={`/agents/${installedPlugin.id}`}>
                   Chat with the {spec.title}
                 </Link>
                 {" · "}
@@ -315,7 +315,7 @@ function ConfigurationForm({
           <fieldset className="admin-form__api">
             <legend>Real API integration</legend>
             <p>
-              When switched ON, this employee calls the real backend API you configure below instead of the
+              When switched ON, this agent calls the real backend API you configure below instead of the
               built-in flow. Leave it OFF to keep using the built-in flow.
             </p>
             <label className="api-toggle">

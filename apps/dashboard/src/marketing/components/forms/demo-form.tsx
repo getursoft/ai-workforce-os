@@ -134,7 +134,7 @@ export function DemoForm() {
             <option>Other</option>
           </select>
         </Field>
-        <Field label="Number of AI Employees Required" htmlFor="employeeCount">
+        <Field label="Number of AI Agents Required" htmlFor="employeeCount">
           <select id="employeeCount" value={form.employeeCount} onChange={(e) => update("employeeCount", e.target.value)} className={inputClass(false)}>
             <option>1</option>
             <option>2-5</option>
@@ -145,7 +145,7 @@ export function DemoForm() {
       </div>
 
       <Field label="Primary Use Case" htmlFor="useCase" error={errors.useCase}>
-        <textarea id="useCase" rows={3} value={form.useCase} onChange={(e) => update("useCase", e.target.value)} className={inputClass(!!errors.useCase)} placeholder="Tell us what you'd like an AI employee to handle" />
+        <textarea id="useCase" rows={3} value={form.useCase} onChange={(e) => update("useCase", e.target.value)} className={inputClass(!!errors.useCase)} placeholder="Tell us what you'd like an AI agent to handle" />
       </Field>
 
       <Field label="Integration Needs" htmlFor="integrationNeeds">

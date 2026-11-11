@@ -622,7 +622,7 @@ button {
   line-height: 1.55;
 }
 
-/* AI Employees page cards (installed + available-to-install) — deliberately a fixed 2-column grid rather
+/* My Agents page cards (installed + available-to-install) — deliberately a fixed 2-column grid rather
    than admin-grid's auto-fit/minmax(1fr) (which stretches a single card to the full row width when there
    are few items). */
 .employee-grid {

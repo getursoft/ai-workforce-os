@@ -7,17 +7,17 @@ export interface DocSection {
 export const docSections: DocSection[] = [
   {
     title: "Getting Started",
-    description: "Set up your organisation and deploy your first AI employee.",
-    topics: ["Creating your workspace", "Choosing your first AI employee", "Inviting your team", "Understanding roles and permissions"],
+    description: "Set up your organisation and deploy your first AI agent.",
+    topics: ["Creating your workspace", "Choosing your first AI agent", "Inviting your team", "Understanding roles and permissions"],
   },
   {
-    title: "Configuring AI Employees",
-    description: "Scope, tone and behaviour for each AI employee you deploy.",
+    title: "Configuring AI Agents",
+    description: "Scope, tone and behaviour for each AI agent you deploy.",
     topics: ["Setting scope and responsibilities", "Configuring tone and terminology", "Defining escalation rules", "Testing before go-live"],
   },
   {
     title: "Knowledge and Memory",
-    description: "Connect and manage the knowledge sources AI employees use.",
+    description: "Connect and manage the knowledge sources AI agents use.",
     topics: ["Connecting documents and wikis", "Managing knowledge freshness", "Understanding memory scope", "Resetting or correcting memory"],
   },
   {

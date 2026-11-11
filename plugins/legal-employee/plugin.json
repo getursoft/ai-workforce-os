@@ -1,9 +1,9 @@
 {
   "id": "legal-employee",
-  "name": "Legal Document Employee",
+  "name": "Legal Document Agent",
   "version": "1.0.0",
-  "displayName": "Legal Employee",
-  "description": "AI legal document employee. Reads incoming legal and regulatory notifications and drafts structured replies ready for professional review and filing.",
+  "displayName": "Legal Agent",
+  "description": "AI legal document agent. Reads incoming legal and regulatory notifications and drafts structured replies ready for professional review and filing.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "legal-employee",
     "employeeType": "LEGAL",
-    "displayName": "Legal Employee",
+    "displayName": "Legal Agent",
     "summary": "Handles legal and regulatory notices, contract questions, and compliance matters.",
     "domains": [
       "legal",

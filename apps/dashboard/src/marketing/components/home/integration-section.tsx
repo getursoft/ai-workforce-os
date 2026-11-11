@@ -18,7 +18,7 @@ export function IntegrationSection() {
         <SectionHeading
           eyebrow="Connected"
           title="Integrates with the Systems You Already Use"
-          description="AI employees work with your real data — connecting to CRM, email, documents, cloud platforms and more."
+          description="AI agents work with your real data — connecting to CRM, email, documents, cloud platforms and more."
           size="secondary"
         />
         <div className="mt-8 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-6">

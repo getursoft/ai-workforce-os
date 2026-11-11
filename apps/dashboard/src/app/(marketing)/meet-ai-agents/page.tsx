@@ -6,19 +6,19 @@ import { ButtonLink } from "@/components/shared/button-link";
 import { aiEmployees } from "@/content/ai-employees";
 
 export const metadata: Metadata = defaultMetadata({
-  title: "AI Employees",
+  title: "AI Agents",
   description:
-    "Meet the AI employees on Krevia.ai — Travel, HR, Finance, IT Support, Sales, Marketing and Custom roles built to work alongside your teams.",
-  path: "/meet-ai-employees",
+    "Meet the AI agents on Krevia.ai — Travel, HR, Finance, IT Support, Sales, Marketing and Custom roles built to work alongside your teams.",
+  path: "/meet-ai-agents",
 });
 
 export default function AiEmployeesPage() {
   return (
     <>
       <PageHero
-        eyebrow="AI Employees"
-        title="Specialised AI Employees for Every Department"
-        description="Each AI employee is grounded in your organisation's knowledge, connected to real tools, and built to hand off sensitive decisions to your human teams."
+        eyebrow="AI Agents"
+        title="Specialised AI Agents for Every Department"
+        description="Each AI agent is grounded in your organisation's knowledge, connected to real tools, and built to hand off sensitive decisions to your human teams."
       />
       <section className="mx-auto max-w-7xl px-4 py-9 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3 lg:grid-cols-4">
@@ -27,10 +27,10 @@ export default function AiEmployeesPage() {
           ))}
         </div>
         <div className="mt-8 rounded-3xl border border-gold/30 bg-cream/60 p-8 text-center">
-          <h2 className="text-2xl font-bold text-ink">Not sure which AI employee fits your team?</h2>
+          <h2 className="text-2xl font-bold text-ink">Not sure which AI agent fits your team?</h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-muted">
             Tell us about your organisation and we&apos;ll help you find the right starting point — or scope a
-            Custom AI Employee around your exact workflow.
+            Custom AI Agent around your exact workflow.
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-4">
             <ButtonLink href="/book-demo" variant="primary">Book a Demo</ButtonLink>

@@ -1,9 +1,9 @@
 {
   "id": "it-support-employee",
-  "name": "IT Support Employee",
+  "name": "IT Support Agent",
   "version": "1.0.0",
-  "displayName": "IT Support Employee",
-  "description": "AI IT support employee. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
+  "displayName": "IT Support Agent",
+  "description": "AI IT support agent. Handles first-line technical support, searches your knowledge base and triages incidents before escalating to your IT team.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "it-support-employee",
     "employeeType": "IT_SUPPORT",
-    "displayName": "IT Support Employee",
+    "displayName": "IT Support Agent",
     "summary": "Handles VPN, network, password, hardware, and other first-line technical support requests.",
     "domains": [
       "it support",

@@ -345,7 +345,7 @@ export class SkillPlatformController {
   }
 
   /** Capability discovery (Phase 11): which skills are installed AND granted to this employee. */
-  @Get("employees/:employeeId/skills")
+  @Get(["agents/:employeeId/skills", "employees/:employeeId/skills"])
   @RequirePermission("skill.execute")
   async skillsForEmployee(
     @CurrentPrincipal() principal: AuthenticatedPrincipal,

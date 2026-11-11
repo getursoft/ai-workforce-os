@@ -151,7 +151,7 @@ export function OutcomesSection() {
             Outcomes Teams Notice First
           </h2>
           <p className="mt-4 text-base leading-relaxed text-muted sm:text-lg">
-            AI employees don&apos;t just automate work. They help organisations become faster, more consistent and
+            AI agents don&apos;t just automate work. They help organisations become faster, more consistent and
             more productive.
           </p>
         </motion.div>

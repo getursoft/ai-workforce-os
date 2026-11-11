@@ -25,7 +25,7 @@ struct HomeView: View {
                         NavigationLink {
                             EmployeesListView(dependencies: dependencies)
                         } label: {
-                            NavCard(title: "AI Employees", icon: "person.2.fill", tint: KreviaTheme.success)
+                            NavCard(title: "AI Agents", icon: "person.2.fill", tint: KreviaTheme.success)
                         }
                         NavigationLink {
                             LeadListView(dependencies: dependencies)

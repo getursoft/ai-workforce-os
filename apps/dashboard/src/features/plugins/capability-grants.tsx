@@ -2,7 +2,7 @@ import { Badge, Button } from "../../components/ui";
 
 export function capabilityDescription(capability: string): string {
   const descriptions: Record<string, string> = {
-    MEMORY: "Allow this AI employee to save and search organization-scoped runtime memory.",
+    MEMORY: "Allow this AI agent to save and search organization-scoped runtime memory.",
     LLM: "Allow access to an approved language-model adapter.",
     EVENTS: "Allow publishing and receiving organization-scoped plugin events.",
     TOOLS: "Allow access to approved platform tools.",

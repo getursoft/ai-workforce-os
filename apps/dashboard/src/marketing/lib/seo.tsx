@@ -25,7 +25,7 @@ export function defaultMetadata({ title, description, path, keywords, noIndex, a
     description,
     keywords: keywords ?? [
       "Krevia.ai",
-      "AI employees",
+      "AI agents",
       "enterprise AI platform",
       "AI agents for business",
       "AI operating system",

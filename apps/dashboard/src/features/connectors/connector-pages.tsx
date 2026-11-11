@@ -53,7 +53,7 @@ export function ConnectorsPage() {
         <header className="admin-page__header">
           <div>
             <h1>Connectors</h1>
-            <p>Securely connect AI employees to organization business systems.</p>
+            <p>Securely connect AI agents to organization business systems.</p>
           </div>
         </header>
         <Card className="admin-toolbar">

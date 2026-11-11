@@ -12,11 +12,11 @@ export const SALES_EMPLOYEE_PLUGIN_ID = "sales-employee";
 
 export const salesEmployeeManifest: PluginManifest = {
   id: SALES_EMPLOYEE_PLUGIN_ID,
-  name: "Sales Employee",
+  name: "Sales Agent",
   version: "1.0.0",
-  displayName: "Sales Employee",
+  displayName: "Sales Agent",
   description:
-    "AI sales employee. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
+    "AI sales agent. Qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current.",
   author: "AI Workforce OS",
   entryPoint: "sales-employee",
   permissions: [
@@ -57,7 +57,7 @@ export class SalesEmployeePlugin extends BasePlugin {
       durationMs: Date.now() - started,
       error: {
         code: "TOOL_NOT_FOUND",
-        message: "Sales Employee tools run through the Agent Runtime, not direct plugin execution."
+        message: "Sales Agent tools run through the Agent Runtime, not direct plugin execution."
       }
     };
   }

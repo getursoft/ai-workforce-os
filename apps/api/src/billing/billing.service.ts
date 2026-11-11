@@ -25,7 +25,10 @@ export interface TrendPoint {
 }
 
 export interface EmployeeTrend {
+  /** Legacy key — kept for existing API consumers. Prefer `agents`. */
   employees: string[];
+  /** Canonical Agent terminology; always equal to `employees`. */
+  agents: string[];
   requestPoints: Array<Record<string, string | number>>;
   points: Array<Record<string, string | number>>;
   tokenPoints: Array<Record<string, string | number>>;
@@ -46,7 +49,10 @@ export interface UserUsage {
 
 export interface EmployeeUsage {
   pluginInstallationId: string;
+  /** Legacy key — kept for existing API consumers. Prefer `agentName`. */
   employeeName: string;
+  /** Canonical Agent terminology; always equal to `employeeName`. */
+  agentName: string;
   creditsConsumed: number;
   sharePercentage: number;
   inputTokens: number;
@@ -182,9 +188,11 @@ export class BillingService {
     const totalCredits = groups.reduce((s, g) => s + Math.ceil(((g._sum.totalTokens ?? 0) * 4) / 1000), 0);
     return groups.map((g) => {
       const credits = Math.ceil(((g._sum.totalTokens ?? 0) * 4) / 1000);
+      const agentName = pluginMap.get(g.pluginInstallationId) ?? "Removed Agent";
       return {
         pluginInstallationId: g.pluginInstallationId,
-        employeeName: pluginMap.get(g.pluginInstallationId) ?? "Removed Employee",
+        employeeName: agentName,
+        agentName,
         creditsConsumed: credits,
         sharePercentage: totalCredits > 0 ? Math.round((credits / totalCredits) * 10000) / 100 : 0,
         inputTokens: g._sum.inputTokens ?? 0,
@@ -295,7 +303,7 @@ export class BillingService {
     const dailyExecutionCounts = new Map<string, Map<string, number>>();
     for (const r of rows) {
       const day = r.createdAt.toISOString().slice(0, 10);
-      const name = nameById.get(r.pluginInstallationId) ?? "Removed Employee";
+      const name = nameById.get(r.pluginInstallationId) ?? "Removed Agent";
       const tokens = r.totalTokens ?? 0;
       const credits = Math.ceil((tokens * 4) / 1000);
       const creditTotals = dailyCredits.get(day) ?? new Map<string, number>();
@@ -333,6 +341,7 @@ export class BillingService {
 
     return {
       employees,
+      agents: employees,
       requestPoints: buildSeries(dailyExecutionCounts),
       points: buildSeries(dailyCredits),
       tokenPoints: buildSeries(dailyTokens),

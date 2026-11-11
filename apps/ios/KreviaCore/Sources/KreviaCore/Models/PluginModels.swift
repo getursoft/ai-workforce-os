@@ -1,7 +1,7 @@
 import Foundation
 
 /// Maps 1:1 to apps/api/src/plugins/plugin.controller.ts's `publicManifest()` plus the `installed`
-/// flag `PluginService.available()` adds — the AI Employee catalog, not yet-installed instances.
+/// flag `PluginService.available()` adds — the AI Agent catalog, not yet-installed instances.
 public struct PluginCatalogItem: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String

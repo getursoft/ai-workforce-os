@@ -48,7 +48,7 @@ describe("employeePlaceholder (per-employee composer hints)", () => {
   });
 });
 
-describe("AI Employees runtime errors", () => {
+describe("AI Agents runtime errors", () => {
   it.each([
     ["AI_PROVIDER_AUTHENTICATION_FAILED", "credentials were rejected"],
     ["AI_PROVIDER_MODEL_NOT_FOUND", "model is unavailable"],
@@ -102,7 +102,7 @@ describe("AI Receptionist bootstrap errors", () => {
   });
 });
 
-describe("AI employee enterprise knowledge sources", () => {
+describe("AI agent enterprise knowledge sources", () => {
   it("renders document, page or chunk, and relevance without exposing embeddings", () => {
     expect(
       knowledgeSourceLabel({
@@ -124,7 +124,7 @@ describe("AI employee enterprise knowledge sources", () => {
 });
 
 describe("conversationStorageKey", () => {
-  it("is namespaced per plugin installation, so different AI employees never share a stored conversation", () => {
+  it("is namespaced per plugin installation, so different AI agents never share a stored conversation", () => {
     expect(conversationStorageKey("plugin-a")).not.toBe(conversationStorageKey("plugin-b"));
     expect(conversationStorageKey("plugin-a")).toBe(conversationStorageKey("plugin-a"));
   });
@@ -194,18 +194,18 @@ describe("toLocalMessages (hydrating a reopened conversation)", () => {
           id: "handoff-1",
           status: "HANDOFF_ACTIVE",
           targetEmployeeInstallationId: "travel-1",
-          targetDisplayName: "Travel Employee",
+          targetDisplayName: "Travel Agent",
           displayMode: "TRANSPARENT_HANDOFF"
         }
       }
     };
     expect(toLocalMessages([assistant])[0]?.receptionist?.handoff?.targetDisplayName).toBe(
-      "Travel Employee"
+      "Travel Agent"
     );
   });
 });
 
-describe("derivePlaceholder (Travel Employee onboarding-stage-aware input placeholder)", () => {
+describe("derivePlaceholder (Travel Agent onboarding-stage-aware input placeholder)", () => {
   it("asks for the traveler's name before the stage is known, or while still in GREETING/COLLECT_NAME", () => {
     expect(derivePlaceholder(null)).toBe("Type your name...");
     expect(derivePlaceholder(undefined)).toBe("Type your name...");

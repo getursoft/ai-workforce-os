@@ -195,7 +195,7 @@ export const JOB_DEFINITION_SEEDS: JobDefinitionSeed[] = [
     name: "Recurring report",
     category: "PLATFORM",
     handlerType: "RUN_AGENT",
-    description: "Generate a recurring (e.g. monthly) report via the employee.",
+    description: "Generate a recurring (e.g. monthly) report via the agent.",
     retryPolicy: "30_MIN",
     maxRetry: 3
   },

@@ -9,12 +9,12 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Analytics",
   description:
-    "Visibility into what AI employees are doing across your organisation — usage, outcomes and trends by department.",
+    "Visibility into what AI agents are doing across your organisation — usage, outcomes and trends by department.",
   path: "/platform/analytics",
 });
 
 const points = [
-  { icon: BarChart3, title: "Usage Dashboards", description: "See conversation volume and activity by AI employee and department." },
+  { icon: BarChart3, title: "Usage Dashboards", description: "See conversation volume and activity by AI agent and department." },
   { icon: TrendingUp, title: "Trend Reporting", description: "Track how usage and outcomes change over time." },
   { icon: FileBarChart, title: "Exportable Summaries", description: "Share clear reporting with stakeholders and leadership." },
   { icon: Gauge, title: "Configurable Cadence", description: "Set the reporting rhythm that matches how your teams work." },
@@ -26,7 +26,7 @@ export default function AnalyticsPage() {
       <PageHero
         eyebrow="Analytics"
         title="See What Your AI Workforce Is Doing"
-        description="Ongoing visibility into activity, outcomes and trends — so AI employees stay accountable, not opaque."
+        description="Ongoing visibility into activity, outcomes and trends — so AI agents stay accountable, not opaque."
       />
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
         <SectionHeading eyebrow="Visibility" title="What You Can See" />

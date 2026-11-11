@@ -11,7 +11,7 @@ export const metadata: Metadata = defaultMetadata({
 });
 
 const expectations = [
-  "A walkthrough of AI employees relevant to your department",
+  "A walkthrough of AI agents relevant to your department",
   "A look at how organisational knowledge and integrations connect",
   "A discussion of governance, approvals and security controls",
   "Clear next steps based on your organisation's needs",
@@ -39,7 +39,7 @@ export default function BookDemoPage() {
               ))}
             </ul>
             <div className="mt-8 rounded-card border border-royal/10 bg-ivory/60 p-6 text-sm leading-relaxed text-muted">
-              Demos typically run 30–45 minutes. We recommend including anyone who would own the AI employee day
+              Demos typically run 30–45 minutes. We recommend including anyone who would own the AI agent day
               to day, alongside a technical stakeholder if integrations are in scope.
             </div>
           </div>

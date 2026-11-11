@@ -100,7 +100,7 @@ export class SkillRecommendationService {
       if (installed) score += 2;
       if (granted) score += 1;
       if (installed) reasons.push("Already installed for this organization");
-      if (granted) reasons.push("Already granted to this employee");
+      if (granted) reasons.push("Already granted to this agent");
 
       recommendations.push({
         skillKey: manifest.key,

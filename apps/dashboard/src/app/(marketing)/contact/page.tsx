@@ -8,7 +8,7 @@ import { siteConfig } from "@/content/site";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Contact Us",
-  description: "Get in touch with the Krevia.ai team about AI employees, enterprise deployment, partnerships or press.",
+  description: "Get in touch with the Krevia.ai team about AI agents, enterprise deployment, partnerships or press.",
   path: "/contact",
 });
 
@@ -18,7 +18,7 @@ export default function ContactPage() {
       <PageHero
         eyebrow="Contact us"
         title="Let's Talk About Your AI Workforce"
-        description="Whether you have a question, a partnership idea, or want to explore AI employees for your organisation, we'd like to hear from you."
+        description="Whether you have a question, a partnership idea, or want to explore AI agents for your organisation, we'd like to hear from you."
       />
 
       <section className="mx-auto max-w-6xl px-4 py-9 sm:px-6 lg:px-8">
@@ -32,7 +32,7 @@ export default function ContactPage() {
             </div>
             <div className="mt-8 rounded-card border border-gold/30 bg-cream/60 p-6">
               <h3 className="font-semibold text-ink">Prefer a guided walkthrough?</h3>
-              <p className="mt-2 text-sm text-muted">Book a demo and we&apos;ll configure a representative AI employee around a real use case.</p>
+              <p className="mt-2 text-sm text-muted">Book a demo and we&apos;ll configure a representative AI agent around a real use case.</p>
               <div className="mt-4">
                 <ButtonLink href="/book-demo" variant="primary">Book a Demo</ButtonLink>
               </div>

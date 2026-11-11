@@ -125,3 +125,26 @@ describe("BillingService.employeeDetail", () => {
     expect(result?.recentActivity[0]?.creditsConsumed).toBe(Math.ceil((500 * 4) / 1000));
   });
 });
+
+/** Agent terminology migration: the legacy `employeeName` key is kept for existing API consumers and
+ *  mirrored by the canonical `agentName`; a removed installation reads "Removed Agent". */
+describe("BillingService.byEmployee — Agent terminology mirror keys", () => {
+  it("returns agentName equal to employeeName, and labels removed installations as 'Removed Agent'", async () => {
+    const prisma = {
+      agentExecution: {
+        groupBy: vi.fn().mockResolvedValue([
+          { pluginInstallationId: "p-1", _sum: { inputTokens: 10, outputTokens: 20, totalTokens: 30 }, _count: { id: 1 } },
+          { pluginInstallationId: "p-gone", _sum: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }, _count: { id: 1 } }
+        ])
+      },
+      plugin: { findMany: vi.fn().mockResolvedValue([{ id: "p-1", displayName: "Travel Agent" }]) }
+    } as unknown as PrismaService;
+
+    const result = await new BillingService(prisma).byEmployee("org-1", new Date("2026-07-01"), new Date("2026-07-31"));
+
+    expect(result.map((r) => [r.employeeName, r.agentName])).toEqual([
+      ["Travel Agent", "Travel Agent"],
+      ["Removed Agent", "Removed Agent"]
+    ]);
+  });
+});

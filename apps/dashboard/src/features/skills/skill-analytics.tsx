@@ -24,7 +24,7 @@ function AnalyticsRowTable({ title, rows }: Readonly<{ title: string; rows: Skil
                 <th>Success</th>
                 <th>Avg latency</th>
                 <th>Credits</th>
-                <th>Employees</th>
+                <th>Agents</th>
               </tr>
             </thead>
             <tbody>
@@ -128,7 +128,7 @@ export function AnalyticsTab() {
             <SummaryCard title="Avg latency" value={`${analytics.data.totals.avgLatencyMs} ms`} />
             <SummaryCard title="Credits consumed" value={analytics.data.totals.creditsConsumed} />
             <SummaryCard title="Total tokens" value={analytics.data.totals.totalTokens} />
-            <SummaryCard title="Employees using skills" value={analytics.data.totals.employeesUsing} />
+            <SummaryCard title="Agents using skills" value={analytics.data.totals.employeesUsing} />
           </div>
 
           <AnalyticsRowTable title="Top Skills" rows={analytics.data.topSkills} />

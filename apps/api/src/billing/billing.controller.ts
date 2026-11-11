@@ -24,7 +24,7 @@ export class BillingController {
     return this.billing.summary(p.organizationId.toString(), s, e);
   }
 
-  @Get("usage/by-employee")
+  @Get(["usage/by-agent", "usage/by-employee"])
   @RequirePermission("usage.read")
   async byEmployee(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
@@ -64,7 +64,7 @@ export class BillingController {
     return this.billing.trend(p.organizationId.toString(), period.start, period.end);
   }
 
-  @Get("usage/trend-by-employee")
+  @Get(["usage/trend-by-agent", "usage/trend-by-employee"])
   @RequirePermission("usage.read")
   async trendByEmployee(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
@@ -84,7 +84,7 @@ export class BillingController {
     return this.billing.byUser(p.organizationId.toString(), period.start, period.end);
   }
 
-  @Get("usage/employees")
+  @Get(["usage/agents", "usage/employees"])
   @RequirePermission("usage.read")
   async employees(
     @CurrentPrincipal() p: AuthenticatedPrincipal,
@@ -94,7 +94,7 @@ export class BillingController {
     return this.billing.employeesOverview(p.organizationId.toString(), period.start, period.end);
   }
 
-  @Get("usage/employees/:id")
+  @Get(["usage/agents/:id", "usage/employees/:id"])
   @RequirePermission("usage.read")
   async employeeDetail(
     @CurrentPrincipal() p: AuthenticatedPrincipal,

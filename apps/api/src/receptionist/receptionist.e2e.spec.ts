@@ -162,11 +162,11 @@ suite("AI Receptionist universal front door", () => {
     handoffId = response.body.receptionist.handoff.id;
     expect(response.body.status).toBe("COMPLETED");
     expect(response.body.receptionist.handoff.targetEmployeeInstallationId).toBe(travelId);
-    // Fix (Travel Booking Closure Pass — Phase 14/16/19): WEB no longer repeats "Travel Employee:" in the
+    // Fix (Travel Booking Closure Pass — Phase 14/16/19): WEB no longer repeats "Travel Agent:" in the
     // text on a new handoff — the structured `receptionist.handoff.targetDisplayName` field (checked here)
     // is what the UI's own "Connected to X" indicator already renders, so the text staying free of it is
     // the intended fix, not a regression.
-    expect(response.body.receptionist.handoff.targetDisplayName).toBe("Travel Employee");
+    expect(response.body.receptionist.handoff.targetDisplayName).toBe("Travel Agent");
     expect(response.body.response).not.toMatch(/may I know your name/i);
     const handoff = await prisma.receptionistHandoff.findUniqueOrThrow({
       where: { id: handoffId }

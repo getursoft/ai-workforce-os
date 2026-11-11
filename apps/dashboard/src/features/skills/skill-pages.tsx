@@ -45,7 +45,7 @@ type TabId = "MARKETPLACE" | "INSTALLED" | "GRANTS" | "EXECUTIONS" | "HEALTH" | 
 const TABS: ReadonlyArray<{ id: TabId; label: string; permission: string }> = [
   { id: "MARKETPLACE", label: "Marketplace", permission: "skill.marketplace.read" },
   { id: "INSTALLED", label: "Installed", permission: "skill.marketplace.read" },
-  { id: "GRANTS", label: "Employee Grants", permission: "skill.grant.manage" },
+  { id: "GRANTS", label: "Agent Grants", permission: "skill.grant.manage" },
   { id: "EXECUTIONS", label: "Executions", permission: "skill.execution.read" },
   { id: "HEALTH", label: "Health", permission: "skill.health.read" },
   { id: "PACKS", label: "Packs", permission: "skill.marketplace.read" },
@@ -70,7 +70,7 @@ export function SkillsPage() {
 
   return (
     <section className="admin-page">
-      <PageHeader title="Skills" description="Install versioned skills and grant them to AI employees." />
+      <PageHeader title="Skills" description="Install versioned skills and grant them to AI agents." />
       <Card className="admin-toolbar" style={{ padding: "6px" }}>
         <div className="admin-tabs">
           {availableTabs.map((tab) => (
@@ -578,7 +578,7 @@ function InstalledDetail({ installation }: Readonly<{ installation: SkillInstall
       <Dialog
         open={confirmUninstall}
         title="Uninstall this skill?"
-        description="This removes the installation, revokes every employee grant, and cannot be undone."
+        description="This removes the installation, revokes every agent grant, and cannot be undone."
         confirmLabel="Uninstall"
         destructive
         onCancel={() => setConfirmUninstall(false)}
@@ -632,7 +632,7 @@ function GrantsPanel({ installationId }: Readonly<{ installationId: string }>) {
     <div style={{ display: "grid", gap: 16 }}>
       <Can permission="skill.grant.manage">
         <Card>
-          <h2>Grant to an employee</h2>
+          <h2>Grant to an agent</h2>
           {employees.isLoading ? (
             <Skeleton />
           ) : ungranted.length ? (
@@ -642,7 +642,7 @@ function GrantsPanel({ installationId }: Readonly<{ installationId: string }>) {
                 value={pickerEmployeeId}
                 onChange={(event) => setPickerEmployeeId(event.target.value)}
               >
-                <option value="">Select an AI employee…</option>
+                <option value="">Select an AI agent…</option>
                 {ungranted.map((employee) => (
                   <option key={employee.id} value={employee.id}>
                     {employee.displayName}
@@ -658,14 +658,14 @@ function GrantsPanel({ installationId }: Readonly<{ installationId: string }>) {
               </Button>
             </div>
           ) : (
-            <p style={{ color: "var(--muted)" }}>Every installed employee already has this skill granted.</p>
+            <p style={{ color: "var(--muted)" }}>Every installed agent already has this skill granted.</p>
           )}
           {grant.isError ? <Alert tone="danger" title="Grant failed" /> : null}
         </Card>
       </Can>
 
       <Card>
-        <h2>Granted employees</h2>
+        <h2>Granted agents</h2>
         {grants.isLoading ? (
           <Skeleton />
         ) : grants.isError ? (
@@ -677,7 +677,7 @@ function GrantsPanel({ installationId }: Readonly<{ installationId: string }>) {
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>Employee</th>
+                  <th>Agent</th>
                   <th>Status</th>
                   <th>Granted</th>
                   <th>Action</th>
@@ -720,7 +720,7 @@ function GrantsPanel({ installationId }: Readonly<{ installationId: string }>) {
             </table>
           </div>
         ) : (
-          <EmptyState title="No grants yet" description="Grant this skill to an installed AI employee above." />
+          <EmptyState title="No grants yet" description="Grant this skill to an installed AI agent above." />
         )}
       </Card>
 

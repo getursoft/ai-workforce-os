@@ -45,7 +45,7 @@ export function ToolsPage() {
           <div>
             <h1>Tools</h1>
             <p>
-              Reusable tools and capabilities available to your AI employees — some are directly callable
+              Reusable tools and capabilities available to your AI agents — some are directly callable
               during a conversation, others run automatically as part of a workflow (e.g. sending a
               ticket).
             </p>

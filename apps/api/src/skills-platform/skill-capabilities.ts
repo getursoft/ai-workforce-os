@@ -36,7 +36,7 @@ export function buildSkillCapabilities(
       complete: async (input) => {
         if (!services.pluginAi) throw new SkillError("SKILL_ENTITLEMENT_DENIED", "AI provider unavailable");
         if (!context.pluginInstallationId)
-          throw new SkillError("SKILL_ENTITLEMENT_DENIED", "AI capability requires an employee context");
+          throw new SkillError("SKILL_ENTITLEMENT_DENIED", "AI capability requires an agent context");
         const { provider } = await services.pluginAi.resolveProvider(
           context.organizationId,
           context.pluginInstallationId,

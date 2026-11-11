@@ -7,14 +7,14 @@ import { blogPosts } from "@/content/blog";
 
 export const metadata: Metadata = defaultMetadata({
   title: "Blog",
-  description: "Perspectives on AI employees, governance and how teams put Krevia.ai to work.",
+  description: "Perspectives on AI agents, governance and how teams put Krevia.ai to work.",
   path: "/resources/blog",
 });
 
 export default function BlogListingPage() {
   return (
     <>
-      <PageHero eyebrow="Blog" title="Ideas on AI Employees at Work" description="Practical perspectives from the Krevia.ai team." />
+      <PageHero eyebrow="Blog" title="Ideas on AI Agents at Work" description="Practical perspectives from the Krevia.ai team." />
       <section className="mx-auto max-w-5xl px-4 py-9 sm:px-6 lg:px-8">
         <div className="space-y-6">
           {blogPosts.map((post) => (

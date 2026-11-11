@@ -1,8 +1,8 @@
-# Sprint 4.3 — Employee-Scoped Knowledge and Grounded RAG
+# Sprint 4.3 — Agent-Scoped Knowledge and Grounded RAG
 
 > Supersedes the Sprint 4.1 design below. Sprint 4.1 UAT found that even though upload, chunking,
-> embedding, indexing, and retrieval all worked, AI Employee responses ignored the retrieved
-> knowledge entirely, and knowledge was shared organization-wide instead of per AI Employee. This
+> embedding, indexing, and retrieval all worked, AI Agent responses ignored the retrieved
+> knowledge entirely, and knowledge was shared organization-wide instead of per AI Agent. This
 > revision introduces per-employee knowledge isolation and fixes the response-generation path so
 > retrieved knowledge is actually used.
 
@@ -17,11 +17,11 @@ Organization
 ```
 
 Every `KnowledgeDocument` belongs to exactly one `KnowledgeCollection`, and every collection belongs
-to exactly one AI Employee. `KnowledgeChunk` additionally denormalizes `pluginInstallationId` (the
-owning employee) and `collectionId` directly onto the chunk row, so retrieval filters by employee
+to exactly one AI Agent. `KnowledgeChunk` additionally denormalizes `pluginInstallationId` (the
+owning agent) and `collectionId` directly onto the chunk row, so retrieval filters by agent
 with a single indexed predicate instead of a join — a chunk can never be a search candidate for any
-employee other than the one that owns its collection. There is no organization-wide knowledge view;
-every read/write API is nested under an AI Employee id.
+agent other than the one that owns its collection. There is no organization-wide knowledge view;
+every read/write API is nested under an AI Agent id.
 
 Retrieval always filters by `organizationId` **and** `pluginInstallationId` before the vector search
 runs (see `KnowledgeSearchService.search` in `apps/api/src/knowledge/knowledge.search.ts`), with an
@@ -67,9 +67,9 @@ deterministic dev/test provider, so every provider type can write into the same 
 configured embedding model that returns a different width fails fast with
 `EMBEDDING_PROVIDER_DIMENSION_MISMATCH` instead of corrupting the index.
 
-The embedding provider is resolved from **the specific AI Employee's own** `PluginAiConfiguration`
+The embedding provider is resolved from **the specific AI Agent's own** `PluginAiConfiguration`
 (`pluginInstallationId`-scoped), not "whichever plugin in the organization was configured most
-recently" as in Sprint 4.1 — two employees in the same organization may use entirely different
+recently" as in Sprint 4.1 — two agents in the same organization may use entirely different
 embedding providers.
 
 ### Requires the pgvector Postgres extension
@@ -147,7 +147,7 @@ never the ancestor path, so a real policy section nested under an "Appendix" hea
 just because an ancestor says so — into `INTRODUCTION`, `METADATA`, `TABLE_OF_CONTENTS`, `APPENDIX`,
 `INTERNAL_NOTE`, or `SECTION`. The pattern list is purely generic document-genre vocabulary
 ("introduction", "table of contents", "appendix", "version history", "note for AI/implementation team",
-...) — never a business/policy name — so it applies unchanged to any future AI Employee's documents.
+...) — never a business/policy name — so it applies unchanged to any future AI Agent's documents.
 Ranking (`documentRolePenalty` in `SCORE_WEIGHTS`) heavily penalizes anything that isn't `SECTION`, and
 the response-generation confidence gate (`isNonPolicyDocumentRole`, see below) rejects it outright
 regardless of score — this is what stops an unsupported/unmatched query from ever falling back to "the
@@ -184,21 +184,21 @@ page lines) are built separately and are never affected.
 ### Request classification and routing
 
 `apps/api/src/agents/request-classifier.ts` is the single central classifier for every inbound message,
-reused by every current and future AI Employee. `classifyRequestIntent` returns one of `KNOWLEDGE_QUERY`,
+reused by every current and future AI Agent. `classifyRequestIntent` returns one of `KNOWLEDGE_QUERY`,
 `TASK_EXECUTION`, `TRAVEL_PLANNING`, `SLOT_UPDATE`, `CONFIRMATION`, `CORRECTION`, `GENERAL_CHAT`, or
 `UNKNOWN` — computed from the current message's text alone, never from whether `knowledge.search`
-returned anything or how well it scored. Domain (today: Travel Employee) signals are checked first and
+returned anything or how well it scored. Domain (today: Travel Agent) signals are checked first and
 always win over incidental policy-vocabulary overlap (e.g. "travel" appearing in both "travel policy"
 and "i want to travel delhi to mumbai"). `AgentService.execute` only ever lets the central
 grounded-answer bypass fire — and only it may return "I could not find this information in the uploaded
 knowledge." — via `isKnowledgeEligible(requestIntent)`, i.e. exactly `KNOWLEDGE_QUERY`; every other
-category continues through the employee's normal provider/tool workflow unconditionally, so
+category continues through the agent's normal provider/tool workflow unconditionally, so
 "i want to travel delhi to mumbai on 10 dec 26" is never hijacked by a low-relevance knowledge chunk.
 Knowledge search still runs on every turn for prompt context/diagnostics regardless of classification.
 
 ## Prompt construction and grounding
 
-Every AI Employee — travel or otherwise — is assembled through the same order (`PromptBuilder` in
+Every AI Agent — travel or otherwise — is assembled through the same order (`PromptBuilder` in
 `apps/api/src/agents/agent.runtime.ts`):
 
 ```text
@@ -217,9 +217,9 @@ therefore outweighed by) prior turns.
 retrieval returns qualifying sources through a deterministic **Answer / Supporting policy / Source /
 Confidence** template (`buildKnowledgeAnswer` in `knowledge.prompt.ts`), instead of trusting free-form
 model prose to follow that structure or to actually prefer the retrieved text over its own pretrained
-knowledge. This is unconditional and provider-agnostic: it applies the same way whether the employee
+knowledge. This is unconditional and provider-agnostic: it applies the same way whether the agent
 is backed by the deterministic dev provider or a real OpenAI/Azure model, and it is what fixed the
-Sprint 4.1 defect where the Travel Employee's response-generation calls received the retrieved
+Sprint 4.1 defect where the Travel Agent's response-generation calls received the retrieved
 knowledge in their prompt but never actually read it.
 
 **Section-summary answers.** A query asking for an entire policy/section — a named topic like
@@ -234,12 +234,12 @@ top-ranked chunks are genuine siblings at least two heading levels deep (never t
 heading alone, which would otherwise wrongly merge unrelated top-level sections, e.g. "Company Name"
 and "Portal Benefits", that merely happen to share a document title).
 
-When no source qualifies but the message explicitly names another AI Employee's domain (e.g. "leave
-policy", "payroll", "invoice" — see `namesOtherEmployeeDomain`), the employee replies with the fixed
+When no source qualifies but the message explicitly names another AI Agent's domain (e.g. "leave
+policy", "payroll", "invoice" — see `namesOtherEmployeeDomain`), the agent replies with the fixed
 message below rather than drifting into unrelated conversation or a task flow that was never meant to
 answer it. This is deliberately narrow (multi-word, unambiguous phrases only) so a generic AI
-Employee remains free to hold ordinary conversation, including general-knowledge questions its
-configured provider can answer, when nothing in the turn names another employee's specific domain.
+Agent remains free to hold ordinary conversation, including general-knowledge questions its
+configured provider can answer, when nothing in the turn names another agent's specific domain.
 
 > I could not find this information in the uploaded knowledge.
 
@@ -256,16 +256,16 @@ text beyond the already-public chunk content.
 ## API
 
 - `POST /api/v1/knowledge/employees/:employeeId/collections` — create a knowledge collection
-- `GET /api/v1/knowledge/employees/:employeeId/collections` — list an employee's collections
+- `GET /api/v1/knowledge/employees/:employeeId/collections` — list an agent's collections
 - `PATCH /api/v1/knowledge/collections/:id` — rename/update a collection
 - `DELETE /api/v1/knowledge/collections/:id` — delete an empty, non-default collection
 - `POST /api/v1/knowledge/employees/:employeeId/collections/:collectionId/documents` — multipart
   upload and bounded synchronous indexing
-- `GET /api/v1/knowledge/employees/:employeeId/documents` — paginated document list for one employee
+- `GET /api/v1/knowledge/employees/:employeeId/documents` — paginated document list for one agent
 - `GET /api/v1/knowledge/documents/:id` — metadata and chunk previews
 - `POST /api/v1/knowledge/documents/:id/reindex` — replace existing chunks
 - `DELETE /api/v1/knowledge/documents/:id` — soft delete and remove searchable chunks
-- `POST /api/v1/knowledge/employees/:employeeId/search` — employee-scoped hybrid search
+- `POST /api/v1/knowledge/employees/:employeeId/search` — agent-scoped hybrid search
 
 Normal responses never contain embeddings, storage paths, provider secrets, or extracted full
 document text.
@@ -274,16 +274,16 @@ document text.
 
 1. Recreate the local Postgres container against the new `pgvector/pgvector:pg16` image (see above),
    run migrations, and seed RBAC.
-2. Install two AI Employees in one organization (e.g. Travel Employee and a second, generic
-   installation) and create one knowledge collection per employee.
-3. Open `/knowledge`, select the Travel Employee, upload a small travel-policy document containing a
+2. Install two AI Agents in one organization (e.g. Travel Agent and a second, generic
+   installation) and create one knowledge collection per agent.
+3. Open `/knowledge`, select the Travel Agent, upload a small travel-policy document containing a
    company name and a cancellation policy.
-4. Confirm the document reaches `INDEXED`, then ask the Travel Employee "What is your company name?"
+4. Confirm the document reaches `INDEXED`, then ask the Travel Agent "What is your company name?"
    and confirm the response is grounded in the uploaded document (Answer / Supporting policy /
    Source / Confidence), not a generic reply.
-5. Ask the Travel Employee a question naming the other employee's domain (e.g. "What is the leave
+5. Ask the Travel Agent a question naming the other agent's domain (e.g. "What is the leave
    policy?") and confirm it explicitly states the knowledge is unavailable rather than guessing.
-6. Ask the second employee the same domain question with its own matching document uploaded, and
+6. Ask the second agent the same domain question with its own matching document uploaded, and
    confirm it answers correctly — proving isolation holds in both directions.
 
 ## Current limitations
@@ -296,7 +296,7 @@ document text.
   tables today — "do not split tables" is fully honored for markdown source documents only.
 - The "no knowledge available" cross-employee-domain detector is a small, curated phrase list
   (`namesOtherEmployeeDomain`), not a general classifier — it will not catch every possible way of
-  asking about another employee's domain, by design (a broad "any question word" heuristic was tried
+  asking about another agent's domain, by design (a broad "any question word" heuristic was tried
   and rejected: it incorrectly blocked ordinary conversation and general-knowledge questions).
 - Prompt-injection defenses reduce risk but do not eliminate it.
 - The no-op virus scanner is an explicit extension point and does not claim to scan files.

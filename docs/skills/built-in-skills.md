@@ -55,7 +55,7 @@ never fails the skill call; it silently degrades to extractive summarization.
 **File**: `apps/api/src/skills-platform/built-in/entity-extraction.skill.ts`
 
 **Purpose**: Extracts structured fields from free text according to a fully **caller-supplied**
-schema — the skill has no hardcoded knowledge of any employee's domain (Travel/HR/Finance/etc.);
+schema — the skill has no hardcoded knowledge of any agent's domain (Travel/HR/Finance/etc.);
 field names and types are entirely defined by whoever calls it.
 
 **Input**: `{ text, entitySchema: Record<string, "string"|"number"|"boolean"|"date">, context? }`.

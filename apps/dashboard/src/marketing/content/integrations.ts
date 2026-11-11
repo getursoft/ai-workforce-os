@@ -9,7 +9,7 @@ export interface IntegrationCategory {
 export const integrationCategories: IntegrationCategory[] = [
   {
     name: "CRM",
-    description: "Keep customer and pipeline data flowing between AI employees and your CRM.",
+    description: "Keep customer and pipeline data flowing between AI agents and your CRM.",
     items: [
       { name: "Salesforce", status: "In Development" },
       { name: "HubSpot", status: "In Development" },
@@ -19,7 +19,7 @@ export const integrationCategories: IntegrationCategory[] = [
   },
   {
     name: "Email",
-    description: "Send, read and organise email as part of an AI employee's workflow.",
+    description: "Send, read and organise email as part of an AI agent's workflow.",
     items: [
       { name: "Microsoft Outlook", status: "In Development" },
       { name: "Google Workspace Mail", status: "In Development" },
@@ -47,7 +47,7 @@ export const integrationCategories: IntegrationCategory[] = [
   },
   {
     name: "Databases",
-    description: "Connect AI employees to structured operational and analytical data.",
+    description: "Connect AI agents to structured operational and analytical data.",
     items: [
       { name: "PostgreSQL", status: "Available" },
       { name: "MySQL", status: "Available" },
@@ -73,7 +73,7 @@ export const integrationCategories: IntegrationCategory[] = [
   },
   {
     name: "Travel Systems",
-    description: "Support the Travel AI Employee with connected booking and rate data.",
+    description: "Support the Travel AI Agent with connected booking and rate data.",
     items: [
       { name: "Global Distribution Systems", status: "Planned" },
       { name: "Hotel Rate Providers", status: "Planned" },

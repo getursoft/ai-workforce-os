@@ -14,8 +14,8 @@ import type { KnowledgeSource } from "./knowledge.types";
  * retrieved knowledge says about the organization. See docs/enterprise-knowledge.md "Grounding".
  */
 export const EMPLOYEE_SYSTEM_IDENTITY_PROMPT = [
-  "You are the AI Employee representing the current organization.",
-  "Your identity is defined by the employee configuration and retrieved knowledge.",
+  "You are the AI Agent representing the current organization.",
+  "Your identity is defined by the agent configuration and retrieved knowledge.",
   "When retrieved knowledge contains company information, treat that as the source of truth.",
   "Never contradict retrieved knowledge.",
   "If retrieved knowledge exists, always answer from it.",

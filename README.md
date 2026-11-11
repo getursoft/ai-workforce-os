@@ -1,9 +1,20 @@
 # AI Workforce OS
 
-Enterprise knowledge and grounded AI employee responses are documented in
+**An Enterprise AI Agent Operating System.**
+
+Enterprise knowledge and grounded AI agent responses are documented in
 [`docs/enterprise-knowledge.md`](docs/enterprise-knowledge.md).
 
-AI Workforce OS is an enterprise platform foundation for operating AI-enabled workforces. Sprint 1.1 adds the real browser dashboard, login flow, protected routes, and secure browser-auth integration on top of the identity backend.
+## Terminology
+
+The platform's AI-powered digital workers are called **AI Agents** (formerly "AI Employees"): Travel Agent, HR Agent,
+Finance Agent, and so on. "Employee" still means a *human* employee of a customer organisation (HR leave requests,
+HR/IT tickets, approvals). Naming rules for UI, code, API and database are in
+[`docs/AGENT_TERMINOLOGY_STANDARD.md`](docs/AGENT_TERMINOLOGY_STANDARD.md); the migration audit and results are in
+[`docs/AGENT_TERMINOLOGY_MIGRATION_AUDIT.md`](docs/AGENT_TERMINOLOGY_MIGRATION_AUDIT.md). Existing `-employee` API paths
+and plugin ids remain as supported aliases.
+
+AI Workforce OS is an enterprise platform foundation for operating AI-enabled agent workforces. Sprint 1.1 adds the real browser dashboard, login flow, protected routes, and secure browser-auth integration on top of the identity backend.
 
 ## Project Vision
 

@@ -5,7 +5,7 @@ import { statusMessage } from "./channel-pages";
 describe("channel status messages", () => {
   it.each([
     ["CHANNEL_CONFIGURATION_INCOMPLETE", "Account SID, Auth Token, and sender number"],
-    ["AGENT_NOT_FOUND", "Select an active AI employee"],
+    ["AGENT_NOT_FOUND", "Select an active AI agent"],
     ["AGENT_NOT_ACTIVE", "not active"],
     ["CHANNEL_CREDENTIALS_REQUIRED", "Configure the Twilio credentials"],
     ["CHANNEL_PROVIDER_AUTHENTICATION_FAILED", "rejected the configured Account SID"],

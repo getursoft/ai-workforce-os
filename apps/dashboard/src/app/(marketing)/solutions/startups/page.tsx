@@ -15,7 +15,7 @@ export const metadata: Metadata = defaultMetadata({
 });
 
 const points = [
-  { icon: Rocket, title: "Fast to Deploy", description: "Get an AI employee live for support, sales or operations in days." },
+  { icon: Rocket, title: "Fast to Deploy", description: "Get an AI agent live for support, sales or operations in days." },
   { icon: Gauge, title: "Scales With You", description: "Add coverage as customer and employee volume grows, without a hiring cycle for every increase." },
   { icon: Wallet, title: "Predictable Cost", description: "Extend team capacity without proportional headcount growth." },
   { icon: Users, title: "Focus Where It Matters", description: "Free your small team to focus on product and customers, not repetitive admin." },
@@ -44,10 +44,10 @@ export default function StartupsSolutionPage() {
 
       <section className="bg-white py-9">
         <div className="mx-auto max-w-3xl px-4 text-center sm:px-6 lg:px-8">
-          <SectionHeading title="Start Small, Scale as You Grow" description="Begin with a single AI employee and expand coverage as your organisation grows." />
+          <SectionHeading title="Start Small, Scale as You Grow" description="Begin with a single AI agent and expand coverage as your organisation grows." />
           <div className="mt-8 flex flex-wrap justify-center gap-4">
             <ButtonLink href="/pricing" variant="primary">See Pricing</ButtonLink>
-            <ButtonLink href="/meet-ai-employees" variant="secondary">Explore AI Employees</ButtonLink>
+            <ButtonLink href="/meet-ai-agents" variant="secondary">Explore AI Agents</ButtonLink>
           </div>
         </div>
       </section>

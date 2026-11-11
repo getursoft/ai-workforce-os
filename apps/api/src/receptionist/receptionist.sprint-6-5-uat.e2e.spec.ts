@@ -114,7 +114,7 @@ suite("Sprint 6.5: conversation intelligence, temporal understanding & state rel
       expect(krishna.response).not.toMatch(NAME_ASK_PATTERN);
 
       const wantsTravel = await say("I want to travel next month");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
       expect(wantsTravel.response).not.toMatch(NAME_ASK_PATTERN); // identity already known, never re-asked
 
       await say("Dubai");
@@ -158,11 +158,11 @@ suite("Sprint 6.5: conversation intelligence, temporal understanding & state rel
       // Mid-flow domain pivot: identity must carry over to HR without re-asking, even with an active
       // Travel handoff and in-flight trip state.
       const hrPivot = await say("I need HR help instead");
-      expect(hrPivot.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(hrPivot.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
       expect(hrPivot.response).not.toMatch(NAME_ASK_PATTERN);
 
       const salaryQuestion = await say("I have a salary question");
-      expect(salaryQuestion.receptionist?.handoff?.targetDisplayName).toBe("HR Employee");
+      expect(salaryQuestion.receptionist?.handoff?.targetDisplayName).toBe("HR Agent");
     }, 90_000);
   });
 
@@ -182,10 +182,10 @@ suite("Sprint 6.5: conversation intelligence, temporal understanding & state rel
       // subsequent slot (Part 30's actual focus) is collected out of order with no further re-asking.
       const budgetFirst = await say("Budget is 120000 AED for my trip.");
       const budgetRouted =
-        budgetFirst.receptionist?.handoff?.targetDisplayName === "Travel Employee"
+        budgetFirst.receptionist?.handoff?.targetDisplayName === "Travel Agent"
           ? budgetFirst
           : await say("Travel");
-      expect(budgetRouted.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(budgetRouted.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       await say("We're 2 adults.");
       await say("Planning for next month.");
@@ -233,7 +233,7 @@ suite("Sprint 6.5: conversation intelligence, temporal understanding & state rel
       // into a Hindi sentence, rather than testing an orthogonal routing-vocabulary gap this sprint didn't
       // scope in.
       const wantsTravel = await say("Dubai trip jana hai next month.");
-      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Employee");
+      expect(wantsTravel.receptionist?.handoff?.targetDisplayName).toBe("Travel Agent");
 
       await say("Delhi se.");
       await say("2 adults hain.");

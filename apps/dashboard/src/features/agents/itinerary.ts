@@ -11,7 +11,7 @@ const HOTELS_HEADER = "Hotel options:";
 const ITINERARY_HEADER = "Itinerary summary:";
 
 /**
- * Parses the Travel Employee's recommendation message (a fixed, predictable text layout produced by
+ * Parses the Travel Agent's recommendation message (a fixed, predictable text layout produced by
  * buildRecommendationMessage) into sections the dashboard can render as cards. Any other assistant
  * message — including LLM-generated conversational replies — simply doesn't match and falls back to
  * plain bubble text.

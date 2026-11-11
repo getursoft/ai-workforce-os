@@ -1,6 +1,6 @@
 export type IconColor = "blue" | "lavender" | "mint" | "cyan" | "saffron" | "pink";
 
-export type EmployeeBadge = "Enterprise Ready" | "24×7 Available" | "AI Employee";
+export type EmployeeBadge = "Enterprise Ready" | "24×7 Available" | "AI Agent";
 
 export interface AiEmployee {
   slug: string;
@@ -22,7 +22,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "travel",
     name: "Aria",
-    role: "Travel AI Employee",
+    role: "Travel AI Agent",
     department: "Travel and Operations",
     iconColor: "blue",
     badge: "24×7 Available",
@@ -64,7 +64,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "hr",
     name: "Priya",
-    role: "HR AI Employee",
+    role: "HR AI Agent",
     department: "Human Resources",
     iconColor: "lavender",
     badge: "Enterprise Ready",
@@ -106,7 +106,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "finance",
     name: "Arjun",
-    role: "Finance AI Employee",
+    role: "Finance AI Agent",
     department: "Finance",
     iconColor: "mint",
     badge: "Enterprise Ready",
@@ -148,7 +148,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "it-support",
     name: "Kabir",
-    role: "IT Support AI Employee",
+    role: "IT Support AI Agent",
     department: "Information Technology",
     iconColor: "cyan",
     badge: "24×7 Available",
@@ -193,10 +193,10 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "sales",
     name: "Maya",
-    role: "Sales AI Employee",
+    role: "Sales AI Agent",
     department: "Sales",
     iconColor: "saffron",
-    badge: "AI Employee",
+    badge: "AI Agent",
     summary:
       "Maya qualifies leads, answers product questions, prepares reps for meetings and keeps CRM data current between human conversations.",
     responsibilities: [
@@ -237,10 +237,10 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "marketing",
     name: "Neha",
-    role: "Marketing AI Employee",
+    role: "Marketing AI Agent",
     department: "Marketing",
     iconColor: "pink",
-    badge: "AI Employee",
+    badge: "AI Agent",
     summary:
       "Neha supports campaign planning, drafts on-brand content and summarises performance so your marketing team can focus on strategy.",
     responsibilities: [
@@ -280,7 +280,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "legal",
     name: "Vikram",
-    role: "Legal Document AI Employee",
+    role: "Legal Document AI Agent",
     department: "Legal and Compliance",
     iconColor: "mint",
     badge: "Enterprise Ready",
@@ -322,7 +322,7 @@ export const aiEmployees: AiEmployee[] = [
   {
     slug: "customer-support",
     name: "Ananya",
-    role: "Customer Support AI Employee",
+    role: "Customer Support AI Agent",
     department: "Customer Support",
     iconColor: "lavender",
     badge: "24×7 Available",
@@ -363,13 +363,13 @@ export const aiEmployees: AiEmployee[] = [
   },
   {
     slug: "custom",
-    name: "Your AI Employee",
-    role: "Custom AI Employee",
+    name: "Your AI Agent",
+    role: "Custom AI Agent",
     department: "Any Department",
     iconColor: "blue",
-    badge: "AI Employee",
+    badge: "AI Agent",
     summary:
-      "Beyond the standard roles, Krevia.ai lets you configure a custom AI employee shaped around your specific processes, terminology and tools.",
+      "Beyond the standard roles, Krevia.ai lets you configure a custom AI agent shaped around your specific processes, terminology and tools.",
     responsibilities: [
       "Defined around your specific department or process",
       "Configured with your organisation's terminology and tone",
@@ -379,13 +379,13 @@ export const aiEmployees: AiEmployee[] = [
       "Extended over time as your requirements evolve",
     ],
     exampleRequests: [
-      "Build an AI employee for procurement vendor queries",
-      "Create an AI employee for legal contract summarisation support",
-      "Configure an AI employee for internal audit questions",
-      "Design an AI employee for facilities and admin requests",
+      "Build an AI agent for procurement vendor queries",
+      "Create an AI agent for legal contract summarisation support",
+      "Configure an AI agent for internal audit questions",
+      "Design an AI agent for facilities and admin requests",
     ],
     outcomes: [
-      "A role-fit AI employee instead of a generic assistant",
+      "A role-fit AI agent instead of a generic assistant",
       "Faster time to value for niche or specialised workflows",
       "Consistent behaviour aligned to your internal standards",
       "Room to expand scope as trust and adoption grow",
@@ -398,7 +398,7 @@ export const aiEmployees: AiEmployee[] = [
     ],
     worksWith: ["Any department you choose"],
     handoffNote:
-      "Custom AI employees are scoped collaboratively with your team during onboarding, with clear boundaries on what they can and cannot do without human approval.",
+      "Custom AI agents are scoped collaboratively with your team during onboarding, with clear boundaries on what they can and cannot do without human approval.",
   },
 ];
 

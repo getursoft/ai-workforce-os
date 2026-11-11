@@ -280,7 +280,7 @@ export class ReceptionistRoutingService {
         {
           role: "system",
           content:
-            "Classify workforce intake. Return JSON only with employeeCapability, secondaryCapabilities, intent, confidence, reasonCode. Select only a supplied capability. Never return an employee id. Ask no questions and include no prose."
+            "Classify workforce intake. Return JSON only with employeeCapability, secondaryCapabilities, intent, confidence, reasonCode. Select only a supplied capability. Never return an agent id. Ask no questions and include no prose."
         },
         {
           role: "user",

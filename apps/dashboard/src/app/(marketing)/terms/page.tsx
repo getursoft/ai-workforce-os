@@ -17,11 +17,11 @@ const sections = [
   },
   {
     title: "2. Description of Service",
-    body: "Krevia.ai provides a platform for configuring and operating AI employees that assist with business tasks, grounded in customer-provided knowledge and connected systems.",
+    body: "Krevia.ai provides a platform for configuring and operating AI agents that assist with business tasks, grounded in customer-provided knowledge and connected systems.",
   },
   {
     title: "3. Customer Responsibilities",
-    body: "Customers are responsible for the accuracy of data and knowledge sources they connect, for configuring appropriate approval controls, and for reviewing AI employee outputs before relying on them for consequential decisions.",
+    body: "Customers are responsible for the accuracy of data and knowledge sources they connect, for configuring appropriate approval controls, and for reviewing AI agent outputs before relying on them for consequential decisions.",
   },
   {
     title: "4. Acceptable Use",
@@ -29,7 +29,7 @@ const sections = [
   },
   {
     title: "5. AI Output Disclaimer",
-    body: "AI employees provide assistance based on configured knowledge sources and are not a substitute for professional, legal, financial or medical advice. Sensitive or high-impact actions require human review as configured by your organisation.",
+    body: "AI agents provide assistance based on configured knowledge sources and are not a substitute for professional, legal, financial or medical advice. Sensitive or high-impact actions require human review as configured by your organisation.",
   },
   {
     title: "6. Availability",

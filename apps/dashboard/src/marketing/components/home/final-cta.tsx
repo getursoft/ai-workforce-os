@@ -24,7 +24,7 @@ export function FinalCta() {
             <Sparkles className="h-5 w-5 text-saffron" aria-hidden="true" />
           </span>
           <h2 className="mt-5 text-[30px] font-extrabold leading-tight text-royal sm:text-[42px]">
-            Ready to put AI employees to work?
+            Ready to put AI agents to work?
           </h2>
           <p className="mt-4 text-base leading-relaxed text-muted">
             See how Krevia.ai can be configured around your organisation in a guided, no-pressure demo.

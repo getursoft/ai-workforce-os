@@ -146,7 +146,7 @@ export function DashboardHome() {
         </Card>
 
         <Card>
-          <h2>Time Saved by AI Employee</h2>
+          <h2>Time Saved by AI Agent</h2>
           <p className="dashboard-home__muted">
             Estimated at {assumedMinutesSaved} minutes of manual work per completed request.
           </p>
@@ -163,7 +163,7 @@ export function DashboardHome() {
 
       <section className="dashboard-grid dashboard-grid--two">
         <Card>
-          <h2>AI Employees in Use</h2>
+          <h2>AI Agents in Use</h2>
           {employees.isLoading ? (
             <Skeleton className="dashboard-home__list-skeleton" />
           ) : (
@@ -182,14 +182,14 @@ export function DashboardHome() {
                   ))}
                 </ul>
               ) : (
-                <p className="dashboard-home__muted">No AI Employee is active and configured yet.</p>
+                <p className="dashboard-home__muted">No AI Agent is active and configured yet.</p>
               )}
             </>
           )}
         </Card>
 
         <Card>
-          <h2>Credits by AI Employee</h2>
+          <h2>Credits by AI Agent</h2>
           <EmployeeLineChart
             loading={employeeTrend.isLoading}
             series={employeeTrendSeries}
@@ -198,7 +198,7 @@ export function DashboardHome() {
             emptyMessage="No credit usage has been recorded yet in the last 30 days."
           />
 
-          <h2>Tokens by AI Employee</h2>
+          <h2>Tokens by AI Agent</h2>
           <EmployeeLineChart
             loading={employeeTrend.isLoading}
             series={employeeTrendSeries}

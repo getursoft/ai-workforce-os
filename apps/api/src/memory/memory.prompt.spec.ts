@@ -92,11 +92,11 @@ describe("memory prompt block", () => {
       })
     );
     expect(block.join("\n")).toContain("Organization memory");
-    expect(block.join("\n")).toContain("Employee memory");
+    expect(block.join("\n")).toContain("Agent memory");
     expect(block.join("\n")).toContain("User memory");
     expect(block.join("\n")).toContain("Conversation summary");
     const order = block.join("\n").indexOf("Organization memory");
-    const employeeAt = block.join("\n").indexOf("Employee memory");
+    const employeeAt = block.join("\n").indexOf("Agent memory");
     const userAt = block.join("\n").indexOf("User memory");
     const summaryAt = block.join("\n").indexOf("Conversation summary");
     expect(order).toBeGreaterThan(-1);

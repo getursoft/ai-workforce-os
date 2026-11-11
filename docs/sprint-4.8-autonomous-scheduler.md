@@ -2,9 +2,9 @@
 
 ## Objective
 
-Before Sprint 4.8 the AI Workforce OS was purely reactive: an employee only worked when a customer (or a
+Before Sprint 4.8 the AI Workforce OS was purely reactive: an agent only worked when a customer (or a
 dashboard user) sent a message. Sprint 4.8 adds **autonomous execution** on top of the existing platform —
-scheduled reminders, follow-ups, escalation, and recurring work — so every AI Employee becomes proactive
+scheduled reminders, follow-ups, escalation, and recurring work — so every AI Agent becomes proactive
 (Travel, HR, Finance, Legal, Sales, …).
 
 This sprint is strictly **additive**. The Workflow Engine, Approval Engine, Memory Engine, Delegation
@@ -146,7 +146,7 @@ Viewer. Nested engine calls (workflows, approvals, agent runs) attach their own 
   `scheduler.template.write`, `scheduler.worker.read` (seeded to Owner/Admin/Manager/Viewer).
 - Every schedule/execution is hard tenant-scoped by `organizationId`; no query crosses tenants.
 - Deliveries and failures are audited through `AuditEventLogger`; approvals go through the Approval Engine.
-- Jobs may target a specific employee (Plugin installation) or run org-wide (service-account style).
+- Jobs may target a specific agent (Plugin installation) or run org-wide (service-account style).
 
 ## Runtime UAT
 

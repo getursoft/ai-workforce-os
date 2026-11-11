@@ -45,7 +45,7 @@ test.afterAll(async () => {
 });
 
 test("IDENTITY-001 a brand-new user is welcomed and must verify a phone number via OTP before Recruitment Consultant does anything real", async ({ page }) => {
-  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/ai-employees/${pluginId}`);
+  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/agents/${pluginId}`);
 
   // Turn 1: first contact — welcomed, asked to verify, NOT a tool reply or an AI answer.
   await page.locator("#agent-message").fill("Hi");

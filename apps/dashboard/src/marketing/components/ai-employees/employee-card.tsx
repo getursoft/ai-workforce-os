@@ -32,7 +32,7 @@ export function EmployeeCard({ employee }: { employee: AiEmployee }) {
       </div>
 
       <Link
-        href={`/meet-ai-employees/${employee.slug}`}
+        href={`/meet-ai-agents/${employee.slug}`}
         className="focus-ring group/link mt-auto inline-flex items-center gap-1.5 pt-2.5 text-sm font-semibold text-saffron hover:underline"
       >
         View Details

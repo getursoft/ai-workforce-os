@@ -9,10 +9,10 @@ import type { IdentityRequest } from "../identity/presentation/http/request-cont
 import { UpdateEmployeeConfigurationDto } from "../employees/employee.dto";
 import { CustomerSupportEmployeeService } from "./customer-support-employee.service";
 
-@ApiTags("Customer Support Employee")
+@ApiTags("Customer Support Agent")
 @ApiBearerAuth()
 @UseGuards(JwtAccessGuard, PermissionGuard)
-@Controller("customer-support-employee")
+@Controller(["customer-support-agent", "customer-support-employee"])
 export class CustomerSupportEmployeeController {
   constructor(private readonly support: CustomerSupportEmployeeService) {}
 

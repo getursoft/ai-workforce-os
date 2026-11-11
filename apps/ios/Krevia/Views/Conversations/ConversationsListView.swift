@@ -122,7 +122,7 @@ private struct EmptyConversationsView: View {
         VStack(spacing: 10) {
             Image(systemName: "bubble.left.and.bubble.right").font(.largeTitle).foregroundStyle(.secondary)
             Text("No conversations yet").font(.headline)
-            Text("Conversations your AI Employees have with customers will show up here.")
+            Text("Conversations your AI Agents have with customers will show up here.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

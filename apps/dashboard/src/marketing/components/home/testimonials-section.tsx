@@ -4,13 +4,13 @@ const scenarios = [
   {
     org: "Mid-sized travel and holidays company",
     quote:
-      "\"Our travel desk fields dozens of itinerary requests a day. An AI employee handling the first draft means our team now spends its time on the trips that need a human touch.\"",
+      "\"Our travel desk fields dozens of itinerary requests a day. An AI agent handling the first draft means our team now spends its time on the trips that need a human touch.\"",
     outcome: "Faster first response on trip enquiries",
   },
   {
     org: "Enterprise HR shared-services team",
     quote:
-      "\"Most of what reaches HR is repeatable — leave balances, policy questions, onboarding steps. Handling that volume with an AI employee freed our HR team for the conversations that actually need them.\"",
+      "\"Most of what reaches HR is repeatable — leave balances, policy questions, onboarding steps. Handling that volume with an AI agent freed our HR team for the conversations that actually need them.\"",
     outcome: "Reduced repetitive query volume for HR staff",
   },
   {
@@ -27,7 +27,7 @@ export function TestimonialsSection() {
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           eyebrow="Representative use cases"
-          title="How Teams Use AI Employees"
+          title="How Teams Use AI Agents"
           description="Illustrative scenarios based on common patterns we see across customer organisations."
         />
         <div className="mt-8 grid gap-6 lg:grid-cols-3">

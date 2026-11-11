@@ -50,7 +50,7 @@ function Tabs({ value, onChange }: { value: Tab; onChange: (tab: Tab) => void })
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: "connections", label: "Provider Connections" },
     { id: "profiles", label: "Model Profiles" },
-    { id: "assignments", label: "Employee Assignments" },
+    { id: "assignments", label: "Agent Assignments" },
     { id: "defaults", label: "Organization Defaults" }
   ];
   return (
@@ -81,7 +81,7 @@ export function AiConfigurationPage() {
             <h1>AI Providers</h1>
             <p>
               Store an AI provider credential once per organization, build reusable model profiles
-              from it, and let employees reference those profiles instead of copying API keys.
+              from it, and let agents reference those profiles instead of copying API keys.
             </p>
           </div>
         </header>
@@ -504,7 +504,7 @@ function ProfilesTab() {
         title="Delete model profile?"
         description={
           deleteTarget && (deleteTarget._count?.employeeAssignments ?? 0) > 0
-            ? `${deleteTarget.name} is assigned to ${deleteTarget._count?.employeeAssignments} employee(s) — reassign those first, or disable the profile instead of deleting it.`
+            ? `${deleteTarget.name} is assigned to ${deleteTarget._count?.employeeAssignments} agent(s) — reassign those first, or disable the profile instead of deleting it.`
             : "This profile will be permanently deleted."
         }
         destructive
@@ -555,14 +555,14 @@ function AssignmentsTab() {
   return (
     <>
       <div className="admin-toolbar">
-        <Label htmlFor="assignment-employee">Employee</Label>
+        <Label htmlFor="assignment-employee">Agent</Label>
         <select
           className="ui-input"
           id="assignment-employee"
           value={employeeId}
           onChange={(event) => setEmployeeId(event.target.value)}
         >
-          <option value="">Select an employee…</option>
+          <option value="">Select an agent…</option>
           {employees.data?.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.displayName}
@@ -573,8 +573,8 @@ function AssignmentsTab() {
 
       {!employeeId ? (
         <EmptyState
-          title="Choose an employee"
-          description="Assignments override that employee's organization defaults for the selected purpose. No assignment at all means the employee inherits the organization default."
+          title="Choose an agent"
+          description="Assignments override that agent's organization defaults for the selected purpose. No assignment at all means the agent inherits the organization default."
         />
       ) : (
         <>
@@ -646,7 +646,7 @@ function AssignmentsTab() {
             </div>
           ) : (
             <EmptyState
-              title="No overrides for this employee"
+              title="No overrides for this agent"
               description="It fully inherits organization defaults for every purpose."
             />
           )}
@@ -686,8 +686,8 @@ function DefaultsTab() {
   return (
     <div className="admin-form">
       <p>
-        Employees with no explicit assignment inherit these defaults. Changing a default here
-        immediately changes what every inheriting employee uses — no need to re-enter the API key.
+        Agents with no explicit assignment inherit these defaults. Changing a default here
+        immediately changes what every inheriting agent uses — no need to re-enter the API key.
       </p>
       {DEFAULT_FIELDS.map((field) => (
         <div key={field.key}>

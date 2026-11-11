@@ -592,5 +592,5 @@ function purposeSubject(definitionKey: string): string {
     "sales.reminder.lead_followup": "Lead follow-up",
     "sales.reminder.proposal": "Proposal reminder"
   };
-  return subjects[definitionKey] ?? "AI Employee reminder";
+  return subjects[definitionKey] ?? "AI Agent reminder";
 }

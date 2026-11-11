@@ -105,7 +105,7 @@ export function ChatbotPanel() {
           id="chatbot-input"
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask about AI employees, pricing, security…"
+          placeholder="Ask about AI agents, pricing, security…"
           className="focus-ring w-full rounded-full border border-royal/15 px-4 py-2 text-sm text-ink placeholder:text-muted/70"
         />
         <button

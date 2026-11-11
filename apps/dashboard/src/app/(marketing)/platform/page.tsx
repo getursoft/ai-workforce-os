@@ -23,14 +23,14 @@ import { ButtonLink } from "@/components/shared/button-link";
 export const metadata: Metadata = defaultMetadata({
   title: "Platform Overview",
   description:
-    "Krevia.ai is the operating layer for AI employees — managing knowledge, memory, tools, approvals, analytics, security and collaboration in one place.",
+    "Krevia.ai is the operating layer for AI agents — managing knowledge, memory, tools, approvals, analytics, security and collaboration in one place.",
   path: "/platform",
 });
 
 const layers = [
   {
     title: "Communication Channels",
-    description: "Where people and AI employees meet — on the web, internally, or by email.",
+    description: "Where people and AI agents meet — on the web, internally, or by email.",
     items: [
       { icon: Globe, label: "Web Chat" },
       { icon: MessageSquare, label: "Internal Channels" },
@@ -38,7 +38,7 @@ const layers = [
     ],
   },
   {
-    title: "AI Employees",
+    title: "AI Agents",
     description: "Role-based AI workers configured for a department, with defined scope and tone.",
     items: [
       { icon: Users, label: "Travel · HR · Finance" },
@@ -48,7 +48,7 @@ const layers = [
   },
   {
     title: "Operating Layer",
-    description: "The shared core every AI employee runs on — knowledge, memory, tools, tasks and approvals.",
+    description: "The shared core every AI agent runs on — knowledge, memory, tools, tasks and approvals.",
     items: [
       { icon: BookOpen, label: "Organisational Knowledge" },
       { icon: BrainCircuit, label: "Memory & Preferences" },
@@ -69,14 +69,14 @@ const layers = [
 ];
 
 const pillars = [
-  { icon: Users, title: "AI Employee Management", description: "Configure, scope and monitor every AI employee from one place." },
+  { icon: Users, title: "AI Agent Management", description: "Configure, scope and monitor every AI agent from one place." },
   { icon: BookOpen, title: "Organisational Knowledge", description: "Ground responses in your documents, policies and systems." },
   { icon: BrainCircuit, title: "Memory and Preferences", description: "Retain relevant context across conversations and time." },
-  { icon: Wrench, title: "Tool Access", description: "Connect approved tools so AI employees can act, not just answer." },
+  { icon: Wrench, title: "Tool Access", description: "Connect approved tools so AI agents can act, not just answer." },
   { icon: ListChecks, title: "Task Execution", description: "Plan, track and complete multi-step work reliably." },
   { icon: ShieldCheck, title: "Human Approvals", description: "Route sensitive actions to the right person before they run." },
   { icon: BarChart3, title: "Analytics", description: "See usage, outcomes and trends across every department." },
-  { icon: Users2, title: "Multi-Agent Collaboration", description: "AI employees coordinate with each other and with your teams." },
+  { icon: Users2, title: "Multi-Agent Collaboration", description: "AI agents coordinate with each other and with your teams." },
 ];
 
 export default function PlatformPage() {
@@ -84,8 +84,8 @@ export default function PlatformPage() {
     <>
       <PageHero
         eyebrow="Platform"
-        title="One Operating Layer for Every AI Employee"
-        description="Krevia.ai is the operating system that AI employees run on — connecting knowledge, memory, tools, approvals, analytics and security into a single governed layer."
+        title="One Operating Layer for Every AI Agent"
+        description="Krevia.ai is the operating system that AI agents run on — connecting knowledge, memory, tools, approvals, analytics and security into a single governed layer."
       >
         <ButtonLink href="/book-demo" variant="primary" className="bg-saffron hover:bg-[#d97b00]">
           Book a Demo

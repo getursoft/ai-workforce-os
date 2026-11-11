@@ -1,9 +1,9 @@
 {
   "id": "customer-support-employee",
-  "name": "Customer Support Employee",
+  "name": "Customer Support Agent",
   "version": "1.0.0",
-  "displayName": "Customer Support Employee",
-  "description": "AI customer support employee. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
+  "displayName": "Customer Support Agent",
+  "description": "AI customer support agent. Answers customer questions, troubleshoots common issues and keeps support tickets moving around the clock.",
   "author": "AI Workforce OS",
   "entryPoint": "dist/index.js",
   "permissions": [
@@ -29,7 +29,7 @@
   "routing": {
     "employeeKey": "customer-support-employee",
     "employeeType": "CUSTOMER_SUPPORT",
-    "displayName": "Customer Support Employee",
+    "displayName": "Customer Support Agent",
     "summary": "Handles customer questions, refunds, returns, order status, and support tickets.",
     "domains": [
       "customer support",

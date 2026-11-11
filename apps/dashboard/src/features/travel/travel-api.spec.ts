@@ -3,7 +3,7 @@ import type { ApiClient } from "../../lib/api-client";
 import { createTravelApi } from "./travel-api";
 
 describe("travel API", () => {
-  it("reads and updates Travel Employee configuration", async () => {
+  it("reads and updates Travel Agent configuration", async () => {
     const request = vi.fn().mockResolvedValue({});
     const api = createTravelApi({ request } as unknown as ApiClient);
 

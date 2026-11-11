@@ -83,7 +83,7 @@ test.afterAll(async () => {
 });
 
 test("CHAT-TOOLS-001 a full multi-turn chat: greeting, list jobs, then create a job, all through the real browser UI with real tool execution", async ({ page }) => {
-  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/ai-employees/${pluginId}`);
+  auth.refreshToken = await authenticatePage(page, auth.refreshToken, `/agents/${pluginId}`);
 
   // Turn 1: greeting (no tools involved — proves the baseline still works). The DETERMINISTIC test
   // provider's reply text doesn't matter here (it's a generic travel-themed stand-in) — what matters is
