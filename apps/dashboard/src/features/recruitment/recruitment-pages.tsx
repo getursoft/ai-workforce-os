@@ -340,7 +340,7 @@ export function JobDetailPage() {
   });
   const batchStatusQuery = useQuery({
     queryKey: ["recruitment", "batch", batchId],
-    queryFn: () => api.batchStatus(batchId!),
+    queryFn: () => api.batchStatus(batchId ?? ""),
     enabled: Boolean(batchId),
     refetchInterval: (query) => {
       const data = query.state.data;

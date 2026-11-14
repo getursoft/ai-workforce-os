@@ -99,7 +99,7 @@ function passengersFor(count: number): PassengerDetail[] {
   return Array.from({ length: count }, (_, index) => ({
     name: names[index % names.length] ?? "Traveller",
     age: 20 + index,
-    gender: (["MALE", "FEMALE", "OTHER"] as const)[index % 3]
+    gender: (["MALE", "FEMALE", "OTHER"] as const)[index % 3] ?? "OTHER"
   }));
 }
 

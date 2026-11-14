@@ -9,6 +9,7 @@ import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ensurePlatformOwner } from "../test/cleanup";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 
 const PLATFORM_OWNER_EMAIL = process.env.PLATFORM_OWNER_EMAIL?.toLowerCase() || "krpandey25646@gmail.com";
 const PLATFORM_OWNER_PASSWORD = process.env.PLATFORM_OWNER_PASSWORD || "PlatformOwner@25646";
@@ -164,7 +165,7 @@ async function cleanup(prisma: PrismaService) {
   await prisma.conversation.deleteMany();
   await prisma.pluginAiConfiguration.deleteMany();
   await prisma.pluginConfiguration.deleteMany();
-  await prisma.plugin.deleteMany();
+  await deleteAllPluginData(prisma);
   await prisma.dummyCrmLead.deleteMany();
   await prisma.connectorExecution.deleteMany();
   await prisma.connectorEvent.deleteMany();

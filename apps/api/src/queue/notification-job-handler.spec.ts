@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NotificationJobHandler } from "./notification-job-handler";
-import { QueueMessageView } from "./queue.types";
+import type { QueueMessageView } from "./queue.types";
 
 describe("NotificationJobHandler", () => {
   let handler: NotificationJobHandler;

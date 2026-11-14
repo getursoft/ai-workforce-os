@@ -147,11 +147,11 @@ suite("Sprint 7.17 Phase 3 — recruitment export scale benchmark", () => {
 
           const result = { scale, format, finalStatus, rowCount, durationMs, heapDeltaMB: heapDeltaMB.toFixed(1), fileSizeBytes };
           results.push(result);
-          // eslint-disable-next-line no-console
+           
           console.log(JSON.stringify(result));
         }
       }
-      // eslint-disable-next-line no-console
+       
       console.log("\n=== Sprint 7.17 Phase 3 — Export Benchmark Results ===");
       console.table(results);
       writeFileSync(resolve(process.cwd(), "export-benchmark-results.json"), JSON.stringify(results, null, 2));
@@ -180,10 +180,10 @@ async function seedApplications(prisma: PrismaService, orgId: string, jobId: str
         fullName: `Synthetic Candidate ${n}`,
         mobileNumber: `+9199900${String(n).padStart(5, "0")}`,
         email: `synthetic-${n}@example.invalid`,
-        currentCity: cities[n % cities.length],
+        currentCity: cities[n % cities.length] ?? null,
         currentState: "Synthetic State",
         currentCountry: "India",
-        preferredWorkLocations: [cities[n % cities.length]],
+        preferredWorkLocations: [cities[n % cities.length] ?? "Noida"],
         willingToRelocate: n % 2 === 0
       });
       resumeRows.push({
@@ -206,7 +206,9 @@ async function seedApplications(prisma: PrismaService, orgId: string, jobId: str
         jobId,
         candidateId,
         resumeId,
-        aiRecommendation: (n % 3 === 0 ? "RECOMMENDED_FOR_SHORTLIST" : "REVIEW_REQUIRED") as const,
+        aiRecommendation: (n % 3 === 0 ? "RECOMMENDED_FOR_SHORTLIST" : "REVIEW_REQUIRED") as
+          | "RECOMMENDED_FOR_SHORTLIST"
+          | "REVIEW_REQUIRED",
         recruiterDecision: "PENDING_REVIEW" as const
       });
       evaluationRows.push({

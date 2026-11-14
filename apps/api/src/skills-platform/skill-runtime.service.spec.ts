@@ -126,8 +126,8 @@ describe("SkillsRuntimeService.execute — security and lifecycle", () => {
     const { prisma, mocks } = makePrisma();
     const service = new SkillsRuntimeService(prisma, makeRegistry(makeAdapter()), objectStorage);
     await service.execute({ skillKey: "echo", organizationId: "org-42", input: { message: "hi" } });
-    const call = mocks.skillInstallationFindFirst.mock.calls[0][0];
-    expect(call.where.organizationId).toBe("org-42");
+    const call = mocks.skillInstallationFindFirst.mock.calls[0]?.[0];
+    expect(call?.where.organizationId).toBe("org-42");
   });
 
   it("throws SKILL_NOT_INSTALLED when the organization has no installation of this skill", async () => {

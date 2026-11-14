@@ -70,7 +70,7 @@ describe("TranslationSkill", () => {
   describe("DeterministicTranslationAdapter (required test/offline adapter)", () => {
     it("is stable and reversible-tagged, requiring no network or AI provider", async () => {
       const adapter = new DeterministicTranslationAdapter();
-      const result = await adapter.translate({ text: "Test input", targetLanguage: "es" }, makeContext());
+      const result = await adapter.translate({ text: "Test input", targetLanguage: "es" });
       expect(result.translatedText).toBe("[es] Test input");
       expect(result.model).toBeNull();
     });

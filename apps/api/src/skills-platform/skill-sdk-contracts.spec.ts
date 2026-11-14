@@ -11,7 +11,8 @@ import {
   type SkillManifest
 } from "@ai-workforce-os/skill-sdk";
 
-function baseManifest(overrides: Partial<SkillManifest> = {}): unknown {
+// Overrides are deliberately loose so invalid manifests (bad visibility, unknown permission, …) can be built.
+function baseManifest(overrides: Partial<Record<keyof SkillManifest, unknown>> = {}): Record<string, unknown> {
   return {
     key: "sample-skill",
     name: "Sample Skill",

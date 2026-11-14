@@ -2,7 +2,6 @@ import {
   BasePlugin,
   PluginHealthStatus,
   PluginPermission,
-  type PluginContext,
   type PluginExecutionRequest,
   type PluginExecutionResult,
   type PluginHealth,
@@ -34,14 +33,11 @@ export const recruitmentConsultantManifest: PluginManifest = {
 export class RecruitmentConsultantPlugin extends BasePlugin {
   readonly manifest = recruitmentConsultantManifest;
 
-  async health(_context?: PluginContext): Promise<PluginHealth> {
+  async health(): Promise<PluginHealth> {
     return { status: PluginHealthStatus.READY, checkedAt: new Date().toISOString() };
   }
 
-  async execute(
-    request: PluginExecutionRequest,
-    _context: PluginContext
-  ): Promise<PluginExecutionResult> {
+  async execute(request: PluginExecutionRequest): Promise<PluginExecutionResult> {
     return {
       success: false,
       tool: request.tool,

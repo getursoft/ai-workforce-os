@@ -343,8 +343,20 @@ suite("Sprint 7.17 Phase 5 remaining-steps audit — contact/calling/export auth
       .send({ scope: "CURRENT_JOB", format: "CSV", jobId })
       .expect(201);
     const { url } = (await request(app.getHttpServer()).get(`/api/v1/recruitment/candidates/export/${res.body.exportJobId}/download?token=${res.body.downloadToken}`).set("Authorization", `Bearer ${ownerToken}`).expect(200)).body;
-    const fileRes = await fetch(url); // signed storage URL — a separate server/route from our app, not our supertest agent
-    const text = await fileRes.text();
+    // The local object-storage adapter signs URLs against API_PUBLIC_URL (:4000), but in this suite the API
+    // runs in-process — fetch the same signed path/query through the in-process server instead.
+    const signed = new URL(url as string);
+    const fileRes = await request(app.getHttpServer())
+      .get(`${signed.pathname}${signed.search}`)
+      .buffer(true)
+      .parse((response, callback) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk: string) => (body += chunk));
+        response.on("end", () => callback(null, body));
+      })
+      .expect(200);
+    const text = fileRes.body as string;
     expect(text).not.toMatch(/[,\n]=1\+1\+cmd/); // never an UNPROTECTED leading '='
   });
 

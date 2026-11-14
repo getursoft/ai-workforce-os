@@ -17,6 +17,7 @@ import type { Prisma } from "@prisma/client";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { QueueConsumerWorker } from "../queue/queue-worker";
 import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
 import { computeTwilioSignature } from "../channels/channel.runtime";
 import { InteractionReferenceLookupService } from "./interaction-reference-lookup.service";
@@ -199,9 +200,13 @@ suite("Sprint 7.12: Interaction/reference lifecycle", () => {
     );
     expect(closingOutbound.body).toContain(firstReferenceId);
 
-    const notification = await waitFor(() =>
-      prisma.interactionNotification.findFirst({ where: { interactionId: interaction.id, type: "WHATSAPP" } })
-    );
+    // Reference notifications go through the NOTIFICATION_JOBS queue, whose poller is disabled under
+    // NODE_ENV=test — drive the real consumer explicitly, exactly as the background worker would.
+    const worker = app.get(QueueConsumerWorker);
+    const notification = await waitFor(async () => {
+      await worker.processOnce("e2e-worker");
+      return prisma.interactionNotification.findFirst({ where: { interactionId: interaction.id, type: "WHATSAPP" } });
+    });
     expect(["SENT", "FAILED"]).toContain(notification.status);
   }, 30_000);
 

@@ -19,6 +19,7 @@ import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { WorkforceDirectoryService } from "../receptionist/workforce-directory.service";
+import { RecruitmentBatchProcessor } from "./recruitment-batch-processor";
 
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
@@ -101,7 +102,7 @@ suite("AI Recruitment Consultant — real end-to-end UAT", () => {
       .send({ pluginId: "receptionist-employee", configuration: { config: {}, secrets: {} }, enable: true })
       .expect(201);
     const directory = app.get(WorkforceDirectoryService);
-    const eligible = await directory.eligible(organizationId, "WEB_CHAT", receptionistInstall.body.id as string);
+    const eligible = await directory.eligible(organizationId, "WEB", receptionistInstall.body.id as string);
     expect(eligible.find((e) => e.pluginInstallationId === pluginId)).toBeUndefined();
   });
 
@@ -221,7 +222,6 @@ suite("AI Recruitment Consultant — real end-to-end UAT", () => {
       expect(upload.body.results.filter((r: { status: string }) => r.status === "FAILED")).toHaveLength(2); // bad-file.pdf + unsupported.zip, both rejected at upload time
       expect(upload.body.results.filter((r: { status: string }) => r.status === "QUEUED")).toHaveLength(1);
 
-      const { RecruitmentBatchProcessor } = await import("./recruitment-batch-processor");
       const processor = app.get(RecruitmentBatchProcessor);
       let status = "";
       // Only the valid PDF was ever queued; its text extraction succeeds (real bytes, real pdf-parse
@@ -263,7 +263,6 @@ suite("AI Recruitment Consultant — real end-to-end UAT", () => {
         .expect(201);
       expect(upload.body.results[0].status).toBe("QUEUED"); // signature check alone can't catch this
 
-      const { RecruitmentBatchProcessor } = await import("./recruitment-batch-processor");
       const processor = app.get(RecruitmentBatchProcessor);
       let resume = await prisma.recruitmentResume.findFirstOrThrow({ where: { uploadBatchId: upload.body.batchId } });
       for (let i = 0; i < 40 && resume.parsingStatus !== "FAILED"; i++) {

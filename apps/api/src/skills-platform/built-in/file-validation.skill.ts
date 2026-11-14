@@ -188,7 +188,7 @@ export class FileValidationSkill implements SkillAdapter<FileValidationInput, Fi
           errors.push(`Archive entry has an unsafe path: ${entry.name}`);
           return false;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         const size = (entry as any)?._data?.uncompressedSize ?? 0;
         totalUncompressed += typeof size === "number" ? size : 0;
         if (totalUncompressed > ZIP_MAX_TOTAL_UNCOMPRESSED_BYTES) {

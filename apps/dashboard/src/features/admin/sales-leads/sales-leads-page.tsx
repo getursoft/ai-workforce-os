@@ -307,7 +307,10 @@ export function SalesLeadsPage() {
             <LeadDetail
               lead={detailQuery.data}
               statusPending={statusMutation.isPending}
-              onStatusChange={(next) => statusMutation.mutate({ id: detailQuery.data!.id, status: next })}
+              onStatusChange={(next) => {
+                const id = detailQuery.data?.id;
+                if (id) statusMutation.mutate({ id, status: next });
+              }}
             />
           ) : null}
           <div className="ui-dialog__actions">

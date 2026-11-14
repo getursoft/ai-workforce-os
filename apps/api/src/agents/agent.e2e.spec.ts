@@ -11,6 +11,7 @@ import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
 import { MockSmsProvider } from "../interaction/sms/mock-sms.provider";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
     loadEnvFile(path);
@@ -64,7 +65,7 @@ suite("Agent runtime HTTP", () => {
     await prisma.conversation.deleteMany();
     await prisma.pluginAiConfiguration.deleteMany();
     await prisma.pluginConfiguration.deleteMany();
-    await prisma.plugin.deleteMany();
+    await deleteAllPluginData(prisma);
     const registered = await request(app.getHttpServer())
       .post("/api/v1/auth/register")
       .send({
@@ -111,7 +112,7 @@ suite("Agent runtime HTTP", () => {
       await prisma.conversation.deleteMany();
       await prisma.pluginAiConfiguration.deleteMany();
       await prisma.pluginConfiguration.deleteMany();
-      await prisma.plugin.deleteMany();
+      await deleteAllPluginData(prisma);
     }
     await app?.close();
   });

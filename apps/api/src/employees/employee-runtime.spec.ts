@@ -50,7 +50,7 @@ describe("buildEmployeeIntentDiscoveryMessageForVoice (Sprint 6.3 — Part 5 voi
   });
 
   it("falls back to a bare greeting when a domain has no opening actions", () => {
-    const noActionsSpec = { ...HR_DOMAIN_SPEC, openingActions: undefined } as typeof HR_DOMAIN_SPEC;
+    const noActionsSpec = { ...HR_DOMAIN_SPEC, openingActions: undefined } as unknown as typeof HR_DOMAIN_SPEC;
     const voice = buildEmployeeIntentDiscoveryMessageForVoice(noActionsSpec, "Krishna", new Date(2026, 6, 31, 9, 0));
     expect(voice).toBe("Good morning, Krishna! What can I help you with?");
   });

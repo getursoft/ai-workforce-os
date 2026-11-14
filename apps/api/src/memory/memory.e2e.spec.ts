@@ -10,6 +10,7 @@ import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
     loadEnvFile(path);
@@ -43,7 +44,7 @@ suite("Memory platform API", () => {
     await prisma.conversation.deleteMany();
     await prisma.pluginAiConfiguration.deleteMany();
     await prisma.pluginConfiguration.deleteMany();
-    await prisma.plugin.deleteMany();
+    await deleteAllPluginData(prisma);
 
     const register = async (name: string, suffix: string) => {
       const res = await request(app.getHttpServer())
@@ -101,7 +102,7 @@ suite("Memory platform API", () => {
       await prisma.conversation.deleteMany();
       await prisma.pluginAiConfiguration.deleteMany();
       await prisma.pluginConfiguration.deleteMany();
-      await prisma.plugin.deleteMany();
+      await deleteAllPluginData(prisma);
     }
     await app?.close();
   });

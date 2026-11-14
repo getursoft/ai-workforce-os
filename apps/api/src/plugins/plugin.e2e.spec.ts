@@ -10,6 +10,7 @@ import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { ensurePlatformOwner } from "../test/cleanup";
 import { dummyEchoManifest } from "@ai-workforce-os/plugin-dummy";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 for (const c of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(c)) {
     loadEnvFile(c);
@@ -36,7 +37,7 @@ suite("Plugin runtime HTTP", () => {
     await app.init();
     prisma = app.get(PrismaService);
     await prisma.pluginConfiguration.deleteMany();
-    await prisma.plugin.deleteMany();
+    await deleteAllPluginData(prisma);
     email = `plugin-${Date.now()}@example.com`;
     const r = await request(app.getHttpServer())
       .post("/api/v1/auth/register")
@@ -68,7 +69,7 @@ suite("Plugin runtime HTTP", () => {
   afterAll(async () => {
     if (prisma) {
       await prisma.pluginConfiguration.deleteMany();
-      await prisma.plugin.deleteMany();
+      await deleteAllPluginData(prisma);
     }
     await app?.close();
   });

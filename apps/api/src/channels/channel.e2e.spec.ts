@@ -11,6 +11,7 @@ import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
 import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
 import { computeTwilioSignature } from "./channel.runtime";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
@@ -445,5 +446,5 @@ async function cleanup(prisma: PrismaService) {
   await prisma.conversation.deleteMany();
   await prisma.pluginAiConfiguration.deleteMany();
   await prisma.pluginConfiguration.deleteMany();
-  await prisma.plugin.deleteMany();
+  await deleteAllPluginData(prisma);
 }

@@ -29,9 +29,6 @@ suite("RecruitmentExportWorkerService — real end-to-end", () => {
   let prisma: PrismaService;
   let exportsService: RecruitmentExportService;
   let worker: RecruitmentExportWorkerService;
-  let orgId: string;
-  let userId: string;
-  let jobId: string;
 
   beforeAll(async () => {
     app = await NestFactory.create(AppModule, { logger: ["error", "warn"], abortOnError: false });

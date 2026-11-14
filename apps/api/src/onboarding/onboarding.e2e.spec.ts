@@ -33,8 +33,9 @@ suite("Onboarding checklist", () => {
 
     const registered = await request(app.getHttpServer())
       .post("/api/v1/auth/register")
-      .send({ organizationName: `Onboarding Org ${Date.now()}`, firstName: "Owner", email: `onboarding-${Date.now()}@example.com`, password: "StrongPassword@123" })
-      .expect(201);
+      .send({ organizationName: `Onboarding Org ${Date.now()}`, firstName: "Owner", email: `onboarding-${Date.now()}@example.com`, password: "StrongPassword@123" });
+    // Surface the API's own error body (code/message) if registration is ever rejected, not just the status.
+    expect(registered.status, JSON.stringify(registered.body)).toBe(201);
     token = registered.body.data.tokens.accessToken;
   });
 

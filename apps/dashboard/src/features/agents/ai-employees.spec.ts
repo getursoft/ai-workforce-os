@@ -33,7 +33,7 @@ describe("employeePlaceholder (per-employee composer hints)", () => {
     expect(employeePlaceholder("customer-support-employee", null, false, false)).toMatch(
       /order|refund/i
     );
-    expect(employeePlaceholder("receptionist-employee", null, false, false)).toMatch(/connect/i);
+    expect(employeePlaceholder("receptionist-employee", null, false, false)).toMatch(/ask krevia/i);
   });
 
   it("keeps the travel employee stage-aware once a conversation exists, and uses its default before", () => {

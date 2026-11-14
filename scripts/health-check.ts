@@ -143,7 +143,8 @@ const envExample = readFileSync(join(root, ".env.example"), "utf8");
 checks.push(check("env:DATABASE_URL", envExample.includes("DATABASE_URL="), ".env.example"));
 
 const schema = readFileSync(join(root, "database/prisma/schema.prisma"), "utf8");
-checks.push(check("prisma:no-models", !/^\s*model\s+\w+/m.test(schema), "configuration only"));
+// Sprint 0 was configuration-only; the schema has defined domain models since the identity sprint.
+checks.push(check("prisma:models", /^\s*model\s+\w+/m.test(schema), "domain models defined"));
 
 const failed = checks.filter((item) => !item.passed);
 

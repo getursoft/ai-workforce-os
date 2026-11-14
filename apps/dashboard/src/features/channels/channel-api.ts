@@ -88,7 +88,8 @@ export interface MetaChannelConfigurationInput {
 }
 
 export function createChannelApi(client: ApiClient) {
-  const base = (path: string) => client.request<unknown>(`/channels${path}`);
+  const base = (path: string, method: "POST" | "DELETE") =>
+    client.request<unknown>(`/channels${path}`, { method });
   return {
     list: (query: { page?: number; pageSize?: number; search?: string; status?: string } = {}) =>
       client.request<ChannelPage<ChannelConnection>>(
@@ -134,11 +135,11 @@ export function createChannelApi(client: ApiClient) {
       method: "PATCH",
       body: JSON.stringify(body)
     }),
-    remove: (id: string) => base(`/${id}`) as Promise<unknown>,
+    remove: (id: string) => base(`/${id}`, "DELETE"),
     test: (id: string) =>
       client.request<{ status: string }>(`/channels/${id}/test`, { method: "POST" }),
-    enable: (id: string) => base(`/${id}/enable`),
-    disable: (id: string) => base(`/${id}/disable`),
+    enable: (id: string) => base(`/${id}/enable`, "POST"),
+    disable: (id: string) => base(`/${id}/disable`, "POST"),
     conversations: (id: string, page = 1) =>
       client.request<ChannelPage<ChannelConversation>>(
         `/channels/${id}/conversations?page=${page}&pageSize=20`

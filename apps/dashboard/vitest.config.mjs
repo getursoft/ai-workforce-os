@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +21,8 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    // tests/uat holds Playwright browser specs (run via `pnpm uat:recruitment:*`), not Vitest suites.
+    exclude: [...configDefaults.exclude, "tests/uat/**"],
     // Ported marketing component tests opt into jsdom individually via a
     // "// @vitest-environment jsdom" pragma at the top of the file — every other (dashboard) test keeps
     // running under the faster "node" environment above, unchanged.

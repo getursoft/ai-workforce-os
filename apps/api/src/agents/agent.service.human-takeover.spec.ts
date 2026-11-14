@@ -7,7 +7,7 @@ import type { ConnectorService } from "../connectors/connector.service";
 import type { KnowledgeSearchService } from "../knowledge/knowledge.search";
 import type { SecurityConfig } from "../identity/infrastructure/security/security-config";
 import { AgentService, type MemoryService } from "./agent.service";
-import { TravelLeadService } from "../travel/travel-lead.service";
+import type { TravelLeadService } from "../travel/travel-lead.service";
 import type { CustomerIdentityService } from "../customer-identity/customer-identity.service";
 import { resolveCustomerIdentity } from "../customer-identity/customer-identity.types";
 

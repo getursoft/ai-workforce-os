@@ -316,7 +316,7 @@ suite("Sprint 6.4: unified routing, channel-aware runtime & production hardening
           target: reply.receptionist?.handoff?.targetDisplayName ?? null
         });
       }
-      // eslint-disable-next-line no-console
+       
       console.log("Part 14 live UAT transcript:\n" + log.map((l) => `> ${l.turn}\n${l.target ? `[${l.target}/${l.routeType}] ` : ""}${l.response}`).join("\n\n"));
 
       // This exact transcript live-uncovered a real, disclosed, PRE-EXISTING gap (not introduced by

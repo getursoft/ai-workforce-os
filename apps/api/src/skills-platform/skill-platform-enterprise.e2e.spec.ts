@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { deleteAllPluginData } from "../test-support/test-database-cleanup";
 
 for (const path of [resolve(process.cwd(), ".env.test"), resolve(process.cwd(), "../../.env.test")])
   if (existsSync(path)) {
@@ -535,6 +536,6 @@ async function cleanup(prisma: PrismaService) {
   await prisma.hrEmployeeConfiguration.deleteMany();
   await prisma.pluginAiConfiguration.deleteMany();
   await prisma.pluginConfiguration.deleteMany();
-  await prisma.plugin.deleteMany();
+  await deleteAllPluginData(prisma);
   await prisma.featureFlag.deleteMany();
 }

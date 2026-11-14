@@ -351,7 +351,8 @@ describe("ReceptionistService", () => {
         clarificationQuestion: "Sure. Is this about Travel Employee, or Finance Employee?",
         handoffMode: null
       };
-      built.routing.route.mockImplementation(async (routeInput: { message: string }) => {
+      built.routing.route.mockImplementation(async (rawRouteInput: unknown) => {
+        const routeInput = rawRouteInput as { message: string };
         // A cold-start "budget" message alone is ambiguous; once the original text is combined with a
         // disambiguating reply that names one side, it's a clean ROUTE — exactly like the real deterministic
         // scorer would behave (this mock exists only to prove `receptionist.service.ts`'s OWN combine-and-

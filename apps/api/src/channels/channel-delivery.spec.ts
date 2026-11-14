@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import type { AuditEventLogger } from "../identity/presentation/http/audit-event.logger";
 import type { SecurityConfig } from "../identity/infrastructure/security/security-config";
@@ -13,6 +13,11 @@ import { MetaProviderError } from "./whatsapp/meta-whatsapp.client";
 const security = { nodeEnvironment: "test" } as SecurityConfig;
 const auditLogger = { record: vi.fn() } as unknown as AuditEventLogger;
 const encryption = new PluginSecretsEncryptionService(randomBytes(32));
+/** Meta signs every webhook with the app secret; the controller rejects unsigned/invalid bodies. */
+const META_APP_SECRET = "test-meta-app-secret";
+function metaSignature(body: unknown): string {
+  return `sha256=${createHmac("sha256", META_APP_SECRET).update(JSON.stringify(body)).digest("hex")}`;
+}
 
 describe("Sprint 6.7 — classifyProviderError", () => {
   it("classifies rate limiting as retryable", () => {
@@ -270,7 +275,7 @@ function fakeChannelConnection(overrides: Record<string, unknown> = {}) {
     organizationId: "org-1",
     provider: "META_CLOUD_API",
     status: "ACTIVE",
-    encryptedSecrets: encryption.encrypt({}),
+    encryptedSecrets: encryption.encrypt({ appSecret: META_APP_SECRET }),
     pluginInstallation: { id: "agent-1", status: "ACTIVE" },
     ...overrides
   };
@@ -311,6 +316,10 @@ describe("Sprint 6.7 — Meta delivery-status callback: monotonic, idempotent", 
     return { controller, prisma };
   }
 
+  function deliverSigned(controller: MetaWebhookController, payload: Record<string, unknown>) {
+    return controller.receiveWebhook("channel-1", metaSignature(payload), payload);
+  }
+
   function statusPayload(id: string, status: string, errorCode?: string) {
     return {
       entry: [
@@ -337,29 +346,29 @@ describe("Sprint 6.7 — Meta delivery-status callback: monotonic, idempotent", 
   it("advances SENT -> DELIVERED on a 'delivered' callback", async () => {
     const rows = new Map<string, { status: string; errorCode?: string | null }>([["wamid.1", { status: "SENT" }]]);
     const { controller } = buildController(rows);
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.1", "delivered"));
+    await deliverSigned(controller, statusPayload("wamid.1", "delivered"));
     expect(rows.get("wamid.1")?.status).toBe("DELIVERED");
   });
 
   it("a delayed/duplicate 'sent' callback does NOT regress an already-DELIVERED row", async () => {
     const rows = new Map<string, { status: string; errorCode?: string | null }>([["wamid.2", { status: "DELIVERED" }]]);
     const { controller } = buildController(rows);
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.2", "sent"));
+    await deliverSigned(controller, statusPayload("wamid.2", "sent"));
     expect(rows.get("wamid.2")?.status).toBe("DELIVERED");
   });
 
   it("a duplicate 'delivered' callback is idempotent (no-op, stays DELIVERED)", async () => {
     const rows = new Map<string, { status: string; errorCode?: string | null }>([["wamid.3", { status: "DELIVERED" }]]);
     const { controller } = buildController(rows);
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.3", "delivered"));
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.3", "delivered"));
+    await deliverSigned(controller, statusPayload("wamid.3", "delivered"));
+    await deliverSigned(controller, statusPayload("wamid.3", "delivered"));
     expect(rows.get("wamid.3")?.status).toBe("DELIVERED");
   });
 
   it("moves PROCESSING/SENT to FAILED on a 'failed' callback with the provider error code", async () => {
     const rows = new Map<string, { status: string; errorCode?: string | null }>([["wamid.4", { status: "SENT" }]]);
     const { controller } = buildController(rows);
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.4", "failed", "131026"));
+    await deliverSigned(controller, statusPayload("wamid.4", "failed", "131026"));
     expect(rows.get("wamid.4")?.status).toBe("FAILED");
     expect(rows.get("wamid.4")?.errorCode).toBe("131026");
   });
@@ -367,7 +376,7 @@ describe("Sprint 6.7 — Meta delivery-status callback: monotonic, idempotent", 
   it("a 'failed' callback for an already-DELIVERED row is ignored (does not regress it)", async () => {
     const rows = new Map<string, { status: string; errorCode?: string | null }>([["wamid.5", { status: "DELIVERED" }]]);
     const { controller } = buildController(rows);
-    await controller.receiveWebhook("channel-1", undefined as never, statusPayload("wamid.5", "failed", "131026"));
+    await deliverSigned(controller, statusPayload("wamid.5", "failed", "131026"));
     expect(rows.get("wamid.5")?.status).toBe("DELIVERED");
   });
 });

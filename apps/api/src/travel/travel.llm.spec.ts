@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AiCompletionRequest, AiCompletionResult, AiMessage, AiProvider } from "@ai-workforce-os/plugin-sdk";
 import {
   DEFAULT_TRAVEL_EMPLOYEE_CONFIG,
@@ -1513,7 +1513,8 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     const result = await orchestrator.complete({
       messages: [ITINERARY_PRESENTED_MESSAGE, { role: "user", content: "Melbourne" }]
@@ -1557,7 +1558,8 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     const result = await orchestrator.complete({
       messages: [
@@ -1612,7 +1614,8 @@ describe("Orchestrator: destination replacement (bug fix: only destination chang
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     const { content } = await orchestrator.complete({
       messages: [ITINERARY_PRESENTED_MESSAGE, { role: "user", content: "Tokyo ka trip plan kro" }]
@@ -1789,7 +1792,8 @@ describe("resolveShortAnswerForLastAskedField (context-sensitive short-input dis
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     await orchestratorA.complete({ messages: [{ role: "user", content: "5" }] });
     expect(orchestratorA.lastEntities.totalTravellers).toBe(5);
@@ -1817,7 +1821,8 @@ describe("resolveShortAnswerForLastAskedField (context-sensitive short-input dis
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     await orchestratorB.complete({ messages: [{ role: "user", content: "5" }] });
     expect(orchestratorB.lastEntities.days).toBe(5);
@@ -1887,7 +1892,8 @@ describe("intent enhancement (structured action intents rather than generic conv
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     const result = await orchestrator.complete({
       messages: [{ role: "user", content: "i need plan from you" }],
@@ -1968,7 +1974,8 @@ describe("conversation memory persistence (confirmation, pending clarification, 
       selectedRecommendationId: null,
       passengerDetails: null,
       pendingResendLookup: null,
-      ticketContact: null
+      ticketContact: null,
+      budgetOverrideAccepted: false
     });
     const restoredMemory = memoryFromStoredState(stored);
     expect(restoredMemory.confirmation).toEqual(confirmation);
@@ -5863,6 +5870,16 @@ describe("Conversation Completion & Lead Capture", () => {
 });
 
 describe("Production UAT fix: date extraction — never assume a lone date is a return date", () => {
+  // The fixtures use fixed August 2026 dates; the deterministic date parser rolls a year-less "15 August"
+  // to its NEXT occurrence, so pin "today" before those dates to keep this suite independent of the run date.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-01T09:00:00Z"));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   describe("guardReturnDateAssumption", () => {
     it("reinterprets a lone returnDate as departureDate when the message gives no return/back signal", () => {
       expect(guardReturnDateAssumption("I'll travel on 15 August", { returnDate: "2026-08-15" })).toEqual({

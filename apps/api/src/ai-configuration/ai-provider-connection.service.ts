@@ -299,7 +299,7 @@ export class AiProviderConnectionService {
   }
 }
 
-interface ConnectionTestResult {
+export interface ConnectionTestResult {
   status: "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
   providerReachable: boolean | null;
   authenticationValid: boolean | null;

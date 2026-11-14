@@ -12,7 +12,12 @@ export default [
       "**/dist/**",
       "**/node_modules/**",
       "**/coverage/**",
-      "**/next-env.d.ts"
+      "**/next-env.d.ts",
+      "**/playwright-report/**",
+      "**/test-results/**",
+      // Playwright UAT harness is excluded from the dashboard TS project (see apps/dashboard/tsconfig.json).
+      "**/playwright.config.ts",
+      "**/tests/uat/**"
     ]
   },
   {

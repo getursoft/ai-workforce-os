@@ -28,7 +28,13 @@ function fakeProvider(response: { extraction?: Record<string, unknown>; intent?:
         intent: response.intent ?? "provide_trip_details",
         turnProposal: { answersPendingAction: false, supersedesPendingAction: false, preservePendingAction: true, confidence: 0 }
       };
-      return { content: JSON.stringify(payload), usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } };
+      return {
+        content: JSON.stringify(payload),
+        toolCalls: [],
+        provider: "fake",
+        model: "fake-model",
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 }
+      };
     }
   };
 }

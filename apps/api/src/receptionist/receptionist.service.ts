@@ -37,7 +37,7 @@ import type {
 } from "./receptionist.types";
 import { WorkforceDirectoryService } from "./workforce-directory.service";
 
-interface ReceptionistSettings {
+export interface ReceptionistSettings {
   enabled: boolean;
   displayName: string;
   defaultWebFrontDoor: boolean;

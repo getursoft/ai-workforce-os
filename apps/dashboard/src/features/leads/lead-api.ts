@@ -115,7 +115,7 @@ export function createLeadApi(client: ApiClient) {
       }>
     ) => client.request<Lead>(`/leads/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
     addNote: (id: string, note: string) =>
-      client.request<void>(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify({ note }) }),
+      client.request<undefined>(`/leads/${id}/notes`, { method: "POST", body: JSON.stringify({ note }) }),
     assign: (id: string, assignedToUserId: string | null) =>
       client.request<Lead>(`/leads/${id}/assign`, {
         method: "POST",

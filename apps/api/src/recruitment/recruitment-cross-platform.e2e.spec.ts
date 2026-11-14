@@ -45,7 +45,7 @@ interface ScenarioRecord {
 }
 const scenarios: ScenarioRecord[] = [];
 function record(id: string, name: string, status: ScenarioStatus, detail: string, evidence?: Record<string, unknown>) {
-  scenarios.push({ id, name, status, detail, evidence });
+  scenarios.push({ id, name, status, detail, ...(evidence ? { evidence } : {}) });
 }
 
 suite("Sprint 7.17 Phase 4 — cross-platform consistency (website / iOS-equivalent / WhatsApp)", () => {
@@ -58,7 +58,6 @@ suite("Sprint 7.17 Phase 4 — cross-platform consistency (website / iOS-equival
   let orgId: string;
   let userId: string;
   let jobAId: string;
-  let jobBId: string;
   const named: Record<string, { candidateId: string; applicationId: string; resumeId: string }> = {};
 
   async function register(suffix: string) {
@@ -169,7 +168,7 @@ suite("Sprint 7.17 Phase 4 — cross-platform consistency (website / iOS-equival
       const candidateId = randomUUID();
       const resumeId = randomUUID();
       await prisma.recruitmentCandidate.create({
-        data: { id: candidateId, organizationId: orgId, fullName: `Filler Candidate ${i}`, currentCity: cities[i % cities.length] }
+        data: { id: candidateId, organizationId: orgId, fullName: `Filler Candidate ${i}`, currentCity: cities[i % cities.length] ?? null }
       });
       await prisma.recruitmentResume.create({
         data: {
@@ -226,7 +225,7 @@ suite("Sprint 7.17 Phase 4 — cross-platform consistency (website / iOS-equival
       .expect(201);
 
     jobAId = await createJob(token, "Senior Backend Engineer (Phase 4)");
-    jobBId = await createJob(token, "Data Analyst (Phase 4)");
+    await createJob(token, "Data Analyst (Phase 4)");
 
     // Deterministic, named boundary/variety dataset (section 2's requirements).
     await seedCandidate({ key: "scoreBelow80", jobId: jobAId, fullName: "Rahul Sharma", score: 79.99, city: "Noida", state: "Uttar Pradesh", region: "Delhi NCR", relevantExperienceYears: 3, skills: ["Python"], applicationStatus: "ACTIVE", recruiterDecision: "PENDING_REVIEW" });

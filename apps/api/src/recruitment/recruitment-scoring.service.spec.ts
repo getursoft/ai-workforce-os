@@ -6,6 +6,7 @@
  * regardless of what (or whether) the mocked provider returns, proving the LLM cannot influence it.
  */
 import { describe, expect, it, vi } from "vitest";
+import type { ParsedResumeFields } from "./recruitment-parsing.service";
 import { RecruitmentScoringService } from "./recruitment-scoring.service";
 
 const DEFAULT_WEIGHTS = {
@@ -25,7 +26,7 @@ function makeService(completeImpl?: () => Promise<{ content: string; provider: s
   return new RecruitmentScoringService(pluginAi as never);
 }
 
-function emptyFields(overrides: Partial<Parameters<RecruitmentScoringService["score"]>[6]> = {}) {
+function emptyFields(overrides: Partial<ParsedResumeFields> = {}): ParsedResumeFields {
   return {
     name: "Test Candidate",
     email: null,
@@ -41,6 +42,14 @@ function emptyFields(overrides: Partial<Parameters<RecruitmentScoringService["sc
     tools: [] as string[],
     industryExperience: [] as string[],
     employmentHistory: [] as string[],
+    currentCity: null,
+    currentState: null,
+    currentCountry: null,
+    preferredWorkLocations: [],
+    willingToRelocate: null,
+    workModePreference: null,
+    noticePeriod: null,
+    locationConfidence: null,
     ...overrides
   };
 }

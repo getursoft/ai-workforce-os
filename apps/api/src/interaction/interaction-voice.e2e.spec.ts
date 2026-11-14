@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../app.module";
 import { ApiExceptionFilter } from "../identity/presentation/http/api-exception.filter";
 import { PrismaService } from "../infrastructure/prisma/prisma.service";
+import { QueueConsumerWorker } from "../queue/queue-worker";
 import { PluginSecretsEncryptionService } from "../plugins/plugin.runtime";
 import { asMockSession, MockRealtimeVoiceProvider } from "../voice/voice-mock-realtime.provider";
 import { VoiceSessionEngine, type OutboundAudioSink } from "../voice/voice-session.engine";
@@ -207,8 +208,13 @@ suite("Sprint 7.12: Interaction/reference lifecycle over a live voice call", () 
     // notifications.
     const finalInteraction = await prisma.interaction.findFirstOrThrow({ where: { id: interactionAtStart.id } });
     expect(finalInteraction.status).toBe("COMPLETED");
-    const notificationCount = await prisma.interactionNotification.count({
-      where: { interactionId: interactionAtStart.id }
+    // Reference notifications go through the NOTIFICATION_JOBS queue, whose poller is disabled under
+    // NODE_ENV=test — drive the real consumer explicitly, exactly as the background worker would.
+    const worker = app.get(QueueConsumerWorker);
+    const notificationCount = await waitUntilTruthy(async () => {
+      await worker.processOnce("e2e-worker");
+      const count = await prisma.interactionNotification.count({ where: { interactionId: interactionAtStart.id } });
+      return count > 0 ? count : null;
     });
     expect(notificationCount).toBeGreaterThan(0);
   }, 30_000);
